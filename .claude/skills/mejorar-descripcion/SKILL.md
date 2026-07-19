@@ -41,7 +41,7 @@ Skill de **escritura** sobre la tienda viva. Reusás el craft que ya existe; lo 
    `{productIdTail}` es la última parte del gid (ej: `123`). Las keys de `fields` son exactamente `descriptionHtml`, `seo_title`, `seo_description`. **Siempre respaldás los 3 juntos** (aunque solo cambies la descripción), porque el hook exige el set completo.
 10. **ESCRIBIR (son DOS writes, porque el connector separa descripción y SEO).** Recién ahora:
     - **Descripción:** `Shopify:update-product` con `{ id: <GID>, descriptionHtml: <nuevo> }`.
-    - **SEO:** `Shopify:graphql_mutation` con `productUpdate(input:{ id:<GID>, seo:{ title:<nuevo>, description:<nuevo> } })`. **Antes de mandarla, validá la mutation con `Shopify:validate_graphql_codeblocks`.**
+    - **SEO:** `Shopify:graphql_mutation` con `productUpdate(product:{ id:<GID>, seo:{ title:<nuevo>, description:<nuevo> } })`. (Usá `product:`, NO `input:` que está deprecado.) **Antes de mandarla, validá con `Shopify:validate_graphql_codeblocks`.**
     El hook `backup_guard` verifica el backup en **ambos** writes; si falta, los bloquea.
 11. **WORKLOG.** Agregá una entrada a `clients/{slug}/worklog.md`: `## YYYY-MM-DD [write] {producto} — backup: {archivo}`.
 12. **CONFIRMAR.** "Listo ✅. Si no te convence, decime 'volvé a la anterior' y lo dejo como estaba."
