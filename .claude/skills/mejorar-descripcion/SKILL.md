@@ -8,7 +8,7 @@ description: Mejora la descripción de un producto de Shopify con criterio SEO y
 Skill de **escritura** sobre la tienda viva. Reusás el craft que ya existe; lo nuevo es el flujo seguro (preview → backup → confirmación → undo) y el cumplimiento de estándares.
 
 ## Reglas duras (no negociables)
-- **Alcance:** solo tocás 3 campos: la descripción (`body_html`), el **meta title** y la **meta description**. NUNCA precio, stock, status ni handle/URL.
+- **Alcance:** solo tocás 3 campos: la descripción (`descriptionHtml`), el **meta title** (`seo.title`) y la **meta description** (`seo.description`). NUNCA precio, stock, status ni handle/URL.
 - **Sin jerga con el cliente:** todo lo que ve es lenguaje natural. Nunca nombres de campo, de skill ni comandos.
 - **Registro:** el que diga `store-standards.md §2` del cliente (blunua: español neutro, sin voseo).
 - **Nada se escribe sin:** (1) preview mostrado, (2) confirmación explícita del cliente, (3) backup guardado.
@@ -27,7 +27,7 @@ Skill de **escritura** sobre la tienda viva. Reusás el craft que ya existe; lo 
 ## Flujo (siempre en este orden)
 
 1. **IDENTIFICAR.** El cliente dice qué producto ("mejorá la descripción del anillo NEXO plateado"). Buscá el producto vía el connector. Si hay más de un match, mostrá las opciones y preguntá cuál. NUNCA adivines qué producto editar.
-2. **LEER.** Traé del connector el estado actual de los 3 campos en alcance (descripción, meta title, meta description) + contexto de solo lectura (título del producto, tags, fotos) para razonar.
+2. **LEER.** Con `Shopify:search_products` (por nombre/SKU) obtené el **GID** del producto (`gid://shopify/Product/...`; no acepta el número pelado), y con `Shopify:get-product` traé el estado actual de los 3 campos: descripción (`descriptionHtml`) y SEO (`seo.title`, `seo.description`), más contexto de solo lectura (título, tags, fotos).
 3. **CARGAR CONTEXTO.** Leé `store-standards.md` del cliente + la brand-voice de handsOn.
 4. **GENERAR.** Escribí la nueva descripción con el molde canónico de `store-standards §3`: título → hook → 3 beneficios → material/garantía → bloque GEO (2-4 preguntas frecuentes). Keywords tejidas en el texto. Además generá meta title (~60 caracteres) y meta description (~155 caracteres).
 5. **HUMANIZER (obligatorio).** Pasá todo el texto por el humanizer. Sin em-dashes, sin voseo si el registro es neutro, sin significance inflation ni lenguaje promocional.
@@ -36,10 +36,13 @@ Skill de **escritura** sobre la tienda viva. Reusás el craft que ya existe; lo 
 8. **GATE.** Preguntá: "¿Lo aplico a tu tienda? Respondé **sí** o **no**." NO escribas nada hasta un "sí" explícito. Si dice no, no escribís.
 9. **BACKUP (antes de escribir).** Guardá el valor VIEJO de los 3 campos en `clients/{slug}/backups/{productIdTail}-{YYYYMMDD-HHMMSS}.json` con este formato EXACTO (el hook lo exige):
    ```json
-   { "productId": "gid://shopify/Product/123", "fields": { "body_html": "...viejo...", "meta_title": "...viejo...", "meta_description": "...viejo..." }, "ts": "2026-07-19T12:00:00" }
+   { "productId": "gid://shopify/Product/123", "fields": { "descriptionHtml": "...viejo...", "seo_title": "...viejo...", "seo_description": "...viejo..." }, "ts": "2026-07-19T12:00:00" }
    ```
-   `{productIdTail}` es la última parte del gid (ej: `123`). Las keys de `fields` son exactamente `body_html`, `meta_title`, `meta_description`.
-10. **ESCRIBIR.** Recién ahora, escribí los 3 campos nuevos vía el connector. (El hook `backup_guard` verifica que el backup existe; si no, bloquea el write.)
+   `{productIdTail}` es la última parte del gid (ej: `123`). Las keys de `fields` son exactamente `descriptionHtml`, `seo_title`, `seo_description`. **Siempre respaldás los 3 juntos** (aunque solo cambies la descripción), porque el hook exige el set completo.
+10. **ESCRIBIR (son DOS writes, porque el connector separa descripción y SEO).** Recién ahora:
+    - **Descripción:** `Shopify:update-product` con `{ id: <GID>, descriptionHtml: <nuevo> }`.
+    - **SEO:** `Shopify:graphql_mutation` con `productUpdate(input:{ id:<GID>, seo:{ title:<nuevo>, description:<nuevo> } })`. **Antes de mandarla, validá la mutation con `Shopify:validate_graphql_codeblocks`.**
+    El hook `backup_guard` verifica el backup en **ambos** writes; si falta, los bloquea.
 11. **WORKLOG.** Agregá una entrada a `clients/{slug}/worklog.md`: `## YYYY-MM-DD [write] {producto} — backup: {archivo}`.
 12. **CONFIRMAR.** "Listo ✅. Si no te convence, decime 'volvé a la anterior' y lo dejo como estaba."
 
@@ -91,9 +94,9 @@ Si el cliente pide varias ("mejorá las 12 descripciones de NEXO"): mismo flujo,
 
 ## Revertir (undo)
 Cuando el cliente dice "volvé a la anterior" (o similar):
-1. Leé el valor ACTUAL de los 3 campos vía connector.
+1. Leé el valor ACTUAL de los 3 campos (`get-product`).
 2. Escribí un backup fresco de ese valor actual (esto habilita también el *redo*) — mismo formato y carpeta.
-3. Reescribí los valores VIEJOS del último backup del producto vía connector.
+3. Reescribí los valores VIEJOS del último backup: la descripción con `update-product` y el SEO con `graphql_mutation` (igual que el paso 10).
 4. Append al worklog.
 
 Importante: revertir es un write como cualquier otro, por eso backupea el valor actual PRIMERO. Así pasa el hook aunque hayan pasado horas desde el cambio original. NO depende de que exista un backup "reciente" previo.

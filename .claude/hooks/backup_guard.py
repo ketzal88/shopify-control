@@ -1,32 +1,67 @@
 """PreToolUse hook: bloquea un write de producto de Shopify si no hay un backup
-reciente que cubra los campos que se van a escribir. Seguridad por diseño (spec §11)."""
-import sys, json, time
+reciente que cubra los 3 campos en alcance del v1. Seguridad por diseño (spec §11).
+
+Calibrado al connector oficial de Shopify (Task 7):
+- La DESCRIPCIÓN se escribe con `Shopify:update-product` (campo `descriptionHtml`).
+- El SEO (meta title / description) se escribe con `Shopify:graphql_mutation`
+  usando `productUpdate { seo { title description } }`, porque update-product no
+  cubre SEO.
+Cualquiera de esos dos writes debe tener antes un backup que cubra los 3 campos.
+Otros tools de escritura del connector (set-inventory, create-discount, etc.) NO
+los vigila este hook en el v1: están fuera del flujo del skill (el "connector
+restringido" para el cliente es trabajo futuro, D2).
+"""
+import sys, json, time, re
 from pathlib import Path
 
-# Ajustable cuando se conozca el connector real (Task 7):
-WRITE_TOOL_MARKERS = ("shopify",)                # el tool_name debe contener alguno
-WRITE_ACTION_MARKERS = ("product_update", "productupdate", "product_set", "update_product")
-RECENT_WINDOW_SECONDS = 900                       # 15 min
+# Acción (parte después de "Shopify:") que el skill usa para editar un producto:
+GUARDED_PRODUCT_ACTIONS = {"update-product"}
+# Campos que el skill respalda SIEMPRE juntos (contrato con mejorar-descripcion):
+REQUIRED_BACKUP_FIELDS = {"descriptionHtml", "seo_title", "seo_description"}
+RECENT_WINDOW_SECONDS = 900  # 15 min
+GID_RE = re.compile(r"gid://shopify/Product/\d+")
 
-def _is_shopify_product_write(tool_name: str) -> bool:
-    t = (tool_name or "").lower()
-    return any(m in t for m in WRITE_TOOL_MARKERS) and any(a in t for a in WRITE_ACTION_MARKERS)
 
-def _write_target(tool_input: dict):
-    pid = tool_input.get("productId") or tool_input.get("id") or ""
-    fields = tool_input.get("fields") or {}
-    return pid, set(fields.keys())
+def _action(tool_name: str) -> str:
+    # "Shopify:update-product" -> "update-product"
+    return (tool_name or "").split(":")[-1].strip().lower()
 
-def _covering_backup_exists(backups_root: Path, product_id: str, fields: set, now: float) -> bool:
+def _graphql_query(tool_input) -> str:
+    if isinstance(tool_input, dict):
+        return tool_input.get("query") or tool_input.get("mutation") or ""
+    return ""
+
+def _is_product_write(tool_name: str, tool_input) -> bool:
+    if "shopify" not in (tool_name or "").lower():
+        return False
+    action = _action(tool_name)
+    if action in GUARDED_PRODUCT_ACTIONS:
+        return True
+    if action == "graphql_mutation":
+        q = _graphql_query(tool_input).lower()
+        return "gid://shopify/product/" in q and (
+            "productupdate" in q or "seo" in q or "descriptionhtml" in q
+        )
+    return False
+
+def _product_id(tool_name: str, tool_input) -> str:
+    if _action(tool_name) == "graphql_mutation":
+        m = GID_RE.search(_graphql_query(tool_input))
+        return m.group(0) if m else ""
+    if isinstance(tool_input, dict):
+        return tool_input.get("id") or tool_input.get("productId") or ""
+    return ""
+
+def _covering_backup_exists(backups_root: Path, product_id: str, now: float) -> bool:
     tail = product_id.split("/")[-1]
     for p in Path(backups_root).glob(f"**/backups/{tail}-*.json"):
         try:
-            data = json.loads(p.read_text())
+            data = json.loads(p.read_text(encoding="utf-8"))
         except Exception:
             continue
         if data.get("productId") != product_id:
             continue
-        if not fields.issubset(set((data.get("fields") or {}).keys())):
+        if not REQUIRED_BACKUP_FIELDS.issubset(set((data.get("fields") or {}).keys())):
             continue
         if now - p.stat().st_mtime > RECENT_WINDOW_SECONDS:
             continue
@@ -35,17 +70,15 @@ def _covering_backup_exists(backups_root: Path, product_id: str, fields: set, no
 
 def evaluate(payload: dict, backups_root, now: float):
     tool_name = payload.get("tool_name", "")
-    if not _is_shopify_product_write(tool_name):
-        return "allow", "no es un write de producto de Shopify"
-    tool_input = payload.get("tool_input") or {}
-    if not isinstance(tool_input, dict):
-        return "block", "tool_input inesperado en un write de Shopify"
-    pid, fields = _write_target(tool_input)
-    if not pid or not fields:
-        return "block", "no pude identificar producto/campos del write"
-    if _covering_backup_exists(Path(backups_root), pid, fields, now):
+    tool_input = payload.get("tool_input")
+    if not _is_product_write(tool_name, tool_input):
+        return "allow", "no es un write de producto vigilado"
+    pid = _product_id(tool_name, tool_input)
+    if not pid:
+        return "block", "no pude identificar el producto del write"
+    if _covering_backup_exists(Path(backups_root), pid, now):
         return "allow", "backup reciente encontrado"
-    return "block", (f"Sin backup reciente para {pid} que cubra {sorted(fields)}. "
+    return "block", (f"Sin backup reciente para {pid} que cubra {sorted(REQUIRED_BACKUP_FIELDS)}. "
                      "El skill debe guardar el backup antes de escribir.")
 
 def main():
@@ -59,8 +92,8 @@ def main():
     try:
         decision, reason = evaluate(payload, backups_root, time.time())
     except Exception as e:
-        # Ante un error inesperado: si parece un write de Shopify, fallamos CERRADO (bloqueamos).
-        if _is_shopify_product_write(payload.get("tool_name", "")):
+        # Ante un error inesperado: si parece un write de producto, fallamos CERRADO.
+        if _is_product_write(payload.get("tool_name", ""), payload.get("tool_input")):
             print(f"backup_guard error en un write de Shopify, bloqueo por seguridad: {e}", file=sys.stderr)
             sys.exit(2)
         sys.exit(0)

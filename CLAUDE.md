@@ -4,9 +4,14 @@ Herramienta native-Claude para que clientes de ecommerce **no técnicos** de Wor
 controlen y mejoren su tienda Shopify hablándole a Claude.
 
 ## Cómo se usa
+> **Se opera desde VS Code con la extensión de Claude Code abierta en este repo** (NO desde el
+> app de Claude): así se cargan los skills, los hooks de seguridad, el worklog y la memoria por
+> cliente. El app pelado no tiene ese "cerebro". El connector de Shopify tiene que estar
+> disponible dentro de Claude Code.
+
 - **Gabriel (operador/curador):** conecta la tienda, completa `clients/{slug}/store-standards.md`,
   corre el refresh trimestral. Arranca desde la raíz o desde `clients/{slug}/`.
-- **Cliente (no técnico):** arranca Claude desde `clients/{slug}/` y habla en lenguaje natural
+- **Cliente (no técnico):** abre VS Code en `clients/{slug}/` y habla en lenguaje natural
   ("mejorá la descripción del anillo X", "¿cómo venden los aros esta semana?").
 
 ## Reglas duras (las respetan TODOS los skills)
@@ -15,7 +20,8 @@ controlen y mejoren su tienda Shopify hablándole a Claude.
 2. **Humanizer obligatorio** antes de todo output cliente (reusa `handsOn/skills/humanizer`).
 3. **Registro por cliente** según `store-standards.md` (blunua: español neutro, sin voseo).
 4. **Todo write:** identificar → leer → generar → humanizer → checklist → preview → gate → backup → escribir → confirmar. Nunca escribir sin backup + confirmación explícita.
-5. **Alcance de escritura v1:** solo descripción (`body_html`) + meta title + meta description.
+5. **Alcance de escritura v1:** solo descripción (`descriptionHtml`, vía `Shopify:update-product`)
+   + SEO meta title/description (`seo.title`/`seo.description`, vía `Shopify:graphql_mutation`).
    NUNCA precio, stock, status ni handle/URL.
 
 ## Estructura

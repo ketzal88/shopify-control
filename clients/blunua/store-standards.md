@@ -48,7 +48,7 @@
 - Estilo: minimalista, fondo limpio + ⚠️ (specs cuando lleguemos a imágenes).
 
 ## 8. Qué no tocar (alcance seguro) [ESTABLE]
-- Los skills solo tocan el field set del v1: body_html + meta title + meta description.
+- Los skills solo tocan el field set del v1: descripción (`descriptionHtml`, vía `update-product`) + SEO (`seo.title`/`seo.description`, vía `graphql_mutation`).
 - NUNCA precio, stock, status ni handle/URL sin gate estructural (OK de Gabriel).
 - Star products: colección general, NUA, NEXO (cuidado extra).
 
