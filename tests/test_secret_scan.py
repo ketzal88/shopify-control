@@ -106,12 +106,18 @@ def _run_guard(payload, project_dir):
     )
 
 
-def test_guard_bloquea_en_git_commit_con_secreto(tmp_path):
+def test_guard_bloquea_con_exit_2_no_1(tmp_path):
+    """CONTRATO: Claude Code bloquea el tool SOLO con exit 2.
+
+    Regresion del bug real de #1b: el wrapper propagaba el exit 1 del scanner
+    (`sys.exit(subprocess.call(...))`), y un exit 1 es error NO-bloqueante -> el
+    commit con secreto pasaba igual. Debe ser exactamente 2.
+    """
     _install_scanner(tmp_path)
     _init_repo(tmp_path)
     _stage_leak(tmp_path)
     r = _run_guard({"tool_input": {"command": "git commit -m x"}}, tmp_path)
-    assert r.returncode == 1, r.stderr
+    assert r.returncode == 2, f"debe ser 2 (block), fue {r.returncode}: {r.stderr}"
 
 
 def test_guard_ignora_comando_que_no_es_commit(tmp_path):

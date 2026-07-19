@@ -1,34 +1,37 @@
 """PreToolUse(Bash) guard: corre secret-scan.sh SOLO cuando el comando es `git commit`.
 
-Por qué es un script-file y no un `python -c "..."` inline en settings.json:
-el wrapper inline con comillas anidadas NO dispara de forma confiable en el
-runtime de hooks de Windows (observado: un `git commit` con secreto no se
-bloqueaba), mientras que los hooks del framework que usan el formato
-`cd "$CLAUDE_PROJECT_DIR" && python core/hooks/scripts/X.py` (canonical-guard,
-pre-push-guard, close-guard) sí disparan. Este archivo replica la lógica del
-inline como script para usar ese mismo formato robusto.
+CONTRATO DE EXIT CODES — esto era el bug de #1b:
+Claude Code bloquea un tool SOLO con `exit 2`. Un `exit 1` lo trata como error
+no-bloqueante y el tool se ejecuta igual. `secret-scan.sh` devuelve 1 cuando
+detecta un secreto, asi que el wrapper original —que hacia
+`sys.exit(subprocess.call(...))`— propagaba ese 1 y por lo tanto NUNCA bloqueaba
+un commit. Mapeamos cualquier salida != 0 del scanner a exit 2.
 
-Contrato: exit 0 = permitir; exit != 0 = bloquear (lo que devuelva secret-scan.sh).
+El stderr del scanner (las lineas "BLOCKED: ...") se hereda y llega al modelo.
 """
 import json
 import os
 import subprocess
 import sys
 
+BLOCK = 2  # Claude Code: exit 2 = bloquear el tool y mostrar stderr al modelo
+ALLOW = 0
+
 
 def main():
     try:
         payload = json.load(sys.stdin)
     except Exception:
-        sys.exit(0)  # sin payload legible no sabemos si es commit: no bloqueamos
+        sys.exit(ALLOW)  # sin payload legible no sabemos si es commit: no bloqueamos
     if not isinstance(payload, dict):
-        sys.exit(0)
+        sys.exit(ALLOW)
     cmd = ((payload.get("tool_input") or {}).get("command") or "")
     if not cmd.lstrip().startswith("git commit"):
-        sys.exit(0)  # solo nos importa `git commit`
+        sys.exit(ALLOW)  # solo nos importa `git commit`
     root = os.environ.get("CLAUDE_PROJECT_DIR") or payload.get("cwd") or "."
     script = os.path.join(root, "core", "hooks", "scripts", "secret-scan.sh")
-    sys.exit(subprocess.call(["bash", script], cwd=root))
+    rc = subprocess.call(["bash", script], cwd=root)
+    sys.exit(BLOCK if rc != 0 else ALLOW)
 
 
 if __name__ == "__main__":
