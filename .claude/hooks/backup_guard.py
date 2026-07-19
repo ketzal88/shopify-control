@@ -23,8 +23,9 @@ GID_RE = re.compile(r"gid://shopify/Product/\d+")
 
 
 def _action(tool_name: str) -> str:
-    # "Shopify:update-product" -> "update-product"
-    return (tool_name or "").split(":")[-1].strip().lower()
+    # Soporta el nombre real de MCP ("mcp__claude_ai_Shopify__update-product")
+    # y el de display del app ("Shopify:update-product"). Devuelve "update-product".
+    return re.split(r"__|:", (tool_name or ""))[-1].strip().lower()
 
 def _graphql_query(tool_input) -> str:
     if isinstance(tool_input, dict):
