@@ -634,7 +634,7 @@ git commit -m "test: validación end-to-end del v1 en dev store"
 - Skills `onboardear-cliente` y `refrescar-estandares` (en v1 son tareas manuales de Gabriel).
 
 ## Definition of Done (v1)
-- [x] `pytest tests/ -v` en verde: **18 tests** (backup_guard + linter + secret-scan, este último no estaba en el plan).
+- [x] `pytest tests/ -q` en verde: **65 tests** (backup_guard con alcance de campos y frescura, description_lint con palabras prohibidas y voseo, secret-scan con su regresión de CRLF, y el guard de shell; los dos últimos no estaban en el plan).
 - [x] Los 3 skills existen y pasan sus checklists.
 - [x] El hook bloquea un write sin backup y el undo restaura los 3 campos (verificado en dev store, Task 8).
 - [x] blunua tiene su `store-standards.md` con los ESTABLES cargados y los `⚠️` (onboarding/vivo) claramente marcados. *(Los `⚠️` de vocabulario prohibido, keywords por categoría y taxonomía siguen abiertos: son inputs de onboarding, no gaps de build. Ver `docs/HANDOFF.md` PENDIENTE #2.)*

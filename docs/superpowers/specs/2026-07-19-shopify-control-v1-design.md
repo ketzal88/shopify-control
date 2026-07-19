@@ -481,7 +481,7 @@ Ordenado por valor/proximidad estimada:
 - ✅ **El contrato de bloqueo es `exit 2`.** Un `exit 1` NO bloquea: es un error no-bloqueante y el tool se ejecuta igual. Se descubrió porque el secret-scan del framework devolvía 1 y por eso nunca bloqueó un commit, en ninguna plataforma (`HANDOFF.md` #1b).
 - ✅ Undo y redo: ciclo reversible probado, inmediato y diferido.
 - ✅ `reporte-tienda` y `armar-combo`: lectura contra el connector real, sin escribir nada.
-- ✅ `pytest`: 18 tests verdes (backup_guard, description_lint, secret-scan con su regresión de CRLF).
+- ✅ `pytest`: 65 tests verdes (backup_guard con alcance de campos, bypass por `variables` y frescura por `ts`+mtime; description_lint con materiales falsos, lujo-vacío, claims médicos y voseo; secret-scan con su regresión de CRLF; guard de shell contra la Admin API).
 - ✅ **Descubrimiento de hooks y skills desde el subfolder: NO funciona.** Abrir `clients/blunua/` deja la sesión sin `.claude/`, o sea sin hooks ni skills, mientras el connector sigue escribiendo. Resuelto por decisión, no por workaround: la sesión se abre siempre en la raíz (§5, decisión 1; §10).
 
 **Límites conocidos y aceptados del v1** (se están cerrando en la tanda actual):
