@@ -4,6 +4,24 @@ Append-only. Cada write deja una entrada: `## YYYY-MM-DD [write] producto — ba
 
 <!-- nuevas entradas arriba -->
 
+## 2026-07-19 [corrección] El hook SÍ bloquea + aclaración sobre las entradas viejas
+Dos cosas, para que nadie lea mal este log:
+
+1. **Queda sin efecto el hallazgo "el `PreToolUse` hook NO se disparó"** de la entrada del
+   2026-07-19 más abajo. Se verificó en una sesión fresca de VS Code (raíz del repo) que
+   `backup_guard` **está armado y bloquea**: un `update-product` sin backup previo se corta
+   con *"Sin backup reciente…"*. El bug era el **código de salida** (Claude Code solo bloquea
+   con `exit 2`; un `exit 1` no bloquea), no el matcher. Detalle completo en `docs/HANDOFF.md`
+   (PENDIENTE #1 y #1b).
+2. **Las entradas anteriores de este worklog NO son cambios en la tienda de blunua.** Todos
+   esos writes se hicieron contra la dev store **Testing StandAlone Framework** (USD),
+   usada para validar el v1. La tienda real de blunua (`blunua-jewelry.myshopify.com`, COP,
+   678 productos) quedó conectada y verificada hoy, pero **todavía no se le escribió nada**.
+
+Recordatorio operativo: la sesión se abre siempre en la **raíz** del repo (abrir
+`clients/blunua/` deja la sesión sin hooks ni skills), y antes de operar hay que confirmar
+cliente activo y tienda conectada.
+
 ## 2026-07-19 [test] [e2e] Validación de reporte-tienda y armar-combo (lectura)
 Tienda: Testing StandAlone Framework.
 - `reporte-tienda`: `run-analytics-query` OK (0 ventas, tienda nueva); `list-orders` OK (0). Stock: 3 productos sin stock, 1 con stock bajo. Candidatos a mejorar: ~14 productos con descripción vacía + colecciones sin descripción.

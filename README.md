@@ -52,16 +52,27 @@ Abrí la carpeta `shopify-control` en Claude Code (o en VSCode con la extensión
 
 ### 4. Verificá que todo anda
 ```powershell
-python -m pytest tests/ -v
+python -m pytest tests/ -q
 ```
-Tenés que ver **12 passed**. Eso confirma que los guardrails de seguridad funcionan.
+Tenés que ver **todos los tests en verde** (0 failed). Eso confirma que los guardrails de
+seguridad funcionan. La cantidad de tests crece con el repo, así que no mires el número:
+mirá que no falle ninguno.
 
 ### 5. Conectá una tienda
 Seguí la guía dummy paso a paso: **[docs/runbooks/conectar-tienda.md](docs/runbooks/conectar-tienda.md)**.
 Recomendado: empezá con una **tienda de prueba** (development store) gratis, no la real.
 
 ### 6. Usalo
-Arrancá Claude desde la carpeta del cliente (ej: `clients/blunua/`) y hablá normal:
+Abrí **siempre la RAÍZ del repo** (`shopify-control/`) en VS Code con la extensión de Claude
+Code. Nunca abras `clients/{slug}/`: Claude Code busca la carpeta `.claude/` en la carpeta que
+abrís, y ahí no hay ninguna, así que la sesión arranca **sin hooks y sin skills** mientras el
+connector de Shopify igual puede escribir en la tienda. Además `core/` y `stack.json` viven
+en la raíz.
+
+**Paso 0 (obligatorio):** como desde la raíz no se auto-carga el `CLAUDE.md` del cliente,
+antes de operar confirmá **con qué cliente vas a trabajar** y **qué tienda está conectada**
+(preguntale a Claude "¿qué tienda está conectada?"; si hay más de una, ver el runbook de
+conexión). Recién ahí hablá normal:
 - "¿Qué productos hay?" · "¿Qué se está por agotar?"
 - "Mejorá la descripción de [producto]" → te muestra antes/después y pide tu OK.
 - "Dame ideas de combos."

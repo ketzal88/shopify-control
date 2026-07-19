@@ -9,20 +9,37 @@ controlen y mejoren su tienda Shopify hablándole a Claude.
 > cliente. El app pelado no tiene ese "cerebro". El connector de Shopify tiene que estar
 > disponible dentro de Claude Code.
 
+> **Siempre se abre la RAÍZ del repo**, nunca una subcarpeta. Claude Code busca `.claude/` en la
+> carpeta que abrís: si abrís `clients/{slug}/` no hay hooks ni skills, pero el connector de
+> Shopify **igual puede escribir**. Abrir la raíz no es preferencia, es lo que enciende los
+> guardrails.
+
 - **Gabriel (operador/curador):** conecta la tienda, completa `clients/{slug}/store-standards.md`,
-  corre el refresh trimestral. Arranca desde la raíz o desde `clients/{slug}/`.
-- **Cliente (no técnico):** abre VS Code en `clients/{slug}/` y habla en lenguaje natural
-  ("mejorá la descripción del anillo X", "¿cómo venden los aros esta semana?").
+  corre el refresh trimestral.
+- **Cliente (no técnico):** abre VS Code en la raíz de este repo y habla en lenguaje natural
+  ("mejora la descripción del anillo X", "¿cómo se venden los aretes esta semana?").
+
+Como desde la raíz no se auto-carga el contexto del cliente, **todo skill arranca por el paso 0:
+confirmar el cliente activo y contra qué tienda está conectado el connector** (`get-shop-info`
+contra `clients/{slug}/connection.md`). Si no coinciden, se aborta.
 
 ## Reglas duras (las respetan TODOS los skills)
 1. **Sin jerga con el cliente:** nunca mostrar términos técnicos (nombres de campo, de skill,
    ni comandos). Entra en lenguaje natural, ve resultados en lenguaje natural.
-2. **Humanizer obligatorio** antes de todo output cliente (reusa `handsOn/skills/humanizer`).
+2. **Humanizer obligatorio** antes de todo output cliente. Path único:
+   `handsOn-Worker/skills/humanizer/SKILL.md`. Hoy NO es invocable como skill desde este repo:
+   hay que leer ese archivo y aplicarlo a mano.
 3. **Registro por cliente** según `store-standards.md` (blunua: español neutro, sin voseo).
-4. **Todo write:** identificar → leer → generar → humanizer → checklist → preview → gate → backup → escribir → confirmar. Nunca escribir sin backup + confirmación explícita.
+   Los textos literales de los skills son plantillas, no literales universales.
+4. **Todo write:** confirmar tienda → cargar contexto → identificar → leer → generar → humanizer →
+   checklist → preview → gate → backup → escribir → confirmar. Nunca escribir sin backup +
+   confirmación explícita. **El undo también es un write** y lleva el mismo protocolo.
 5. **Alcance de escritura v1:** solo descripción (`descriptionHtml`, vía `Shopify:update-product`)
    + SEO meta title/description (`seo.title`/`seo.description`, vía `Shopify:graphql_mutation`).
-   NUNCA precio, stock, status ni handle/URL.
+   NUNCA precio, stock, status, tags, título ni handle/URL.
+   **Esto está enforced por diseño, no por prosa:** `permissions.deny` en `settings.json` bloquea
+   los tools fuera de alcance (stock, descuentos, colecciones, alta de productos), y
+   `backup_guard` bloquea cualquier write que toque un campo fuera de `{descripción, seo}`.
 
 ## Estructura
 - `.claude/skills/` — procedimientos (sirven a todos los clientes)

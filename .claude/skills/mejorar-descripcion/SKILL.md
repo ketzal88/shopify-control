@@ -5,51 +5,83 @@ description: Mejora la descripción de un producto de Shopify con criterio SEO y
 
 # Mejorar descripción de producto
 
-Skill de **escritura** sobre la tienda viva. Reusás el craft que ya existe; lo nuevo es el flujo seguro (preview → backup → confirmación → undo) y el cumplimiento de estándares.
+Skill de **escritura** sobre la tienda viva. Reusás el craft que ya existe; lo nuevo es el flujo seguro (preview → gate → backup → undo) y el cumplimiento de estándares.
 
 ## Reglas duras (no negociables)
-- **Alcance:** solo tocás 3 campos: la descripción (`descriptionHtml`), el **meta title** (`seo.title`) y la **meta description** (`seo.description`). NUNCA precio, stock, status ni handle/URL.
-- **Sin jerga con el cliente:** todo lo que ve es lenguaje natural. Nunca nombres de campo, de skill ni comandos.
-- **Registro:** el que diga `store-standards.md §2` del cliente (blunua: español neutro, sin voseo).
-- **Nada se escribe sin:** (1) preview mostrado, (2) confirmación explícita del cliente, (3) backup guardado.
+- **Alcance:** solo tocás 3 campos: la descripción (`descriptionHtml`), el **meta title** (`seo.title`) y la **meta description** (`seo.description`). NUNCA precio, stock, status, tags, título ni handle/URL.
+- **Sin jerga con el cliente:** todo lo que ve es lenguaje natural. Nunca nombres de campo, de skill ni comandos. Tampoco expliques limitaciones técnicas ("no tengo permisos", "falta un scope"): eso también es jerga.
+- **Registro:** el que diga `store-standards.md §2` del cliente (blunua: español neutro, SIN voseo). Los textos literales de este archivo son **plantillas**: si el cliente tiene otro registro, adaptalos.
+- **Nada se escribe sin:** (1) preview mostrado, (2) confirmación explícita del cliente, (3) backup guardado con los valores REALES.
 
-## Contexto que cargás antes de empezar
-- `clients/{slug}/store-standards.md` (molde, registro, keywords, checklist, qué no tocar).
+## Paso 0 — Confirmar cliente y tienda (obligatorio, antes de todo)
+La sesión se abre en la RAÍZ del repo, así que el contexto del cliente NO se carga solo.
+1. Identificá el cliente y leé `clients/{slug}/CLAUDE.md` + `clients/{slug}/store-standards.md`.
+2. Verificá con `Shopify:get-shop-info` **contra qué tienda** está conectado el connector.
+3. Comparala con `clients/{slug}/connection.md`. **Si no coinciden, ABORTÁ** y avisá al operador. Nunca escribas sin confirmar la tienda: `switch-shop` existe y el connector puede estar apuntando a otra.
+
+## Contexto que cargás (paso 1, ANTES de buscar el producto)
+- `clients/{slug}/store-standards.md` (molde, registro, keywords por categoría, checklist, qué no tocar).
 - La marca en handsOn (link en el `CLAUDE.md` del cliente): brand-voice, vocabulario.
 
+Va **antes** de identificar el producto a propósito: la terminología del cliente vive ahí. Para blunua, §4 dice que en Colombia se dice **aretes** (nunca "aros") y **topitos**. Si buscás el producto sin ese vocabulario, buscás mal.
+
 ## Skills que reusás (no reinventes el craft)
-- `handsOn-Worker/skills/humanizer/SKILL.md` — obligatorio, elimina AI tells (em-dashes, etc.).
-- `seo-geo` — SEO + GEO (incluye data Princeton 2024).
+- `handsOn-Worker/skills/humanizer/SKILL.md` — **obligatorio**. Hoy NO es invocable como skill desde este repo: leé ese archivo y aplicá sus reglas a mano.
+- `seo-geo` — SEO + GEO.
 - `generic-language-killer` — QA anti-genérico.
 - `seo-schema` / `seo-content` / `seo-ecommerce` — schema y calidad de producto.
-- `.claude/hooks/description_lint.py` — chequeo mecánico (em-dash, longitud, keyword) del checklist.
+- `.claude/hooks/description_lint.py` — chequeo mecánico. **Se corre de verdad, por CLI, sobre el texto PLANO** (ver paso 6).
+
+*(INTERNO: nunca nombres estos skills frente al cliente.)*
 
 ## Flujo (siempre en este orden)
 
-1. **IDENTIFICAR.** El cliente dice qué producto ("mejorá la descripción del anillo NEXO plateado"). Buscá el producto vía el connector. Si hay más de un match, mostrá las opciones y preguntá cuál. NUNCA adivines qué producto editar.
-2. **LEER.** Con `Shopify:search_products` (por nombre/SKU) obtené el **GID** del producto (`gid://shopify/Product/...`; no acepta el número pelado), y con `Shopify:get-product` traé el estado actual de los 3 campos: descripción (`descriptionHtml`) y SEO (`seo.title`, `seo.description`), más contexto de solo lectura (título, tags, fotos).
-3. **CARGAR CONTEXTO.** Leé `store-standards.md` del cliente + la brand-voice de handsOn.
-4. **GENERAR.** Escribí la nueva descripción con el molde canónico de `store-standards §3`: título → hook → 3 beneficios → material/garantía → bloque GEO (2-4 preguntas frecuentes). Keywords tejidas en el texto. Además generá meta title (~60 caracteres) y meta description (~155 caracteres).
-5. **HUMANIZER (obligatorio).** Pasá todo el texto por el humanizer. Sin em-dashes, sin voseo si el registro es neutro, sin significance inflation ni lenguaje promocional.
-6. **CHECKLIST.** Corré el checklist "listo para publicar" de `store-standards §9`, incluido `description_lint.py` (con las keywords núcleo del cliente y la longitud target). Si algo falla, corregí ANTES de mostrar el preview. No muestres nada que no pase el checklist.
-7. **PREVIEW.** Mostrá al cliente, en el chat, en texto plano y sin jerga: el "ASÍ ESTÁ AHORA" vs "ASÍ QUEDARÍA" de la descripción, el bloque "Cómo se va a ver en Google" (meta title + meta description en lenguaje simple), y "Qué mejoré" en bullets simples. Aclará: "En tu tienda los títulos se ven en negrita y las viñetas como lista." (Ver formato ejemplo abajo.)
-8. **GATE.** Preguntá: "¿Lo aplico a tu tienda? Respondé **sí** o **no**." NO escribas nada hasta un "sí" explícito. Si dice no, no escribís.
-9. **BACKUP (antes de escribir).** Guardá el valor VIEJO de los 3 campos en `clients/{slug}/backups/{productIdTail}-{YYYYMMDD-HHMMSS}.json` con este formato EXACTO (el hook lo exige):
+1. **CARGAR CONTEXTO.** Lo de arriba.
+2. **IDENTIFICAR.** El cliente dice qué producto. Buscalo con `Shopify:search_products`. **El filtro por título es difuso**: buscar `title:Anillo Cosmos` devuelve también otros anillos. Si hay más de un resultado, mostrá las opciones y preguntá cuál. NUNCA adivines qué producto editar.
+3. **LEER EL ESTADO ACTUAL DE LOS 3 CAMPOS.** Son dos lecturas distintas:
+   - **Descripción:** `Shopify:get-product` con el GID → `descriptionHtml`.
+   - **SEO:** `Shopify:graphql_query` → `query($id: ID!){ product(id:$id){ seo { title description } } }`.
+
+   ⚠️ **`get-product` NO devuelve el SEO.** Si backupeás lo que devuelve `get-product` y nada más, el backup queda con el SEO vacío, y entonces un "vuelve a la anterior" **borra el título y el resumen SEO reales del cliente** en vez de restaurarlos. Leé el SEO con la query de arriba, siempre.
+4. **GENERAR.** Escribí la nueva descripción con el molde canónico de `store-standards §3`: título → hook → 3 beneficios → material/garantía → bloque GEO (2-4 preguntas frecuentes). Keywords tejidas en el texto, no en bloque aparte. Además generá meta title (~60 caracteres) y meta description (~155 caracteres).
+5. **HUMANIZER (obligatorio).** Pasá todo el texto por el humanizer: sin em-dashes, sin voseo si el registro es neutro, sin significance inflation ni lenguaje promocional. Aplica a TODO lo que ve el cliente, no solo al cuerpo de la descripción.
+6. **CHECKLIST.** Corré el linter de verdad, sobre el **texto plano** (no el HTML):
+
+   ```
+   python .claude/hooks/description_lint.py --keywords "acero quirúrgico,hipoalergénico" --dialect neutro
+   ```
+   (el texto va por stdin; sale 0 si está limpio, 1 y explica si hay issues)
+
+   Chequea em-dash, longitud 80-150, keyword, **materiales falsos** (oro/plata/chapado: el material es acero quirúrgico), **lujo-vacío**, **claims médicos**, **voseo** y presencia del bloque GEO. Si algo falla, corregí ANTES del preview. **No muestres nada que no pase.** Después completá a mano los ítems que el linter no puede ver (vocabulario de marca, que el humanizer haya corrido).
+7. **PREVIEW.** Mostrá al cliente, en el chat, en texto plano y sin jerga: "ASÍ ESTÁ AHORA" vs "ASÍ QUEDARÍA", el bloque "Cómo se va a ver en Google", y "Qué mejoré" en bullets. Formato abajo.
+8. **GATE.** Preguntá: "¿Lo aplico a tu tienda? Responde sí o no." NO escribas nada hasta un "sí" explícito. Si dice no, no escribís.
+9. **BACKUP (antes de escribir).** Guardá los valores VIEJOS de los 3 campos en `clients/{slug}/backups/{productIdTail}-{YYYYMMDD-HHMMSS}.json`:
    ```json
    { "productId": "gid://shopify/Product/123", "fields": { "descriptionHtml": "...viejo...", "seo_title": "...viejo...", "seo_description": "...viejo..." }, "ts": "2026-07-19T12:00:00" }
    ```
-   `{productIdTail}` es la última parte del gid (ej: `123`). Las keys de `fields` son exactamente `descriptionHtml`, `seo_title`, `seo_description`. **Siempre respaldás los 3 juntos** (aunque solo cambies la descripción), porque el hook exige el set completo.
-10. **ESCRIBIR (son DOS writes, porque el connector separa descripción y SEO).** Recién ahora:
-    - **Descripción:** `Shopify:update-product` con `{ id: <GID>, descriptionHtml: <nuevo> }`.
-    - **SEO:** `Shopify:graphql_mutation` con `productUpdate(product:{ id:<GID>, seo:{ title:<nuevo>, description:<nuevo> } })`. (Usá `product:`, NO `input:` que está deprecado.) **Antes de mandarla, validá con `Shopify:validate_graphql_codeblocks`.**
-    El hook `backup_guard` verifica el backup en **ambos** writes; si falta, los bloquea.
-11. **WORKLOG.** Agregá una entrada a `clients/{slug}/worklog.md`: `## YYYY-MM-DD [write] {producto} — backup: {archivo}`.
-12. **CONFIRMAR.** "Listo ✅. Si no te convence, decime 'volvé a la anterior' y lo dejo como estaba."
+   Las keys de `fields` son exactamente `descriptionHtml`, `seo_title`, `seo_description`, y **siempre los 3 juntos**. Los valores tienen que ser los REALES leídos en el paso 3: el guard rechaza un backup con los tres vacíos, justamente para que nadie se desbloquee con placeholders.
 
-## Preview — formato exacto (ejemplo blunua, ya humanizado y en registro neutro)
+   *(Nota: el campo `ts` es informativo. El guard mide frescura por la fecha de modificación del archivo, no por `ts`.)*
+10. **ESCRIBIR (son DOS writes, porque el connector separa descripción y SEO).**
+    - **Descripción:** `Shopify:update-product` con **solo** `{ id: <GID>, descriptionHtml: <nuevo> }`. No agregues ningún otro campo: el guard bloquea el write si aparece cualquier otra cosa.
+    - **SEO:** `Shopify:graphql_mutation` con `productUpdate(product:{ id:<GID>, seo:{ title:<nuevo>, description:<nuevo> } })`. Usá `product:`, no `input:` (deprecado). Validá antes con `Shopify:validate_graphql_codeblocks`.
+
+    El guard verifica en ambos writes que haya backup **y** que el write esté en alcance.
+11. **WORKLOG.** Append a `clients/{slug}/worklog.md`: `## YYYY-MM-DD [write] {producto} — backup: {archivo}`.
+12. **CONFIRMAR.** "Listo. Si no te convence, dime 'vuelve a la anterior' y lo dejo como estaba."
+
+## Si el cliente pide algo fuera de alcance
+Precio, stock, pausar o publicar un producto, cambiar el nombre o la dirección web, crear descuentos o colecciones: **no se hace y no se intenta.** Esos caminos además están bloqueados por diseño, así que intentarlo solo genera un error feo.
+
+Guion (neutro, adaptar según `store-standards §2`):
+> "Eso todavía no lo puedo cambiar yo. Lo anoto y lo vemos con el equipo."
+
+Registralo en el worklog y seguí con lo que sí podés hacer. No expliques por qué no podés en términos técnicos.
+
+## Preview — formato exacto (ejemplo blunua, registro neutro)
 
 ```
-💍 Anillo NEXO Plateado — encontré la descripción actual y te propongo esta mejora:
+Anillo NEXO Plateado. Encontré la descripción actual y te propongo esta mejora:
 
 ASÍ ESTÁ AHORA:
 "Anillo NEXO de acero. Color plateado. Ajustable. Material resistente."
@@ -59,8 +91,8 @@ ASÍ QUEDARÍA:
 
   Un anillo minimalista para todos los días. Se ve elegante pero sencillo, y está
   hecho en acero quirúrgico hipoalergénico que no destiñe ni irrita, incluso en
-  pieles sensibles. Es parte de la colección NEXO, pensada para combinarse: funciona
-  sola o en conjunto.
+  pieles sensibles. Es parte de la colección NEXO, pensada para combinarse:
+  funciona sola o en conjunto.
 
   Por qué dura:
   • Acero quirúrgico hipoalergénico, seguro para piel sensible y uso diario
@@ -79,24 +111,29 @@ Cómo se va a ver en Google (título y resumen del buscador):
 
 Qué mejoré:
 ✅ Agregué las palabras que la gente busca en Google
-✅ Sumé preguntas frecuentes → ayuda a aparecer en respuestas de Google y ChatGPT
+✅ Sumé preguntas frecuentes, que ayudan a aparecer en respuestas de Google y ChatGPT
 ✅ Usé la voz de blunua: cercana y clara, sin exagerar
 ✅ Dejé claro el beneficio principal: no irrita, dura, para uso diario
 
 (En tu tienda los títulos se ven en negrita y las viñetas como lista.)
 
-¿Lo aplico a tu tienda? Respondé sí o no.
-(si después no te convence, decime "volvé a la anterior" y lo dejo como estaba)
+¿Lo aplico a tu tienda? Responde sí o no.
+(si después no te convence, dime "vuelve a la anterior" y lo dejo como estaba)
 ```
 
 ## Escritura en lote
-Si el cliente pide varias ("mejorá las 12 descripciones de NEXO"): mismo flujo, pero el preview es un resumen de las 12, se guarda backup de las 12, y hay UN solo gate de confirmación para el lote. Nunca escribas sin ese gate.
+- **Máximo 5 productos por lote.** Si el cliente pide más, hacelo en tandas y avisale.
+- El preview muestra el **texto completo de cada uno**, no un resumen: el cliente no puede aprobar lo que no vio.
+- Un solo gate para el lote, pero con los textos completos arriba.
+- **Ventana del guard:** el backup vale 15 minutos. En un lote largo los primeros backups vencen y los últimos writes se bloquean. Si pasaron más de ~10 minutos desde que guardaste un backup, **volvé a guardarlo** antes de escribir ese producto.
+- **Si el lote falla a la mitad:** decile al cliente exactamente cuáles quedaron aplicados y cuáles no, en lenguaje natural, y ofrecé retomar los que faltan. Nunca dejes el estado ambiguo.
 
 ## Revertir (undo)
-Cuando el cliente dice "volvé a la anterior" (o similar):
-1. Leé el valor ACTUAL de los 3 campos (`get-product`).
-2. Escribí un backup fresco de ese valor actual (esto habilita también el *redo*) — mismo formato y carpeta.
-3. Reescribí los valores VIEJOS del último backup: la descripción con `update-product` y el SEO con `graphql_mutation` (igual que el paso 10).
-4. Append al worklog.
-
-Importante: revertir es un write como cualquier otro, por eso backupea el valor actual PRIMERO. Así pasa el hook aunque hayan pasado horas desde el cambio original. NO depende de que exista un backup "reciente" previo.
+"Vuelve a la anterior" es un write como cualquier otro: lleva preview, gate y confirmación.
+1. Leé el valor ACTUAL de los 3 campos (descripción con `get-product`, SEO con `graphql_query`).
+2. **Preview:** mostrale a qué texto va a volver ("ASÍ QUEDÓ" vs "ASÍ VOLVERÍA A QUEDAR").
+3. **Gate:** "¿Lo dejo como estaba antes? Responde sí o no."
+4. Guardá un backup fresco del valor ACTUAL (esto habilita también el *redo*), mismo formato y carpeta. Va primero: así el write pasa el guard aunque hayan pasado horas desde el cambio original.
+5. Escribí los valores VIEJOS del último backup: descripción con `update-product`, SEO con `graphql_mutation`.
+6. Append al worklog.
+7. Confirmá: "Listo, quedó como estaba antes."

@@ -48,7 +48,14 @@ Anotá el dominio que te queda: algo como `nombre.myshopify.com`.
 
 ## Parte D: Probar que anda (en la tienda de PRUEBA)
 
-Arrancá Claude desde la carpeta del cliente (`cd clients/{slug}` y abrí Claude ahí), y pedile en lenguaje normal:
+Abrí **la RAÍZ del repo** (`shopify-control/`) en VS Code con la extensión de Claude Code.
+Nunca abras `clients/{slug}/`: Claude Code busca `.claude/` en la carpeta que abrís, y ahí no
+hay ninguna, así que la sesión queda **sin hooks y sin skills** mientras el connector de
+Shopify igual puede escribir. `core/` y `stack.json` también viven en la raíz.
+
+**Paso 0 (obligatorio):** desde la raíz no se auto-carga el `CLAUDE.md` del cliente. Antes de
+operar, decile a Claude con qué cliente vas a trabajar y confirmá qué tienda está conectada
+(ver Parte E). Recién después pedile en lenguaje normal:
 
 1. **Read:** "¿Qué productos hay en la tienda?" → debería responder leyendo la tienda.
 2. **Write con gate:** "Mejorá la descripción de [un producto de demo]" → debería mostrarte el **preview antes/después** y pedirte **sí/no**. Decí que sí.
@@ -60,10 +67,44 @@ Si los 5 pasos dan bien, la herramienta está lista para la tienda real del clie
 
 ---
 
-## Notas técnicas (para la calibración, Task 7 del plan)
+## Parte E: Verificar y cambiar la tienda activa
 
-Una vez conectada la tienda, hay que ajustar el hook al connector real:
+El connector puede tener **varias tiendas** conectadas a la vez (la de prueba y la del
+cliente, por ejemplo), pero opera sobre **una sola a la vez**. Antes de cualquier write,
+confirmá cuál está activa.
 
-- Inspeccionar el **nombre exacto del tool de escritura** del connector y la forma de su payload; ajustar `WRITE_TOOL_MARKERS` / `WRITE_ACTION_MARKERS` / `_write_target()` en `.claude/hooks/backup_guard.py`.
-- El Admin API usa `descriptionHtml` (descripción) y los metafields `global.title_tag` / `global.description_tag` (SEO), **no** `meta_title` plano. Mover en lockstep: el skill `mejorar-descripcion` (paso 9), el hook, y `store-standards §8`.
-- Verificar el mecanismo de bloqueo del hook (exit 2 vs JSON `permissionDecision`) contra la doc de hooks de Claude Code.
+1. **Ver cuál está activa:** pedile a Claude "¿qué tienda está conectada?". Usa
+   `Shopify:get-shop-info`, que devuelve el dominio `.myshopify.com`, el nombre, la moneda
+   y el país de la tienda activa. Contrastalo con `clients/{slug}/connection.md`.
+2. **Cambiar de tienda:** pedile "cambiá a la tienda `algo.myshopify.com`". Usa
+   `Shopify:switch-shop`. Después volvé a correr el paso 1 para confirmar el cambio.
+3. Si la tienda que querés **no aparece**, no está conectada todavía: repetí la Parte B
+   autenticándote en esa tienda.
+
+> ⚠️ Regla dura: nunca arranques un flujo de escritura sin haber confirmado la tienda
+> activa en esta sesión. Si el dominio no coincide con el `connection.md` del cliente,
+> frená y cambiá de tienda antes de seguir.
+
+---
+
+## Notas técnicas (estado real del v1)
+
+Cómo está calibrado hoy el guardrail y qué campos se tocan de verdad:
+
+- **Hook `.claude/hooks/backup_guard.py`** (matcher `.*`, `PreToolUse`): vigila los dos writes
+  del flujo del skill. Reconoce la acción con `_action()`, que normaliza tanto el nombre real
+  de MCP (`mcp__claude_ai_Shopify__update-product`) como el de display (`Shopify:update-product`);
+  la lista en alcance es `GUARDED_PRODUCT_ACTIONS`. Para `graphql_mutation` mira la query
+  (un `productUpdate` sobre un `gid://shopify/Product/...`). El producto sale de `_product_id()`.
+  Si no hay backup reciente que cubra los 3 campos, **bloquea**.
+- **Bloqueo verificado:** el mecanismo es **`exit 2`** (corta el tool y le muestra el stderr al
+  modelo). Ya está confirmado en runtime en una sesión fresca de VS Code, ver `docs/HANDOFF.md`
+  (PENDIENTE #1 y #1b). Un `exit 1` **no** bloquea: es un error no bloqueante y el tool corre igual.
+- **Campos reales del v1:**
+  - Descripción: `descriptionHtml`, se escribe con `Shopify:update-product`.
+  - SEO: se **lee** con `graphql_query` sobre `product { seo { title description } }` y se
+    **escribe** con `graphql_mutation` → `productUpdate(product: { id, seo: { title, description } })`.
+    No se usan metafields `global.title_tag` / `global.description_tag`.
+  - Ojo: el `input:` de `productUpdate` está deprecado; va `product:`.
+- Si alguno de esos campos cambia, moverlo **en lockstep** en tres lugares: el skill
+  `mejorar-descripcion`, el hook (`REQUIRED_BACKUP_FIELDS`) y `store-standards §8`.
