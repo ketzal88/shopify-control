@@ -34,10 +34,10 @@
 ## 4. SEO [VIVO]
 - Keywords núcleo: acero quirúrgico, hipoalergénico, resistente al agua, joyería minimalista.
 - Keywords por categoría (curado 2026-07-19, fuente: Google Search Console 90d — términos donde blunua ya aparece; **términos colombianos**):
-  - **Aretes** (NO "aros" — Colombia dice "aretes"): aretes, aretes antialérgicos, aretes de acero quirúrgico, arete hipoalergénico, candongas, aretes de clip, ear cuff / earcuff, topos, aretes para niñas.
+  - **Aretes** (NO "aros" — Colombia dice "aretes"): aretes, aretes antialérgicos, aretes de acero quirúrgico, arete hipoalergénico, candongas, aretes de clip, ear cuff / earcuff, **topitos** (así los llama la tienda; "topos" aparece solo como variante en Ads), aretes para niñas.
   - **Anillos**: anillo ajustable, anillos delgados, anillo de acero, anillos de promesa. (Utilidades: medidor de anillos, tallas de anillos.)
   - **Collares**: collares, choker, cadena hipoalergénica.
-  - **Pulseras**: sin demanda orgánica relevante hoy → hueco a vigilar.
+  - **Pulseras**: **57 productos en tienda pero casi nada de demanda orgánica capturada** → no es falta de catálogo, es falta de visibilidad. Oportunidad SEO clara (misma lectura para Charms 68 y Tobilleras 10).
   - **Piercings**: piercings, piercing oreja.
   - Ojo: pagan Ads por "titanio" pero el material es acero quirúrgico — no reclamar titanio salvo que sea real.
 - Meta title: patrón + máx ~60 caracteres.
@@ -52,7 +52,22 @@
 ## 6. Naming / tags / categorías [ESTABLE]
 - Nombre: [Colección] + [tipo] + [material] + [color]
 - Tags obligatorios: colección (NEXO/NUA), material (acero quirúrgico), género.
-- Taxonomía de colecciones: ⚠️ BLOQUEADO — mapear las colecciones reales necesita el **Shopify real de blunua conectado** en Claude Code (hoy está la dev store). Del Brain: general / NUA / NEXO. Vocabulario de categoría = términos colombianos de §4 (aretes/candongas/topos, NO "aros").
+- Taxonomía de colecciones (mapeada en vivo 2026-07-19 desde la tienda real, 678 productos):
+  **Patrón estructural:** categoría (colección por `TYPE`) × segmento (`Her` / `Him` / `Kids`, por `TAG`) × subtipo. Las colecciones de segmento se arman por **TAG**, así que *el tag decide en qué colección cae el producto* — por eso los tags de §6 son obligatorios.
+
+  | Categoría (handle) | Productos | Subtipos | Segmentos |
+  |---|---|---|---|
+  | Collares (`collares`) | 244 | Choker 19 · Midis 81 · Largos 11 | Her 178 · Him 18 · Kids 3 |
+  | Aretes (`aretes`) | 193 | Candongas 76 · Topitos 37 · Topitos de Seguridad 37 · Earcuffs 19 · Largos 17 | Her 43 · Him 24 · Kids 18 |
+  | Charms (`charms`) | 68 | — | — |
+  | Pulseras (`pulseras`) | 57 | Pulseras+Tobilleras 62 | Her 40 · Him 7 · Kids 1 |
+  | Anillos (`anillos`) | 50 | Ajustables · Delgados · Gruesos · Midis · Piedras/Cristales | Her 43 · Him 6 |
+  | Conjuntos (`conjuntos`) | 15 | — | Her 17 · Him 5 · Kids 6 |
+  | Tobilleras (`tobilleras`) | 10 | — | — |
+
+  **Curadas / de campaña — NO son taxonomía, no tratarlas como categoría:** Earstacking (230, transversal), Brillo mágico, Círculos de amor, Cosmos, Cristales, Dorados, Full of Love, combos/conjuntos armados, `Disc_*` y `BFCM *` (descuentos, 0 productos fuera de campaña) y `all` (678, técnica).
+
+  **Terminología confirmada en vivo:** la tienda dice **Topitos** (no "topos"), **Candongas**, **Earcuff**. Confirma §4: nunca "aros".
 
 ## 7. Plantillas de imagen [ESTABLE] (placeholder para W2 futuro)
 - Colores de marca: #4B4B4B / #9CB0B1 / #CEC4BA / #E9E6DD
