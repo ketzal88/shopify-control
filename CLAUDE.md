@@ -26,8 +26,16 @@ controlen y mejoren su tienda Shopify hablándole a Claude.
 
 ## Estructura
 - `.claude/skills/` — procedimientos (sirven a todos los clientes)
-- `.claude/hooks/` — guardrails (backup_guard, description_lint)
+- `.claude/hooks/` — guardrails propios (backup_guard, description_lint)
 - `clients/{slug}/` — contexto + estándares + backups + worklog por cliente
+- `core/` + `stack.json` — el claude-code-framework de Worker (gates de calidad/seguridad)
 - `docs/` — spec, plan, runbooks
+
+## Gates de calidad y seguridad (framework)
+Este repo adopta el **claude-code-framework** de Worker (config-driven vía `stack.json`):
+- `stack.json` — manifest: `test = python -m pytest -q`, secret-scan en cada commit, pre-push corre los tests, `push: operator-only`, close-protocol.
+- Los hooks **conviven** con los nuestros: `backup_guard` (matcher `.*`) cuida los writes de Shopify; los del framework (matcher `Bash`) cuidan commits/pushes/secretos.
+- Reglas de referencia en `core/rules/` (close-protocol, operating-procedure, subagent-economics, learning-loop — esta última tiene la regla de **verificar automatizaciones headless**, aplica al chequeo del hook).
+> Los hooks se arman al INICIAR la sesión de Claude Code. Si editás `settings.json`/`stack.json`, reiniciá la sesión para que tomen efecto.
 
 Spec: `docs/superpowers/specs/2026-07-19-shopify-control-v1-design.md`

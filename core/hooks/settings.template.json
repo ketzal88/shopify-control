@@ -3,40 +3,30 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": ".*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python .claude/hooks/backup_guard.py",
-            "comment": "BLOCKING. No permite un write de producto de Shopify (update-product / graphql productUpdate) sin un backup reciente que cubra los 3 campos. Ver spec §11."
-          }
-        ]
-      },
-      {
         "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
             "command": "cd \"$CLAUDE_PROJECT_DIR\" && python core/hooks/scripts/canonical-guard.py",
             "timeout": 5,
-            "comment": "BLOCKING. Lee environment.forbiddenCommands de stack.json. Bypass: SKIP_CANONICAL=1."
+            "comment": "BLOCKING. Reads environment.forbiddenCommands from stack.json and blocks commands that always fail on this machine, with the fix in the message. Bypass: SKIP_CANONICAL=1."
           },
           {
             "type": "command",
             "command": "cd \"$CLAUDE_PROJECT_DIR\" && python core/hooks/scripts/pre-push-guard.py",
             "timeout": 330,
-            "comment": "BLOCKING. push=operator-only intercepta todo git push; si no, corre gates.prePush.steps (los tests). Bypass docs-only: SKIP_PREPUSH=1."
+            "comment": "BLOCKING. With gates.push=operator-only, intercepts EVERY agent git push instantly (close-protocol); otherwise reads gates.prePush.steps and runs each step. Bypass docs-only changes: SKIP_PREPUSH=1. Never use SKIP_PREPUSH for code changes."
           },
           {
             "type": "command",
             "command": "python -c \"import json,sys,subprocess,os; d=json.load(sys.stdin); cmd=d.get('tool_input',{}).get('command','') or ''; root=os.environ.get('CLAUDE_PROJECT_DIR','.'); (sys.exit(subprocess.call(['bash', os.path.join(root,'core','hooks','scripts','secret-scan.sh')], cwd=root))) if cmd.lstrip().startswith('git commit') else None\"",
-            "comment": "BLOCKING. Secret-scan en git commit (tokens de tienda, API keys). Debe ser PreToolUse."
+            "comment": "BLOCKING. MUST be PreToolUse — PostToolUse runs after the commit completes, at which point git diff --cached is empty and secrets cannot be caught."
           },
           {
             "type": "command",
             "command": "cd \"$CLAUDE_PROJECT_DIR\" && python core/hooks/scripts/filter-verbose-guard.py",
             "timeout": 5,
-            "comment": "NON-BLOCKING. Colapsa la salida de context.filterVerbose cuando pasa. Bypass: SKIP_OUTPUT_FILTER=1."
+            "comment": "NON-BLOCKING. Wraps the exact commands in context.filterVerbose so their output collapses to a verdict when they PASS (full output always shown on failure, real exit code preserved). Absent key = no wrapping. Bypass: SKIP_OUTPUT_FILTER=1."
           }
         ]
       }
@@ -48,13 +38,13 @@
             "type": "command",
             "command": "cd \"$CLAUDE_PROJECT_DIR\" && python core/hooks/scripts/ratchet-guard.py",
             "timeout": 90,
-            "comment": "BLOCKING si ratchets.deadCode está configurado (hoy no). No-op mientras esté vacío."
+            "comment": "BLOCKING if ratchets.deadCode is configured in stack.json and the orphan count grew vs baseline. Passes CHANGED_FILES (this session's diff) so the ratchet command can scope blocks to the session's own files. Bypass: SKIP_DEADCODE=1."
           },
           {
             "type": "command",
             "command": "cd \"$CLAUDE_PROJECT_DIR\" && python core/hooks/scripts/close-guard.py",
             "timeout": 15,
-            "comment": "BLOCKING una vez por cierre si gates.closeProtocol=blocking y el turno termina con código sin commitear. Bypass: SKIP_COMMITCHECK=1."
+            "comment": "BLOCKING once per close if gates.closeProtocol=blocking and the turn ends with uncommitted code: commit + report sha, or declare WIP explicitly. Bypass: SKIP_COMMITCHECK=1."
           }
         ]
       }

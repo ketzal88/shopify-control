@@ -1,0 +1,168 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/your-org/claude-code-framework/stack.schema.json",
+  "title": "Stack Manifest",
+  "description": "Per-project manifest for claude-code-framework. Every key is optional — absent key = gate skipped.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "language": {
+      "type": "string",
+      "description": "Primary language label (typescript, python, java, go, rust, ...)"
+    },
+    "packageManager": {
+      "type": "string",
+      "description": "Package manager (npm, yarn, pnpm, pip, maven, gradle, cargo, ...)"
+    },
+    "commands": {
+      "type": "object",
+      "description": "Shell commands for gates. Absent key = that gate skipped silently.",
+      "properties": {
+        "typecheck": { "type": "string", "description": "Type-check command" },
+        "lint":      { "type": "string", "description": "Lint command" },
+        "test":      { "type": "string", "description": "Primary test command" },
+        "build":     { "type": "string", "description": "Build command" }
+      },
+      "additionalProperties": { "type": "string" }
+    },
+    "security": {
+      "type": "object",
+      "description": "Security tool configuration.",
+      "properties": {
+        "secretScan": {
+          "type": "string",
+          "description": "Secret-scan script path (default: core/hooks/scripts/secret-scan.sh)"
+        },
+        "sast": {
+          "type": "string",
+          "description": "One-shot SAST command. Empty = skip."
+        },
+        "depAudit": {
+          "type": "string",
+          "description": "Dependency audit command. Empty = skip."
+        },
+        "review": {
+          "type": "object",
+          "description": "Config for the guided security-review triage (core/hooks/scripts/security-triage.sh). All keys optional; an absent key skips that check.",
+          "properties": {
+            "apiDir":          { "type": "string", "description": "Directory holding route handlers (default: src/app/api or app/api)." },
+            "tenantParam":     { "type": "string", "description": "Regex of tenant-id param names used in routes (e.g. clientId|tenantId|orgId)." },
+            "authSignals":     { "type": "string", "description": "Regex of tokens that prove a route does auth (your guard fns + session/token/hmac)." },
+            "cronCheck":       { "type": "string", "description": "Regex proving a cron route checks its secret (e.g. validateCronSecret|CRON_SECRET)." },
+            "publicEnvPrefix": { "type": "string", "description": "Env-var prefix a build inlines into the client bundle (NEXT_PUBLIC_ for Next.js, VITE_ for Vite, PUBLIC_ for SvelteKit/Astro). Set to enable the client-bundle secret scan." },
+            "publicEnvAllow":  { "type": "string", "description": "Optional regex of known-public env names to exclude (e.g. FIREBASE — Firebase web config is public by design)." }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "ratchets": {
+      "type": "object",
+      "description": "Baseline ratchet gates. Each skips silently if baseline or binary absent.",
+      "properties": {
+        "deadCode": {
+          "type": "string",
+          "description": "Dead-code ratchet command (must exit 1 on regression, 0 on pass, 2 on tooling error)."
+        },
+        "structural": {
+          "type": "string",
+          "description": "Structural regression command run as a prePush step (e.g. sentrux gate)."
+        },
+        "baselineDir": {
+          "type": "string",
+          "description": "Directory for structural baseline file (default: .sentrux/)"
+        }
+      },
+      "additionalProperties": false
+    },
+    "gates": {
+      "type": "object",
+      "description": "Gate configuration.",
+      "properties": {
+        "preCommit": {
+          "type": "object",
+          "properties": {
+            "secretScan": {
+              "type": "string",
+              "enum": ["blocking", "advisory", "off"],
+              "default": "blocking"
+            }
+          },
+          "additionalProperties": false
+        },
+        "prePush": {
+          "type": "object",
+          "properties": {
+            "blocking": { "type": "boolean", "default": true },
+            "steps": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Ordered step keys resolved from commands.* and ratchets.*"
+            }
+          },
+          "additionalProperties": false
+        },
+        "push": {
+          "type": "string",
+          "enum": ["operator-only"],
+          "description": "operator-only = the agent NEVER pushes (every git push blocks instantly with the close instruction, including --no-verify; --dry-run allowed). Explicit exception: ALLOW_CLAUDE_PUSH=1 runs the full prePush suite before allowing. Absent = agent pushes are gated by prePush steps only."
+        },
+        "closeProtocol": {
+          "type": "string",
+          "enum": ["blocking", "off"],
+          "description": "blocking = the close-guard Stop hook reminds ONCE when a turn ends with uncommitted code files: commit + report sha, or explicitly declare WIP. See core/rules/close-protocol.md. Absent/off = no reminder."
+        }
+      },
+      "additionalProperties": false
+    },
+    "environment": {
+      "type": "object",
+      "description": "Machine/environment canonical-path enforcement. See core/rules/environment-canonical.md.",
+      "properties": {
+        "forbiddenCommands": {
+          "type": "array",
+          "description": "Commands that ALWAYS fail on this machine. canonical-guard.py blocks them (exit 2) with the fix in the message. Precision over recall: the guard blocks, so anchor patterns to command position.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "pattern": { "type": "string", "description": "Regex tested against the raw Bash command." },
+              "fix": { "type": "string", "description": "The canonical alternative, shown verbatim to the agent." }
+            },
+            "required": ["pattern", "fix"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "context": {
+      "type": "object",
+      "description": "Context/token budget controls. Absent = no filtering.",
+      "properties": {
+        "filterVerbose": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "EXACT commands whose output is collapsed to its verdict when they PASS (full output always shown on failure). For verbose runners that spend thousands of tokens to say 'all green' — that cost lands in context on every run and stays in the transcript. Matched exactly, never as a substring; composed commands (pipe/redirect/&&) are left alone. Do NOT list typecheck/lint: already quiet when green, and you want the whole error when they fail."
+        }
+      },
+      "additionalProperties": false
+    },
+    "paths": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Source glob patterns for scan/ratchet scope"
+        },
+        "codeExtensions": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Extensions that count as code changes (for ratchet skip logic)"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

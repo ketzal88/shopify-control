@@ -1,0 +1,30 @@
+{
+  "language": "python",
+  "packageManager": "pip",
+  "commands": {
+    "test": "python -m pytest -q"
+  },
+  "security": {
+    "secretScan": "core/hooks/scripts/secret-scan.sh",
+    "sast": "",
+    "depAudit": ""
+  },
+  "ratchets": {
+    "deadCode": "",
+    "structural": "",
+    "baselineDir": ".sentrux/"
+  },
+  "gates": {
+    "preCommit": { "secretScan": "blocking" },
+    "prePush": { "blocking": true, "steps": ["test"] },
+    "push": "operator-only",
+    "closeProtocol": "blocking"
+  },
+  "context": {
+    "filterVerbose": ["python -m pytest -q"]
+  },
+  "paths": {
+    "source": [".claude/**", "core/**", "clients/**", "tests/**"],
+    "codeExtensions": [".py"]
+  }
+}
