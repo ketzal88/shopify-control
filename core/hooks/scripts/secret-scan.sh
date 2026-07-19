@@ -17,9 +17,13 @@ STAGED=$(git diff --cached --name-only 2>/dev/null || true)
 
 # 1. Filename check
 for file in $STAGED; do
-    # Infra del framework (el propio scanner + sus patrones) no es un archivo de secretos.
-    # El chequeo de CONTENIDO (abajo) igual les aplica.
-    [[ "$file" == core/* ]] && continue
+    # Exempt the framework's own scanner infrastructure: the engine adopters copy under
+    # core/, plus the scanner script and its pattern file wherever they live. These are
+    # not secret-HOLDING files (they only describe secrets), so the filename heuristic is a
+    # false positive on them. The content check below still applies to them.
+    case "$file" in
+        core/*|*secret-scan.sh|*secret-patterns.txt) continue ;;
+    esac
     if [[ "$file" == *.env ]] || [[ "$file" == *.env.* ]] || \
        [[ "$file" == *credentials* ]] || \
        [[ "$file" == *secret* && "$file" != *secret*.md ]]; then
