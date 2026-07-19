@@ -517,6 +517,8 @@ git commit -m "feat: skills read reporte-tienda y armar-combo"
 - [ ] **Step 2: Con un Shopify development store conectado**, inspeccionar el/los tool name(s) reales de escritura de producto del connector y la forma del payload (product id + campos). Documentarlo en el runbook.
 
 - [ ] **Step 3: Ajustar** `WRITE_TOOL_MARKERS` / `WRITE_ACTION_MARKERS` / `_write_target()` en `backup_guard.py` para que matcheen el tool real. Actualizar los tests si cambia la forma del payload. Correr `pytest tests/ -v` → PASS.
+  - **(M1 del review final) Vocabulario de campos real:** el Admin API NO usa `meta_title`/`meta_description` planos — usa `descriptionHtml`/`body_html` para la descripción y metafields `global.title_tag` / `global.description_tag` para el SEO. Al calibrar, mover en **lockstep los 3 lugares**: (a) las keys que escribe el backup en `mejorar-descripcion/SKILL.md` paso 9, (b) `_write_target()` + el subset check del hook, (c) la prosa de `store-standards §8`. Los 12 tests que hoy pasan pueden dar falsa confianza mientras el payload sea el mock.
+- [ ] **Step 3b (I2 del review final): scopear el backup al cliente actual.** El glob del hook es repo-wide y los gid de Shopify son por-tienda (dos tiendas distintas pueden tener `Product/123`). Antes de onboardear un 2º cliente, limitar la búsqueda de backups a la carpeta del cliente activo (o incluir el store domain en el match). No se dispara con un solo cliente, pero cerrarlo antes de escalar.
 
 - [ ] **Step 4: Commit**
 
@@ -541,6 +543,7 @@ git commit -m "feat: runbook de conexión + calibración del hook al connector r
 - [ ] **Step 5:** Meter a propósito un output con em-dash / sin keyword y verificar que `description_lint` + checklist lo frenan antes del preview.
 - [ ] **Step 6:** Correr `reporte-tienda` (resultados/stock/alertas) y `armar-combo` y verificar output útil, sin jerga, sin escribir nada.
 - [ ] **Step 7:** Registrar resultados en `clients/blunua/worklog.md` y hacer commit.
+- [ ] **Step 8 (notas del review final):** documentar en el worklog dos límites conocidos y aceptados del v1: **(I3)** la ventana de recencia del hook es un *proxy* (exige "algún backup cubriente <15 min", no "se respaldó exactamente el valor que se sobrescribe"); riesgo bajo por ser single-operator secuencial. **(M3)** `description_lint` es *advisory* (lo corre el skill en el checklist §9), no un gate duro como el backup. Si alguno preocupa al ir a producción con volumen, tightening en una iteración posterior.
 
 ```bash
 git add clients/blunua/worklog.md
