@@ -25,6 +25,7 @@ Contrato de salida: exit 0 = permitir; exit 2 = BLOQUEAR (Claude Code solo
 bloquea con 2; un exit 1 es error no-bloqueante y el tool se ejecuta igual).
 """
 import sys, json, time, re
+from datetime import datetime
 from pathlib import Path
 
 # Acción (parte después de "Shopify:") que el skill usa para editar un producto:
@@ -159,8 +160,39 @@ def _product_id(tool_name: str, tool_input) -> str:
     return ""
 
 
-def _covering_backup_exists(backups_root: Path, product_id: str, now: float) -> bool:
+def _client_of(path: Path) -> str:
+    """Slug del cliente dueño del backup, si está bajo `clients/<slug>/`."""
+    parts = [p.lower() for p in path.parts]
+    if "clients" in parts:
+        i = parts.index("clients")
+        if i + 1 < len(parts):
+            return parts[i + 1]
+    return ""
+
+
+def _ts_fresh(data: dict, now: float) -> bool:
+    """Frescura por el `ts` del CONTENIDO, no solo por el mtime del archivo.
+
+    El mtime lo refresca cualquier operación de git: un `git pull` o un cambio de
+    branch toca todos los archivos del checkout, y eso resucitaba backups viejos
+    (una ventana en la que el guard quedaba efectivamente desactivado). El `ts`
+    viaja dentro del archivo y git no lo reescribe, así que exigimos los dos.
+    """
+    raw = data.get("ts")
+    if not isinstance(raw, str) or not raw.strip():
+        return False
+    try:
+        stamp = datetime.fromisoformat(raw.strip().replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return False
+    age = now - stamp
+    return -60 <= age <= RECENT_WINDOW_SECONDS   # tolera un minuto de desfase de reloj
+
+
+def _covering_backup(backups_root: Path, product_id: str, now: float):
+    """(hay_backup_valido, motivo_si_no). Recolecta todos los candidatos válidos."""
     tail = product_id.split("/")[-1]
+    hits = []
     for p in Path(backups_root).glob(f"**/backups/{tail}-*.json"):
         try:
             data = json.loads(p.read_text(encoding="utf-8"))
@@ -180,15 +212,31 @@ def _covering_backup_exists(backups_root: Path, product_id: str, now: float) -> 
             continue
         if now - p.stat().st_mtime > RECENT_WINDOW_SECONDS:
             continue
-        return True
-    return False
+        if not _ts_fresh(data, now):
+            continue
+        hits.append(p)
+
+    if not hits:
+        return False, None
+
+    # Los ids numéricos de Shopify son POR TIENDA: el mismo id puede existir en
+    # dos tiendas distintas. Si hay backups válidos bajo más de un cliente, no
+    # hay forma de saber cuál corresponde al write. Ante la duda, bloqueamos.
+    clientes = {c for c in (_client_of(p) for p in hits) if c}
+    if len(clientes) > 1:
+        return False, (f"hay backups de {sorted(clientes)} para el mismo id de producto. "
+                       "Los ids de Shopify son por tienda, así que no puedo saber cuál corresponde.")
+    return True, None
 
 
 def _check_backup(product_id: str, backups_root, now: float):
     if not product_id:
         return "block", "no pude identificar el producto del write"
-    if _covering_backup_exists(Path(backups_root), product_id, now):
+    ok, ambiguo = _covering_backup(Path(backups_root), product_id, now)
+    if ok:
         return "allow", "backup reciente encontrado"
+    if ambiguo:
+        return "block", ambiguo
     return "block", (f"Sin backup reciente para {product_id} que cubra {sorted(REQUIRED_BACKUP_FIELDS)}. "
                      "El skill debe guardar el backup antes de escribir.")
 

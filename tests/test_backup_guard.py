@@ -1,4 +1,5 @@
 import json, time, os, subprocess, sys
+from datetime import datetime
 from pathlib import Path
 import importlib.util
 
@@ -21,7 +22,8 @@ def write_backup(root, product_id=PID, fields=None, age_seconds=0):
     fields = FULL_FIELDS if fields is None else fields
     d = Path(root); d.mkdir(parents=True, exist_ok=True)
     p = d/f"{product_id.split('/')[-1]}-x.json"
-    p.write_text(json.dumps({"productId": product_id, "fields": fields, "ts": "x"}), encoding="utf-8")
+    ts = datetime.fromtimestamp(time.time() - age_seconds).isoformat()
+    p.write_text(json.dumps({"productId": product_id, "fields": fields, "ts": ts}), encoding="utf-8")
     if age_seconds:
         old = time.time() - age_seconds
         os.utime(p, (old, old))
@@ -209,3 +211,46 @@ def test_main_payload_ilegible_no_bloquea_todo(tmp_path):
     r = subprocess.run([sys.executable, str(GUARD)], input="no soy json",
                        capture_output=True, text=True)
     assert r.returncode == 0
+
+
+# --- FRESCURA: ts del contenido, no solo mtime del archivo ------------------
+# El mtime lo refresca cualquier operacion de git (un `git pull` toca todos los
+# archivos del checkout), lo que resucitaba backups viejos.
+
+def test_ts_viejo_con_mtime_fresco_es_bloqueado(tmp_path):
+    """Escenario git pull: mtime nuevo, contenido viejo. Debe bloquear."""
+    p = write_backup(tmp_path/"blunua/backups", age_seconds=100000)
+    os.utime(p, None)                      # mtime = ahora, como hace un checkout
+    assert time.time() - p.stat().st_mtime < 5   # el mtime quedo fresco de verdad
+    d, _ = bg.evaluate(UPDATE, tmp_path, time.time())
+    assert d == "block"
+
+def test_backup_sin_ts_es_bloqueado(tmp_path):
+    d0 = tmp_path/"blunua/backups"; d0.mkdir(parents=True)
+    (d0/"1-x.json").write_text(json.dumps({"productId": PID, "fields": FULL_FIELDS}),
+                               encoding="utf-8")
+    d, _ = bg.evaluate(UPDATE, tmp_path, time.time())
+    assert d == "block"
+
+def test_ts_ilegible_es_bloqueado(tmp_path):
+    d0 = tmp_path/"blunua/backups"; d0.mkdir(parents=True)
+    (d0/"1-x.json").write_text(json.dumps({"productId": PID, "fields": FULL_FIELDS, "ts": "ayer"}),
+                               encoding="utf-8")
+    d, _ = bg.evaluate(UPDATE, tmp_path, time.time())
+    assert d == "block"
+
+
+# --- SCOPING MULTI-CLIENTE --------------------------------------------------
+# Los ids numericos de Shopify son POR TIENDA: el mismo id puede existir en dos
+# tiendas. Ante backups de dos clientes para el mismo id, bloqueamos.
+
+def test_backups_de_dos_clientes_para_el_mismo_id_bloquean(tmp_path):
+    write_backup(tmp_path/"clients/blunua/backups")
+    write_backup(tmp_path/"clients/otrocliente/backups")
+    d, why = bg.evaluate(UPDATE, tmp_path, time.time())
+    assert d == "block" and "tienda" in why.lower()
+
+def test_un_solo_cliente_sigue_funcionando(tmp_path):
+    write_backup(tmp_path/"clients/blunua/backups")
+    d, _ = bg.evaluate(UPDATE, tmp_path, time.time())
+    assert d == "allow"

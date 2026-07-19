@@ -28,6 +28,11 @@
         "hooks": [
           {
             "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && python .claude/hooks/shopify_shell_guard.py",
+            "comment": "BLOCKING. Bloquea llamadas directas a la Admin API de Shopify por shell (curl/wget). backup_guard filtra por nombre de tool y es ciego a ese camino, que esquiva backup, alcance y gate."
+          },
+          {
+            "type": "command",
             "command": "cd \"$CLAUDE_PROJECT_DIR\" && python core/hooks/scripts/canonical-guard.py",
             "timeout": 5,
             "comment": "BLOCKING. Lee environment.forbiddenCommands de stack.json. Bypass: SKIP_CANONICAL=1."
