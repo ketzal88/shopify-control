@@ -61,5 +61,31 @@ Todas: adaptar a nuestro repo (registro sin jerga, humanizer, gates), no correr 
 5. **#5 (daily briefing)** como rutina por cliente.
 6. Tier 2 (imágenes + reporting multi-canal) cuando lleguemos a W2/W3.
 
+## Routines (automatizaciones programadas) — Gabriel las quiere
+
+**Runtime:** **Claude Code cloud routines** (`/schedule` → claude.ai/code/routines): prompt + repo(s) de GitHub (se clonan en cada run → así llegan los skills y el contexto por cliente) + connectors + trigger cron. Corre en infra de Anthropic (compu apagada). **Mínimo 1h.** El connector de Shopify y Slack están disponibles dentro de la routine, sin allowlist. Caveat: research preview + **tope diario de runs por cuenta**.
+
+**Formato de autoría:** robar el de **40rty** (YAML frontmatter `routine_id`/`cron`/`skills_used`/`notify` + prompt self-contained). **n8n** solo para sub-hora o checks deterministas (rompe el "todo native").
+
+**Escala 15 clientes (gotcha central):** NO crear 15 copias de cada routine (revienta el tope diario). Patrón: **una routine que loopea clientes con `switch-shop`** y postea a `#{cliente}-alerts`. O per-client accounts post-hand-off (D2).
+
+**Top 3 a construir:**
+1. **Briefing matutino** — envuelve `reporte-tienda` (read-only), mata el "loguearse a 15 admins cada mañana".
+2. **Low-stock / restock watchdog** — thresholds por cliente en `store-standards.md`; protege revenue en hero SKUs (NEXO/NUA).
+3. **Fraude / orden riesgosa** — el tag es write seguro; el hold va por gate. Construir con el patrón loop-all-stores desde el día 1.
+Otras: refund-rate spike, weekly business review, abandoned-cart (watch read-only; recovery por gate), SEO drift continuo (reemplaza el refresh trimestral §8.1 por continuo).
+
+## Merchandising intelligence + heatmap — idea de Gabriel
+
+Dos sentidos de "heatmap":
+- **Merchandising heatmap** (lo que pediste): grilla producto×métrica coloreada por performance (velocity, sell-through, margen) → acciones "featurear / reordenar / restock / despriorizar". Se arma con la data que **YA tenemos** (ShopifyQL + inventory).
+- **Behavioral heatmap** (dónde clickean/scrollean): **Microsoft Clarity** — gratis, app nativa de Shopify. Su Export API da solo **agregados por URL** (scroll depth, rage/dead clicks), NO la imagen del heatmap. Señal complementaria útil (¿llegan a ver los productos abajo del fold?). Hotjar: SKIP (su API es solo surveys). PostHog: REFERENCE (tiene MCP oficial).
+
+**Skill v1 propuesto `analizar-merchandising`:** `run-analytics-query` (ShopifyQL) + `get-inventory-levels` → por producto: **velocity, sell-through, clase ABC** (revenue + margen), **trend período-a-período** → render **heatmap con el skill `dataviz`** → acciones concretas:
+- **Reordenar:** `collectionReorderProducts` (sort `MANUAL`) para inyectar tu ranking, o flip a `BEST_SELLING`.
+- **Restock/disponibilidad:** reorder point simple = `velocity × lead-time + safety stock`.
+- **Despriorizar/discontinuar:** items clase C con sell-through <40%.
+Ojo: **necesita historial de ventas real** (dev store recién creada da vacío → el skill tiene que degradar con gracia: detectar "sin ventas aún" y caer a inventory + metadata).
+
 ## Fuentes
 40RTY-ai/shopify-admin-skills · kgelster/awesome-ecom-skills · shopify.dev/devmcp · dataforseo/mcp-server-typescript · google/schema-dts · googleanalytics/google-analytics-mcp · AminForou/mcp-gsc · developers.klaviyo.com/mcp · hesreallyhim/awesome-claude-code · anthropics/claude-plugins-official · zhongweili/nanobanana-mcp-server · higgsfield.ai/mcp · photoroom.com/api · GEO-optim/GEO · guides.tenfoldmarketing.com/shopify-claude-code · skills.40rty.ai
