@@ -12,7 +12,12 @@
 - Idioma / dialecto: **español neutro, sin voseo** (blunua es COP/Colombia).
 - Tono: amigable, sobrio, sin exagerar.
 - Vocabulario SÍ: duradera, no irrita, segura, minimalista, hipoalergénico, resistente al agua, para regalar, significativa, elegante pero sencilla.
-- Vocabulario NO: ⚠️ (definir. Evitar lujo-aspiracional y superlativos vacíos; no imitar a Pandora, Acero & Piedra, Joboly, Two Pieces, Maria Grazia Severin).
+- Vocabulario NO (curado 2026-07-19, fuente: brand-voice + anti-referencias):
+  - **Materiales que no son** (sería falso; el material es acero quirúrgico): oro, plata, oro laminado, chapado/enchapado, bañado en oro. Sí se puede describir el *acabado* ("tono dorado/plateado"), nunca como material.
+  - **Lujo-vacío / superlativos**: lujo, de lujo, exclusivo, glamour, deslumbrante, el/la mejor, único en el mundo, espectacular, increíble, de ensueño. (≠ "calidad premium", que la marca SÍ usa como garantía.)
+  - **Claims médicos**: cura, curativo, propiedades medicinales, mágico. Sí permitido: "no irrita", "apto para pieles sensibles".
+  - **Registro**: sin voseo ni argentinismos (Colombia, español neutro).
+  - No imitar a: Pandora, Acero & Piedra, Joboly, Two Pieces, Maria Grazia Severin.
 - Humanizer: OBLIGATORIO antes de todo output.
 
 ## 3. Estructura de descripción [ESTABLE] (molde canónico)
@@ -28,7 +33,13 @@
 
 ## 4. SEO [VIVO]
 - Keywords núcleo: acero quirúrgico, hipoalergénico, resistente al agua, joyería minimalista.
-- Keywords por categoría: ⚠️ (anillos / collares / pulseras / aros).
+- Keywords por categoría (curado 2026-07-19, fuente: Google Search Console 90d — términos donde blunua ya aparece; **términos colombianos**):
+  - **Aretes** (NO "aros" — Colombia dice "aretes"): aretes, aretes antialérgicos, aretes de acero quirúrgico, arete hipoalergénico, candongas, aretes de clip, ear cuff / earcuff, topos, aretes para niñas.
+  - **Anillos**: anillo ajustable, anillos delgados, anillo de acero, anillos de promesa. (Utilidades: medidor de anillos, tallas de anillos.)
+  - **Collares**: collares, choker, cadena hipoalergénica.
+  - **Pulseras**: sin demanda orgánica relevante hoy → hueco a vigilar.
+  - **Piercings**: piercings, piercing oreja.
+  - Ojo: pagan Ads por "titanio" pero el material es acero quirúrgico — no reclamar titanio salvo que sea real.
 - Meta title: patrón + máx ~60 caracteres.
 - Meta description: patrón + ~155 caracteres.
 - Handle/URL: minúsculas-con-guiones, incluye keyword. SOLO para productos NUEVOS (W3 futuro); en v1 NO se edita el handle de un producto existente (rompe su URL).
@@ -41,7 +52,7 @@
 ## 6. Naming / tags / categorías [ESTABLE]
 - Nombre: [Colección] + [tipo] + [material] + [color]
 - Tags obligatorios: colección (NEXO/NUA), material (acero quirúrgico), género.
-- Taxonomía de colecciones: ⚠️ (mapear las colecciones reales de la tienda).
+- Taxonomía de colecciones: ⚠️ BLOQUEADO — mapear las colecciones reales necesita el **Shopify real de blunua conectado** en Claude Code (hoy está la dev store). Del Brain: general / NUA / NEXO. Vocabulario de categoría = términos colombianos de §4 (aretes/candongas/topos, NO "aros").
 
 ## 7. Plantillas de imagen [ESTABLE] (placeholder para W2 futuro)
 - Colores de marca: #4B4B4B / #9CB0B1 / #CEC4BA / #E9E6DD

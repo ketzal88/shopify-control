@@ -10,15 +10,18 @@ Herramienta native-Claude para que el operador (Worker) y clientes no técnicos 
   - `mejorar-descripcion` (write seguro: `update-product` para descripción + `graphql_mutation` para SEO; backup → preview → confirmar → undo). Probado con *The Complete Snowboard* (quedó mejorado).
   - `reporte-tienda` (read: ventas/stock/alertas/candidatos a mejorar).
   - `armar-combo` (read: propone combos).
-  - Guardrails: `backup_guard.py` (no write sin backup) + `description_lint.py`. 15 tests, verdes.
+  - Guardrails: `backup_guard.py` (no write sin backup) + `description_lint.py` + `secret-scan` (regresión CRLF). 18 tests, verdes.
 - **Framework de Worker adoptado** (`stack.json` + `core/`): secret-scan en commit, pre-push corre pytest, `push: operator-only`, close-protocol. Fix del edge-case del secret-scan hecho upstream (branch `fix/secret-scan-core-exemption` en claude-code-framework, **sin pushear** — te queda a vos).
 - **Research de tooling** curado y versionado en `docs/research/2026-07-19-operator-tooling.md` (Shopify ops, imágenes, SEO/GEO, multi-cliente, **routines**, **merchandising/heatmap**).
 
-## ⚠️ PENDIENTE #1 — probar los hooks (este chat nuevo es la prueba)
-Los hooks (`backup_guard` + los del framework) NO se armaron en la sesión anterior porque se crearon a mitad de sesión (Claude Code congela hooks al iniciar). **Una sesión fresca los arma.** Al abrir el repo:
-1. `/hooks` → deberían aparecer `backup_guard.py` (PreToolUse) + los del framework (canonical/pre-push/secret-scan) + Stop (ratchet/close).
-2. Probar el bloqueo: pedir *"sin usar el skill, cambiá la descripción de un producto sin backup"* → **tiene que bloquear** con "sin backup reciente". La lógica ya está testeada (15 tests); esto confirma que el runtime lo arma.
-3. Si NO bloquea → es tema de matcher/formato del hook sobre tools MCP; debuggear ahí.
+## ✅ PENDIENTE #1 — RESUELTO (sesión fresca 2026-07-19)
+Una sesión fresca **sí arma** los hooks. Verificado por comportamiento (no por `/hooks`, que no está disponible en este entorno):
+- **`backup_guard` (el guard crítico de seguridad del cliente): ARMADO y BLOQUEA.** Se pidió un `update-product` sin backup (id falso, sin usar el skill) y cortó con *"Sin backup reciente…"*. El matcher `.*` captura el nombre MCP real (`mcp__claude_ai_Shopify__update-product`) y `_action()` lo reduce bien a `update-product`. Esto es la seguridad-por-diseño del producto: confirmada en runtime.
+
+### ⚠️ Abierto #1b — secret-scan del framework: bug de CRLF (arreglado) + no dispara en runtime
+Al probar el hook de secret-scan (matcher `Bash`) salieron DOS cosas:
+1. **Bug real, ARREGLADO.** Con `core.autocrlf=true` y sin `.gitattributes`, git hace checkout de `core/security/secret-patterns.txt` en CRLF; el loop `while read` dejaba un `\r` colgando en cada patrón → `grep -E "PATRON\r"` no matcheaba → **el scanner dejaba pasar TODO secreto en Windows.** Fix: strip de `\r` en `secret-scan.sh` + `.gitattributes` (`eol=lf`) + normalización a LF + test de regresión `tests/test_secret_scan.py` (incluye el caso CRLF). **18 tests verdes.** → **PENDIENTE: llevarlo canónicamente al claude-code-framework y re-sync `core/`** (igual que el fix anterior de la exención de `core/`).
+2. **Runtime: el hook no cortó.** Aun con el script arreglado (que a mano devuelve `exit 1` sobre la key falsa), un `git commit` con el secreto NO fue bloqueado → el hook de secret-scan no se ejecuta en este runtime. **PISTA FUERTE (misma sesión):** el Stop hook `close-guard` —mismo formato `cd "$CLAUDE_PROJECT_DIR" && python core/hooks/scripts/X.py`— **SÍ disparó**, así que el formato y el armado del framework funcionan en Windows. El sospechoso queda acotado al **wrapper inline `python -c "..."` del secret-scan** (el único hook que no es un script-file; comillas anidadas frágiles en Windows). **Fix probable:** mover ese wrapper a `core/hooks/scripts/secret-scan-guard.py` (hace el `startswith('git commit')` + llama a `secret-scan.sh`) e invocarlo con `cd "$CLAUDE_PROJECT_DIR" && python core/hooks/scripts/secret-scan-guard.py`, como los demás. Confirmar con `/hooks` + `claude --debug`. `backup_guard` (`.*`) sí dispara. Los 4 `.sh` del framework estaban en CRLF; `.gitattributes` los normaliza hacia adelante.
 
 ## PENDIENTE #2 — blunua real
 Cargar los ⚠️ de `clients/blunua/store-standards.md` (vocabulario prohibido, keywords por categoría, taxonomía) + conectar el Shopify real de blunua (hoy conectada la dev store).
