@@ -19,3 +19,7 @@ def test_too_short_is_flagged():
 def test_missing_keyword_is_flagged():
     txt = "Un anillo lindo y bonito para todos los dias, elegante y sencillo, ideal para regalar."
     assert any("keyword" in i.lower() for i in dl.lint(txt, KW, 3, 200))
+
+def test_too_long_is_flagged():
+    txt = "acero quirúrgico hipoalergénico " * 100
+    assert any("largo" in i.lower() for i in dl.lint(txt, KW, 3, 50))

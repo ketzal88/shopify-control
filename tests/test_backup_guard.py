@@ -1,6 +1,5 @@
 import json, time, os
 from pathlib import Path
-from datetime import datetime
 import importlib.util
 
 spec = importlib.util.spec_from_file_location("backup_guard", Path(__file__).parent.parent/".claude/hooks/backup_guard.py")
@@ -43,3 +42,15 @@ def test_stale_backup_is_blocked(tmp_path):
     write_backup(tmp_path/"blunua/backups", "gid://shopify/Product/1", {"body_html": "old"}, age_seconds=100000)
     d, _ = bg.evaluate(WRITE, tmp_path, time.time())
     assert d == "block"
+
+def test_non_dict_tool_input_on_write_is_blocked(tmp_path):
+    # Falla CERRADO: input inesperado en un write no debe permitir escribir sin backup.
+    payload = {"tool_name": "shopify_product_update", "tool_input": "oops"}
+    d, _ = bg.evaluate(payload, tmp_path, time.time())
+    assert d == "block"
+
+def test_shopify_read_is_allowed(tmp_path):
+    # Un read de Shopify (sin marker de acción de escritura) no se bloquea.
+    payload = {"tool_name": "shopify_product_get", "tool_input": {"id": "gid://shopify/Product/1"}}
+    d, _ = bg.evaluate(payload, tmp_path, time.time())
+    assert d == "allow"

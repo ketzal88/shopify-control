@@ -37,7 +37,10 @@ def evaluate(payload: dict, backups_root, now: float):
     tool_name = payload.get("tool_name", "")
     if not _is_shopify_product_write(tool_name):
         return "allow", "no es un write de producto de Shopify"
-    pid, fields = _write_target(payload.get("tool_input") or {})
+    tool_input = payload.get("tool_input") or {}
+    if not isinstance(tool_input, dict):
+        return "block", "tool_input inesperado en un write de Shopify"
+    pid, fields = _write_target(tool_input)
     if not pid or not fields:
         return "block", "no pude identificar producto/campos del write"
     if _covering_backup_exists(Path(backups_root), pid, fields, now):
@@ -46,9 +49,21 @@ def evaluate(payload: dict, backups_root, now: float):
                      "El skill debe guardar el backup antes de escribir.")
 
 def main():
-    payload = json.load(sys.stdin)
+    try:
+        payload = json.load(sys.stdin)
+    except Exception:
+        sys.exit(0)  # no pudimos leer el payload; no sabemos si es un write, no bloqueamos todo
+    if not isinstance(payload, dict):
+        sys.exit(0)
     backups_root = payload.get("cwd") or "."
-    decision, reason = evaluate(payload, backups_root, time.time())
+    try:
+        decision, reason = evaluate(payload, backups_root, time.time())
+    except Exception as e:
+        # Ante un error inesperado: si parece un write de Shopify, fallamos CERRADO (bloqueamos).
+        if _is_shopify_product_write(payload.get("tool_name", "")):
+            print(f"backup_guard error en un write de Shopify, bloqueo por seguridad: {e}", file=sys.stderr)
+            sys.exit(2)
+        sys.exit(0)
     if decision == "block":
         print(reason, file=sys.stderr)
         sys.exit(2)   # exit 2 = bloquea el tool y muestra stderr al modelo
