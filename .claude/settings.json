@@ -1,5 +1,16 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "deny": [
+      "mcp__claude_ai_Shopify__set-inventory",
+      "mcp__claude_ai_Shopify__bulk-update-product-status",
+      "mcp__claude_ai_Shopify__create-discount",
+      "mcp__claude_ai_Shopify__create-product",
+      "mcp__claude_ai_Shopify__create-collection",
+      "mcp__claude_ai_Shopify__update-collection",
+      "mcp__claude_ai_Shopify__add-to-collection"
+    ]
+  },
   "hooks": {
     "PreToolUse": [
       {
@@ -7,8 +18,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python .claude/hooks/backup_guard.py",
-            "comment": "BLOCKING. No permite un write de producto de Shopify (update-product / graphql productUpdate) sin un backup reciente que cubra los 3 campos. Ver spec §11."
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && python .claude/hooks/backup_guard.py",
+            "comment": "BLOCKING. Cuida los writes de Shopify: bloquea tools fuera de alcance, writes que toquen campos fuera de {descripcion, seo}, y writes sin backup reciente con valores reales. El cd es necesario: sin el, arrancar la sesion fuera de la raiz no encuentra el script. Ver spec §11."
           }
         ]
       },

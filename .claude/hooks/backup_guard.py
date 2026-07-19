@@ -1,25 +1,73 @@
-"""PreToolUse hook: bloquea un write de producto de Shopify si no hay un backup
-reciente que cubra los 3 campos en alcance del v1. Seguridad por diseño (spec §11).
+"""PreToolUse hook: cuida los writes de Shopify del v1.
 
-Calibrado al connector oficial de Shopify (Task 7):
-- La DESCRIPCIÓN se escribe con `Shopify:update-product` (campo `descriptionHtml`).
-- El SEO (meta title / description) se escribe con `Shopify:graphql_mutation`
-  usando `productUpdate { seo { title description } }`, porque update-product no
-  cubre SEO.
-Cualquiera de esos dos writes debe tener antes un backup que cubra los 3 campos.
-Otros tools de escritura del connector (set-inventory, create-discount, etc.) NO
-los vigila este hook en el v1: están fuera del flujo del skill (el "connector
-restringido" para el cliente es trabajo futuro, D2).
+Hace TRES cosas (antes hacía solo la primera, y por eso el alcance quedaba
+enforced únicamente por la prosa de los skills):
+
+1. ALCANCE DE TOOL: los tools de escritura del connector que el v1 no permite
+   (stock, status masivo, descuentos, colecciones, alta de productos) se
+   bloquean siempre. No hay backup que los habilite.
+2. ALCANCE DE CAMPOS: un `update-product` solo puede traer `id` +
+   `descriptionHtml`; una mutación de producto solo puede tocar
+   `descriptionHtml` y/o `seo`. Cualquier otra key de primer nivel (handle,
+   status, title, tags, variants, images...) bloquea. Antes, un backup válido
+   funcionaba como llave de 15 minutos para cambiar precio o status.
+3. BACKUP: sigue exigiendo un backup reciente que cubra los 3 campos, y ahora
+   además valida que los VALORES sean strings y no estén los tres vacíos (un
+   backup de placeholders satisfacía el guard y hacía que el "undo" borrara la
+   descripción original en vez de restaurarla).
+
+Calibrado al connector oficial de Shopify:
+- La DESCRIPCIÓN se escribe con `Shopify:update-product` (`descriptionHtml`).
+- El SEO se escribe con `Shopify:graphql_mutation` usando
+  `productUpdate { seo { title description } }`.
+
+Contrato de salida: exit 0 = permitir; exit 2 = BLOQUEAR (Claude Code solo
+bloquea con 2; un exit 1 es error no-bloqueante y el tool se ejecuta igual).
 """
 import sys, json, time, re
 from pathlib import Path
 
 # Acción (parte después de "Shopify:") que el skill usa para editar un producto:
 GUARDED_PRODUCT_ACTIONS = {"update-product"}
+# Lo único que un update-product puede traer en el v1:
+ALLOWED_UPDATE_KEYS = {"id", "descriptionhtml"}
+# Lo único que puede tocar un productUpdate en el v1 (keys de primer nivel):
+ALLOWED_PRODUCT_INPUT_KEYS = {"id", "descriptionhtml", "seo"}
 # Campos que el skill respalda SIEMPRE juntos (contrato con mejorar-descripcion):
 REQUIRED_BACKUP_FIELDS = {"descriptionHtml", "seo_title", "seo_description"}
 RECENT_WINDOW_SECONDS = 900  # 15 min
-GID_RE = re.compile(r"gid://shopify/Product/\d+")
+GID_RE = re.compile(r"gid://shopify/Product/\d+", re.I)
+
+# Tools de escritura del connector prohibidos en el v1 (alcance: descripción + SEO).
+FORBIDDEN_ACTIONS = {
+    "set-inventory",
+    "bulk-update-product-status",
+    "create-discount",
+    "create-product",
+    "create-collection",
+    "update-collection",
+    "add-to-collection",
+}
+
+# Mutaciones GraphQL prohibidas: tocan precio, stock, status, publicación o borran.
+FORBIDDEN_MUTATIONS = {
+    "productdelete",
+    "productvariantsbulkupdate",
+    "productvariantsbulkcreate",
+    "productvariantsbulkdelete",
+    "productchangestatus",
+    "inventorysetquantities",
+    "inventoryadjustquantities",
+    "inventoryactivate",
+    "discountcodebasiccreate",
+    "discountautomaticbasiccreate",
+    "collectioncreate",
+    "collectionupdate",
+    "collectionaddproducts",
+    "publishablepublish",
+    "publishableunpublish",
+    "productdeletemedia",
+}
 
 
 def _action(tool_name: str) -> str:
@@ -27,31 +75,89 @@ def _action(tool_name: str) -> str:
     # y el de display del app ("Shopify:update-product"). Devuelve "update-product".
     return re.split(r"__|:", (tool_name or ""))[-1].strip().lower()
 
-def _graphql_query(tool_input) -> str:
-    if isinstance(tool_input, dict):
-        return tool_input.get("query") or tool_input.get("mutation") or ""
-    return ""
 
-def _is_product_write(tool_name: str, tool_input) -> bool:
-    if "shopify" not in (tool_name or "").lower():
-        return False
-    action = _action(tool_name)
-    if action in GUARDED_PRODUCT_ACTIONS:
-        return True
-    if action == "graphql_mutation":
-        q = _graphql_query(tool_input).lower()
-        return "gid://shopify/product/" in q and (
-            "productupdate" in q or "seo" in q or "descriptionhtml" in q
-        )
-    return False
+def _is_shopify(tool_name: str) -> bool:
+    return "shopify" in (tool_name or "").lower()
+
+
+def _graphql_text(tool_input) -> str:
+    """Query + variables serializadas.
+
+    Incluir las variables es deliberado: la forma idiomática de GraphQL pasa el
+    id y los campos por `variables`, así que mirar solo el string del query
+    dejaba pasar cualquier mutación parametrizada sin ver el gid ni los campos.
+    """
+    if not isinstance(tool_input, dict):
+        return ""
+    text = tool_input.get("query") or tool_input.get("mutation") or ""
+    variables = tool_input.get("variables")
+    if variables is not None:
+        try:
+            text += " " + json.dumps(variables, ensure_ascii=False)
+        except Exception:
+            text += " " + str(variables)
+    return text
+
+
+def _balanced_object(text: str, start: int) -> str:
+    """Substring del objeto {...} que arranca en text[start] == '{'."""
+    depth = 0
+    for i in range(start, len(text)):
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start:i + 1]
+    return text[start:]
+
+
+def _top_level_keys(obj_text: str) -> set:
+    """Keys de primer nivel de un objeto tipo `{ id: "x", seo: { title: "y" } }`.
+
+    Colapsa los objetos anidados antes de buscar, para que `seo.title` NO cuente
+    como key de primer nivel. Esto es lo que permite aceptar la mutación de SEO
+    legítima y rechazar `handle`/`status` al tope del mismo objeto.
+    """
+    body = obj_text[1:-1] if obj_text.startswith("{") else obj_text
+    # Borrar los literales de string ANTES de buscar keys: un valor como
+    # "gid://shopify/Product/1" contiene "gid:" y se leería como key.
+    body = re.sub(r'"(?:[^"\\]|\\.)*"', " ", body)
+    body = re.sub(r"'(?:[^'\\]|\\.)*'", " ", body)
+    prev = None
+    while prev != body:
+        prev = body
+        body = re.sub(r"\{[^{}]*\}", " ", body)
+    return {m.group(1).lower() for m in re.finditer(r"(\w+)\s*:", body)}
+
+
+def _product_input_keys(text: str) -> set:
+    """Keys de primer nivel del objeto `product:` / `input:` de la mutación."""
+    m = re.search(r"\b(?:product|input)\s*:\s*\{", text, re.I)
+    if not m:
+        return set()
+    return _top_level_keys(_balanced_object(text, m.end() - 1))
+
+
+def _variables_product_keys(tool_input) -> set:
+    """Keys del objeto de producto pasado por `variables` (bypass del guard viejo)."""
+    keys = set()
+    variables = tool_input.get("variables") if isinstance(tool_input, dict) else None
+    if isinstance(variables, dict):
+        for value in variables.values():
+            if isinstance(value, dict) and any(str(k).lower() == "id" for k in value):
+                keys |= {str(k).lower() for k in value.keys()}
+    return keys
+
 
 def _product_id(tool_name: str, tool_input) -> str:
     if _action(tool_name) == "graphql_mutation":
-        m = GID_RE.search(_graphql_query(tool_input))
+        m = GID_RE.search(_graphql_text(tool_input))
         return m.group(0) if m else ""
     if isinstance(tool_input, dict):
         return tool_input.get("id") or tool_input.get("productId") or ""
     return ""
+
 
 def _covering_backup_exists(backups_root: Path, product_id: str, now: float) -> bool:
     tail = product_id.split("/")[-1]
@@ -62,25 +168,73 @@ def _covering_backup_exists(backups_root: Path, product_id: str, now: float) -> 
             continue
         if data.get("productId") != product_id:
             continue
-        if not REQUIRED_BACKUP_FIELDS.issubset(set((data.get("fields") or {}).keys())):
+        fields = data.get("fields") or {}
+        if not REQUIRED_BACKUP_FIELDS.issubset(set(fields.keys())):
+            continue
+        # Los valores tienen que ser strings de verdad. Un backup de placeholders
+        # satisfacía el guard y después el "undo" restauraba vacío.
+        values = [fields.get(k) for k in REQUIRED_BACKUP_FIELDS]
+        if any(not isinstance(v, str) for v in values):
+            continue
+        if all(not v.strip() for v in values):
             continue
         if now - p.stat().st_mtime > RECENT_WINDOW_SECONDS:
             continue
         return True
     return False
 
+
+def _check_backup(product_id: str, backups_root, now: float):
+    if not product_id:
+        return "block", "no pude identificar el producto del write"
+    if _covering_backup_exists(Path(backups_root), product_id, now):
+        return "allow", "backup reciente encontrado"
+    return "block", (f"Sin backup reciente para {product_id} que cubra {sorted(REQUIRED_BACKUP_FIELDS)}. "
+                     "El skill debe guardar el backup antes de escribir.")
+
+
 def evaluate(payload: dict, backups_root, now: float):
     tool_name = payload.get("tool_name", "")
     tool_input = payload.get("tool_input")
-    if not _is_product_write(tool_name, tool_input):
-        return "allow", "no es un write de producto vigilado"
-    pid = _product_id(tool_name, tool_input)
-    if not pid:
-        return "block", "no pude identificar el producto del write"
-    if _covering_backup_exists(Path(backups_root), pid, now):
-        return "allow", "backup reciente encontrado"
-    return "block", (f"Sin backup reciente para {pid} que cubra {sorted(REQUIRED_BACKUP_FIELDS)}. "
-                     "El skill debe guardar el backup antes de escribir.")
+    if not _is_shopify(tool_name):
+        return "allow", "no es un tool de Shopify"
+
+    action = _action(tool_name)
+
+    # 1. Tools de escritura fuera del alcance del v1: bloqueo estructural.
+    if action in FORBIDDEN_ACTIONS:
+        return "block", (f"'{action}' está fuera del alcance del v1 (solo descripción y SEO). "
+                         "Precio, stock, status, colecciones y descuentos no se tocan desde acá.")
+
+    # 2. update-product: solo descripción.
+    if action in GUARDED_PRODUCT_ACTIONS:
+        if not isinstance(tool_input, dict):
+            return "block", "no pude leer los campos del write"
+        extra = {k.lower() for k in tool_input.keys()} - ALLOWED_UPDATE_KEYS
+        if extra:
+            return "block", (f"write fuera de alcance: {sorted(extra)}. "
+                             "En el v1 update-product solo puede tocar la descripción.")
+        return _check_backup(tool_input.get("id") or "", backups_root, now)
+
+    # 3. graphql_mutation: solo productUpdate de descripción y/o SEO.
+    if action == "graphql_mutation":
+        text = _graphql_text(tool_input)
+        low = text.lower()
+        for mutation in FORBIDDEN_MUTATIONS:
+            if mutation in low:
+                return "block", (f"la mutación '{mutation}' está fuera del alcance del v1 "
+                                 "(toca precio, stock, status, publicación o borra).")
+        if "productupdate" not in low and not GID_RE.search(text):
+            return "allow", "no es un write de producto vigilado"
+        keys = _product_input_keys(text) | _variables_product_keys(tool_input)
+        extra = keys - ALLOWED_PRODUCT_INPUT_KEYS
+        if extra:
+            return "block", (f"write fuera de alcance: {sorted(extra)}. "
+                             "En el v1 una mutación de producto solo puede tocar descripción y SEO.")
+        return _check_backup(_product_id(tool_name, tool_input), backups_root, now)
+
+    return "allow", "no es un write de producto vigilado"
+
 
 def main():
     try:
@@ -93,15 +247,18 @@ def main():
     try:
         decision, reason = evaluate(payload, backups_root, time.time())
     except Exception as e:
-        # Ante un error inesperado: si parece un write de producto, fallamos CERRADO.
-        if _is_product_write(payload.get("tool_name", ""), payload.get("tool_input")):
-            print(f"backup_guard error en un write de Shopify, bloqueo por seguridad: {e}", file=sys.stderr)
+        # Ante un error inesperado sobre un tool de Shopify, fallamos CERRADO.
+        # Se evalúa solo el nombre del tool (no vuelve a llamar a la lógica que
+        # pudo haber lanzado) para que este camino no pueda fallar abierto.
+        if _is_shopify(payload.get("tool_name", "")):
+            print(f"backup_guard error en un tool de Shopify, bloqueo por seguridad: {e}", file=sys.stderr)
             sys.exit(2)
         sys.exit(0)
     if decision == "block":
         print(reason, file=sys.stderr)
         sys.exit(2)   # exit 2 = bloquea el tool y muestra stderr al modelo
     sys.exit(0)
+
 
 if __name__ == "__main__":
     main()
