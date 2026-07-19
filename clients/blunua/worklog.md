@@ -4,6 +4,20 @@ Append-only. Cada write deja una entrada: `## YYYY-MM-DD [write] producto — ba
 
 <!-- nuevas entradas arriba -->
 
+## 2026-07-19 [undo + redo] Collar Amaral — backups: ...-202103.json y ...-202226.json
+
+Prueba del ciclo completo de reversión sobre datos reales, para validar la red de seguridad
+antes de presentarle la herramienta al cliente. El producto quedó con la versión mejorada.
+
+- **Undo:** se restauraron los 3 campos al valor previo. Verificado por hash SHA-256: los tres
+  quedaron **idénticos carácter por carácter** al backup de las 20:08, no "parecidos".
+- **Redo:** se volvió a aplicar la mejora, así que el producto terminó con la versión buena.
+- **Qué NO cambió en ningún momento del ciclo:** precio ($129.000), stock (140), estado
+  (ACTIVE) y handle. Verificado leyendo la tienda, no asumido.
+- **Backups generados:** `...-202103.json` (valor nuevo, es el que habilita el redo) y
+  `...-202226.json` (valor viejo, antes de re-aplicar). Cada write respaldó lo que iba a pisar,
+  que es lo que hace que cada paso del ciclo sea a su vez reversible.
+
 ## 2026-07-19 [write] Collar Amaral — backup: 9999944450369-20260719-200814.json
 
 **Primer write real sobre la tienda de blunua.** Deja sin efecto el "todavía no se le escribió
