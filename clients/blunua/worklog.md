@@ -4,6 +4,26 @@ Append-only. Cada write deja una entrada: `## YYYY-MM-DD [write] producto — ba
 
 <!-- nuevas entradas arriba -->
 
+## 2026-07-19 [write] Collar Amaral — backup: 9999944450369-20260719-200814.json
+
+**Primer write real sobre la tienda de blunua.** Deja sin efecto el "todavía no se le escribió
+nada" de la entrada de abajo. Producto elegido a propósito por bajo riesgo: cero ventas en 30
+días, aunque activo y con 140 unidades en stock.
+
+- **Qué cambió:** descripción (`descriptionHtml`) y SEO (`seo.title`, `seo.description`).
+- **Qué NO cambió:** precio ($129.000), stock (140), estado (ACTIVE), tags y handle. Verificado
+  en la respuesta de los dos writes, no asumido.
+- **Mejoras aplicadas:** se agregó bloque de preguntas frecuentes (no tenía ninguna), se acortó
+  el título de Google de 72 a 57 caracteres (se estaba cortando en el buscador), se quitó
+  "sin esfuerzo" que aparecía repetido dos veces, y se limpió el HTML pegado de un editor
+  (`data-start`/`data-end`, `<strong>` vacíos).
+- **Checklist:** `description_lint` pasó sin issues ANTES del preview.
+- **Qué validó del v1:** este write ejercitó las dos lecturas separadas (descripción con
+  `get-product`, SEO con `graphql_query`), que es el arreglo del bug por el que el backup
+  quedaba con el SEO vacío y el undo lo borraba. El backup guardó los 3 campos con contenido
+  real (678 / 72 / 165 caracteres). El write del SEO se mandó por `variables`, que era
+  justamente el camino que antes esquivaba el guard.
+
 ## 2026-07-19 [corrección] El hook SÍ bloquea + aclaración sobre las entradas viejas
 Dos cosas, para que nadie lea mal este log:
 
