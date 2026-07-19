@@ -1,0 +1,6 @@
+# Los scripts de hook y sus patrones DEBEN quedar en LF en el árbol de trabajo.
+# Con core.autocrlf=true (default en Windows), sin esto git los hace checkout en
+# CRLF y el secret-scan lee patrones con \r colgando -> deja pasar todo. Ver
+# core/hooks/scripts/secret-scan.sh (strip de \r como defensa adicional).
+*.sh              text eol=lf
+core/security/*.txt text eol=lf

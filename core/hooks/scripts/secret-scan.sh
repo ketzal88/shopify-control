@@ -40,6 +40,10 @@ FOUND=0
 
 if [ -f "$PATTERNS_FILE" ]; then
     while IFS= read -r pattern || [ -n "$pattern" ]; do
+        # Tolera un patterns.txt con line-endings CRLF (checkout de Windows con
+        # core.autocrlf=true): sin esto, cada patrón queda con un \r colgando y
+        # `grep -E "PATRON\r"` no matchea nada -> el scanner deja pasar TODO.
+        pattern="${pattern%$'\r'}"
         [[ "$pattern" =~ ^[[:space:]]*# ]] && continue
         [[ -z "${pattern// }" ]] && continue
         if echo "$DIFF" | grep -qiE "$pattern" 2>/dev/null; then
