@@ -2,14 +2,16 @@
 
 - **Fecha:** 2026-07-19
 - **Autor:** Gabriel (Worker) + Claude
-- **Estado:** Diseño aprobado en brainstorm, pendiente de review
+- **Estado:** v1 construido y validado end-to-end contra el connector real. Este doc está **actualizado a lo que se construyó** (2026-07-19): las secciones con nota "corregido en implementación" difieren del diseño original a propósito.
 - **Cliente piloto:** blunua (joyería de acero quirúrgico, COP/Colombia, Brain ID `LO4ob4dUxOggwTSlm07v`)
 
 ---
 
 ## 1. Contexto y objetivo
 
-Worker quiere una herramienta para que un cliente de ecommerce **no técnico** controle y mejore su tienda Shopify hablándole a Claude (app de Claude o VSCode/Claude Code), sin depender de que Gabriel apruebe cada acción.
+Worker quiere una herramienta para que un cliente de ecommerce **no técnico** controle y mejore su tienda Shopify hablándole a Claude, sin depender de que Gabriel apruebe cada acción.
+
+> **Corregido en implementación:** el runtime del v1 es **VS Code + la extensión de Claude Code, abierta en la RAÍZ de este repo**. No el app de Claude pelado. El app no carga los skills ni los hooks, así que el connector escribiría sin ninguna de las capas de seguridad de §11. Ver §10.
 
 Casos de uso pedidos:
 - Preguntar sobre resultados, stock y alertas de la tienda.
@@ -78,11 +80,17 @@ shopify-control/
 ├── README.md                     ← entrada no técnica (para blunua)
 ├── .mcp.json                     ← config/instrucción de conexión al connector de Shopify
 ├── .claude/
-│   ├── settings.json             ← hook guardrail: "no write sin backup logueado"
+│   ├── settings.json             ← permissions.deny + registro de hooks (propios y del framework)
+│   ├── hooks/
+│   │   ├── backup_guard.py       ← guard de writes: alcance de tool, alcance de campos, backup
+│   │   └── description_lint.py   ← linter mecánico del checklist (ejecutable por CLI)
 │   └── skills/
 │       ├── mejorar-descripcion/  ← W1 (write win del v1)
 │       ├── reporte-tienda/       ← R1 (Q&A / resultados / stock / alertas, read)
 │       └── armar-combo/          ← R2 (recomendador de combos, read-only)
+├── core/                         ← claude-code-framework de Worker (hooks de calidad/seguridad)
+├── stack.json                    ← manifest del framework: test, secret-scan, pre-push, close-protocol
+├── tests/                        ← pytest de backup_guard, description_lint y secret-scan
 ├── clients/
 │   ├── _template/                ← scaffold del próximo cliente (escala sin refactor)
 │   │   ├── CLAUDE.md
@@ -100,17 +108,31 @@ shopify-control/
 ```
 
 Decisiones de diseño:
-1. `clients/{slug}/` sigue la convención de handsOn. El cliente arranca Claude desde `clients/blunua/` y se auto-carga su contexto scopeado (sin context bleed entre clientes).
+1. ~~El cliente arranca Claude desde `clients/blunua/` y se auto-carga su contexto scopeado.~~ **Corregido en implementación: la sesión se abre SIEMPRE en la RAÍZ del repo, nunca en `clients/{slug}/`.** Claude Code busca `.claude/` en la carpeta que abrís: desde el subfolder no hay hooks ni skills, pero el connector de Shopify **sí sigue estando disponible y escribiendo**. Es la peor combinación posible (manos sin guardrails), así que abrir el subfolder queda prohibido. `clients/{slug}/` sigue siendo la convención de handsOn para guardar el contexto, pero ese contexto ya no se auto-carga.
+   - **Corolario:** como el contexto del cliente no entra solo, **los tres skills arrancan con un paso 0 obligatorio**: identificar el cliente activo, leer su `CLAUDE.md` + `store-standards.md`, y confirmar con `Shopify:get-shop-info` contra qué tienda está apuntando el connector, comparándola con `connection.md`. Si no coinciden, se aborta. (`switch-shop` existe: la tienda conectada no es un dato asumible.)
 2. `store-standards.md` es el artefacto nuevo (operación de producto). **Referencia** la `brand-voice.md` de blunua en handsOn, no la duplica.
 3. `worklog.md` + `backups/` son la red de seguridad (el undo que el connector no trae).
-4. El hook en `settings.json` puede forzar que no haya write sin backup logueado.
+4. El hook en `settings.json` fuerza que no haya write sin backup logueado, y además acota qué campos puede tocar cada write (§11).
 5. Los skills viven en el repo (un set sirve a todos los clientes); el contexto lo pone el folder del cliente.
+6. `core/` + `stack.json` son el **claude-code-framework de Worker**, adoptado config-driven. Aporta gates de repo (secret-scan en commit, tests en pre-push, `push: operator-only`, close-protocol) que **conviven** con los guardrails propios: los del framework matchean `Bash` (commits/pushes), el nuestro matchea `.*` (los writes de Shopify). Ver §11 capa 4.
 
 ---
 
 ## 6. Flujo de escritura seguro: `mejorar-descripcion`
 
-**Campos en alcance para v1 (el "field set" canónico):** descripción (`body_html`), meta title (SEO) y meta description (SEO). El **handle/URL queda FUERA** (cambiarlo rompe la URL del producto y genera 404s). Estos 3 campos se leen, respaldan, previsualizan, escriben y revierten **siempre juntos, como un solo set**. Es la regla que mantiene el undo consistente.
+**Campos en alcance para v1 (el "field set" canónico):** descripción (`descriptionHtml`), meta title (`seo.title`) y meta description (`seo.description`). El **handle/URL queda FUERA** (cambiarlo rompe la URL del producto y genera 404s). Estos 3 campos se leen, respaldan, previsualizan, escriben y revierten **siempre juntos, como un solo set**. Es la regla que mantiene el undo consistente.
+
+> **Corregido en implementación (vocabulario real del connector).** El diseño original decía `body_html` y hablaba de un solo write. Contra el connector oficial son **dos writes distintos**:
+> - **Descripción:** `Shopify:update-product` con `{ id, descriptionHtml }`.
+> - **SEO:** `Shopify:graphql_mutation` con `productUpdate(product:{ id, seo:{ title, description } })`. Se usa `product:`, no `input:` (deprecado).
+>
+> Y **dos lecturas distintas**, que es donde estuvo el bug real:
+> - **Descripción:** `Shopify:get-product` → `descriptionHtml`.
+> - **SEO:** `Shopify:graphql_query` → `product(id:$id){ seo { title description } }`.
+>
+> ⚠️ **`get-product` NO devuelve el SEO.** Backupear lo que devuelve `get-product` y nada más deja el backup con el SEO vacío, y entonces un "vuelve a la anterior" **borra** el título y el resumen SEO reales del cliente en vez de restaurarlos. Pasó de verdad; por eso el guard hoy exige que el backup traiga valores string no vacíos (§11 capa 2).
+>
+> **El SEO NO va por metafields.** El diseño y el plan asumían los metafields `global.title_tag` / `global.description_tag`. Es falso para este camino: el SEO se lee y se escribe como el campo nativo `seo` del producto.
 
 Flujo fijo, siempre igual:
 
@@ -118,9 +140,10 @@ Flujo fijo, siempre igual:
 1. IDENTIFICAR    "mejorá la descripción del anillo NEXO plateado"
                   → el connector busca el producto. Si hay +1 match, muestra
                     opciones y pregunta cuál. NUNCA adivina qué producto editar.
-2. LEER           el connector trae el estado actual de los 3 campos en alcance
-                  (body_html + meta title + meta description) + contexto de solo
-                  lectura (título del producto, tags, fotos) para razonar.
+2. LEER           el estado actual de los 3 campos, en DOS lecturas: get-product
+                  para descriptionHtml y graphql_query para seo{title,description}
+                  (get-product no trae el SEO), + contexto de solo lectura
+                  (título del producto, tags, fotos) para razonar.
 3. CARGAR CONTEXTO store-standards.md + brand-voice (link handsOn).
 4. GENERAR        cuerpo según el molde canónico de store-standards §3
                   (título → hook → beneficios → material/garantía → bloque GEO Q&A),
@@ -132,12 +155,24 @@ Flujo fijo, siempre igual:
 5. PREVIEW        ANTES vs DESPUÉS de los 3 campos, en el chat, texto claro, sin jerga
                   (incluye cómo se verán el título y el resumen en Google).
 6. GATE           NADA se escribe hasta que el cliente dice "sí, aplicá". Explícito.
-7. BACKUP         guarda los 3 campos viejos en backups/{producto}-{fecha}.md
-                  + entrada en worklog. (el hook verifica que el backup existe)
-8. ESCRIBIR       recién ahí el connector hace el update de los 3 campos en alcance.
+7. BACKUP         guarda los 3 campos viejos en backups/{productIdTail}-{fecha}.json
+                  + entrada en worklog. (el hook verifica que el backup existe,
+                  que cubre los 3 campos y que los valores son REALES)
+8. ESCRIBIR       recién ahí, DOS writes: update-product para la descripción y
+                  graphql_mutation (productUpdate) para el SEO.
                   NO toca precio, stock, status ni handle/URL.
 9. CONFIRMAR      "Listo. Para revertir: 'volvé a la anterior'."
 ```
+
+> **Formato de backup: `.json`, no `.md`.** El diseño original decía `.md`; el plan lo cambió a `.json` **a propósito** y así quedó implementado, porque el hook tiene que leerlo programáticamente para decidir si permite el write. No "corregirlo" de vuelta a `.md`. Contrato exacto:
+>
+> ```json
+> { "productId": "gid://shopify/Product/123",
+>   "fields": { "descriptionHtml": "...", "seo_title": "...", "seo_description": "..." },
+>   "ts": "2026-07-19T12:00:00" }
+> ```
+>
+> Las keys de `fields` son exactamente esas tres y van **siempre juntas**. El campo `ts` es informativo: la frescura la mide el guard por el mtime del archivo, no por `ts`.
 
 **Escritura en lote** (ej: las 12 descripciones de NEXO): mismo flujo, preview resumido de los 12, backup de los 12, un solo gate de confirmación. Nunca escribe sin ese gate.
 
@@ -221,6 +256,8 @@ Skill para construir los nuevos: `skill-creator`.
 
 **Dependencia (importante):** estos skills viven en handsOn-Worker y en plugins. En el entorno de Gabriel están disponibles, así que el v1 (Gabriel operando) los invoca directo. Para el hand-off a blunua (su app de Claude) hay que **empaquetar los skills necesarios** junto con shopify-control (ver §13, D2). Verificar en planning qué skills son imprescindibles para el runtime del cliente vs cuáles son solo de setup (Gabriel).
 
+> **Corregido en implementación:** el `humanizer` **no es invocable como skill desde este repo** (vive en handsOn-Worker, que no es un skill descubrible acá). Sigue siendo obligatorio, pero se cumple leyendo `handsOn-Worker/skills/humanizer/SKILL.md` y aplicando sus reglas a mano. Es una dependencia de disponibilidad, no de diseño: refuerza que el empaquetado (§13, D2) es condición para el hand-off.
+
 ---
 
 ## 8. store-standards.md (estructura)
@@ -278,7 +315,7 @@ Doc curado por cliente. Los campos marcados ⚠️ hay que completarlos con Gabr
    • Estilo: minimalista, fondo limpio + ⚠️ (specs cuando lleguemos a imágenes)
 
 8. QUÉ NO TOCAR (alcance seguro)
-   • Los skills solo tocan el field set del v1: body_html + meta title + meta description
+   • Los skills solo tocan el field set del v1: descriptionHtml + seo.title + seo.description
    • NUNCA precio, stock, status ni handle/URL sin gate estructural (OK de Gabriel)
    • Star products (NEXO, NUA, colección general): cuidado extra
 
@@ -286,6 +323,12 @@ Doc curado por cliente. Los campos marcados ⚠️ hay que completarlos con Gabr
    ☐ pasó humanizer   ☐ registro neutro sin voseo   ☐ tiene keyword
    ☐ tiene bloque GEO  ☐ longitud OK   ☐ vocabulario de marca
    ☐ sin palabras prohibidas
+   → La mayoría de estos ítems los chequea MECÁNICAMENTE description_lint.py,
+     que se corre por CLI sobre el TEXTO PLANO (no el HTML):
+       python .claude/hooks/description_lint.py --keywords "..." --dialect neutro
+     Cubre: em-dash, longitud, keyword, materiales falsos (oro/plata/chapado),
+     lujo-vacío, claims médicos, voseo y presencia de bloque GEO.
+     Quedan a mano: que el humanizer haya corrido y el vocabulario de marca.
 
 10. SEÑALES DEL BRAIN [placeholder futuro]
     → keywords que convierten (seo-gaps), ángulos que ganaron (creative-intelligence),
@@ -327,18 +370,60 @@ Los campos del doc no cambian al mismo ritmo:
 - Scopes acotados para v1: lectura de productos/analytics (reportes) + `write_products` (descripciones). Nada más.
 - ⚠️ La conexión OAuth es interactiva (la hace Gabriel/cliente en la app, no se puede automatizar desde una sesión headless).
 
+**Dónde se abre la sesión (decisión tomada, no negociable):** siempre en la **RAÍZ del repo**, desde VS Code con la extensión de Claude Code, logueado con la cuenta que tiene el connector. Nunca en `clients/{slug}/` ni en el app de Claude pelado: en esos dos casos el connector escribe igual pero no se cargan los skills ni los hooks, así que se pierden todas las capas de §11. Ver §5, decisión 1.
+
+**El connector no está anclado a una tienda.** `switch-shop` existe y la conexión puede estar apuntando a otra tienda de la que uno cree. Por eso los skills verifican con `get-shop-info` contra `connection.md` antes de operar, y abortan si no coinciden.
+
 ---
 
 ## 11. Modelo de seguridad (consolidado)
 
-Gabriel no es gate. La seguridad la dan 4 capas, en orden de fuerza:
+Gabriel no es gate. La seguridad la da la herramienta.
 
-1. **Alcance acotado por diseño del skill:** `mejorar-descripcion` solo toca el field set del v1 (`body_html` + meta title + meta description). No toca precio, stock, status ni handle/URL. El daño posible queda limitado a campos de texto reversibles.
-2. **Backup obligatorio antes de todo write** + `PreToolUse` hook que bloquea la mutación de Shopify si no hay backup logueado en la sesión. El hook inspecciona los args de la llamada MCP (product id + campos a mutar) y exige que exista una entrada en `backups/` de ESE producto y ESOS campos, creada en la sesión actual; si el set de campos del backup no cubre el set del write, bloquea. (Seguridad en la herramienta, no solo en la instrucción del skill.)
-3. **Preview + confirmación explícita** del cliente antes de escribir.
-4. **Undo en 1 paso** desde el último backup.
+> **Corregido en implementación.** El diseño original ponía casi todo el peso en una capa (el hook de backup) y confiaba el alcance a la **prosa del skill**. Eso dejaba dos agujeros reales: (a) las tools peligrosas del connector seguían siendo alcanzables, y (b) un backup válido funcionaba como llave de 15 minutos para escribir *cualquier* campo, incluido precio o status. Hoy el alcance está enforced por código, en cuatro capas independientes.
 
-Nota honesta: el connector oficial escribe **inmediato, sin rollback nativo**. Por eso el backup/undo lo implementa el skill. El único escenario que justificaría un MCP custom es querer que sea *físicamente imposible* (no "el skill no lo hace") que el cliente toque algo peligroso. No es necesario para el v1 ni para el hand-off de descripciones. Ver sección 13.
+### Capa 1: `permissions.deny` (la tool ni siquiera es alcanzable)
+
+En `.claude/settings.json`, 7 tools de escritura del connector están denegadas a nivel de permisos, así que no hay skill ni prompt que las invoque:
+
+`set-inventory`, `bulk-update-product-status`, `create-discount`, `create-product`, `create-collection`, `update-collection`, `add-to-collection`.
+
+Es la capa más fuerte porque no depende de que nadie razone bien. Aproxima el "físicamente imposible" que antes se pensaba que requería un MCP custom.
+
+### Capa 2: `backup_guard.py` (`PreToolUse`, matcher `.*`), que hace alcance de tool, alcance de CAMPOS y backup
+
+Hace tres cosas, no una:
+
+1. **Alcance de tool.** Las mismas 7 acciones de la capa 1, más una lista de mutaciones GraphQL prohibidas (`productDelete`, `productVariantsBulkUpdate`, `productChangeStatus`, `inventorySetQuantities`, `collectionUpdate`, `publishablePublish`, etc.), se bloquean siempre. No hay backup que las habilite. Es defensa en profundidad: cubre el camino GraphQL, que `permissions.deny` no puede enumerar.
+2. **Alcance de campos** (esto es lo nuevo). Un `update-product` solo puede traer `{id, descriptionHtml}`; una mutación de producto solo `{id, descriptionHtml, seo}`. Cualquier otra key de primer nivel (handle, status, title, tags, variants, images) bloquea. Para el camino GraphQL el guard lee **el query y también `tool_input.variables`**: mirar solo el string del query dejaba pasar cualquier `productUpdate` parametrizado, que es la forma idiomática de escribir GraphQL.
+3. **Backup con valores reales.** Sigue exigiendo un backup reciente (15 min) que cubra los 3 campos, y además valida que los valores sean strings y no estén los tres vacíos. Un backup de placeholders satisfacía el guard viejo y hacía que el undo borrara la descripción original en vez de restaurarla.
+
+**Contrato de bloqueo: `exit 2`.** Claude Code bloquea un tool **solo** con exit 2; un `exit 1` es un error no-bloqueante y el tool se ejecuta igual. No es un detalle: fue exactamente el bug que tuvo el secret-scan del framework (ver `docs/HANDOFF.md` #1b). Ante una excepción inesperada sobre un tool de Shopify, el guard **falla cerrado** (bloquea).
+
+### Capa 3: `description_lint.py` (calidad enforced, no autorreportada)
+
+Antes cubría 3 ítems del checklist y **no era ejecutable** (no tenía CLI), así que el "corré el lint" del skill era autorreportado. Hoy se corre de verdad por CLI, sobre el texto plano, y bloquea: materiales falsos (oro/plata/chapado, cuando el material es acero quirúrgico), lujo-vacío y superlativos, claims médicos, voseo cuando el registro es neutro, más em-dash, longitud, keyword y presencia de bloque GEO.
+
+Sigue siendo **advisory respecto del write** (lo corre el skill antes del preview; no es un `PreToolUse` que corte la mutación). Protege la marca, no la tienda.
+
+### Capa 4: el framework de Worker (`core/` + `stack.json`), gates de repo
+
+Adoptado config-driven, matcher `Bash`, conviviendo con el guard propio:
+
+- **secret-scan** bloqueante en cada `git commit` (tokens de tienda, API keys).
+- **pre-push** corre los tests (`python -m pytest -q`); `push: operator-only`.
+- **close-protocol** bloqueante si el turno cierra con código sin commitear.
+- **canonical-guard** sobre los comandos prohibidos declarados en `stack.json`.
+
+Es la capa que protege el repo (que la herramienta no filtre credenciales ni se degrade), no la tienda del cliente.
+
+### Y encima de las cuatro
+- **Preview + confirmación explícita** del cliente antes de escribir.
+- **Undo en 1 paso** desde el último backup.
+
+Nota honesta: el connector oficial escribe **inmediato, sin rollback nativo**. Por eso el backup/undo lo implementa el skill.
+
+**Límites conocidos y aceptados** (ver §15): la frescura del backup es un proxy, el glob de backups no está scopeado por cliente, y las capas 2 y 3 no cubren un bypass por shell.
 
 ---
 
@@ -346,6 +431,11 @@ Nota honesta: el connector oficial escribe **inmediato, sin rollback nativo**. P
 
 - Cliente nuevo = copiar `clients/_template/`, completar los campos ⚠️ de `store-standards.md`, documentar `connection.md`, conectar el connector.
 - Los skills no se tocan (sirven a todos). El contexto lo pone el folder del cliente.
+- Los guardrails tampoco se tocan: `permissions.deny`, `backup_guard` y los gates del framework son del repo, así que un cliente nuevo los hereda sin configurar nada. Es la razón principal por la que la sesión se abre en la raíz (§5, decisión 1).
+
+**A cerrar antes del 2º cliente (no se dispara con uno solo):**
+- **Scoping multi-cliente del backup.** El glob de `backup_guard` es repo-wide (`**/backups/{tail}-*.json`) y los gid de Shopify son **por tienda**: dos tiendas distintas pueden tener `Product/123`. Con un cliente no hay colisión posible; con dos, el backup de un cliente podría habilitar un write sobre el otro. Hay que limitar la búsqueda a la carpeta del cliente activo, o incluir el store domain en el match.
+- **Confirmación de tienda por sesión.** El paso 0 de los skills (`get-shop-info` vs `connection.md`) ya cubre el caso "el connector apunta a otra tienda", pero es una verificación del skill, no del guard. Con varios clientes conviene bajarla también a código.
 
 ---
 
@@ -360,7 +450,7 @@ Ordenado por valor/proximidad estimada:
 - **D2 — Empaquetado para el hand-off:** shopify-control como plugin/connector propio para el cliente en la app de Claude (candidato: patrón tipo ShopMCP). Incluye **empaquetar los skills reutilizados imprescindibles** para el runtime del cliente (§7.1), no solo los skills nuevos.
 - **Onboarding y refresh como skills:** `onboardear-cliente` (llena los inputs de §16 una vez) y `refrescar-estandares` (corre el ritual trimestral de §8.1). En v1 son tareas manuales de Gabriel.
 - **Preview con botón interactivo** (artifact runtime) en vez de responder por texto, si se justifica.
-- **MCP custom constrained:** solo si se necesita hacer imposible por diseño el acceso a ops peligrosas.
+- **MCP custom constrained:** casi descartado. `permissions.deny` + el alcance de campos del guard (§11, capas 1 y 2) ya dan el "imposible por diseño" que motivaba esta idea, sin mantener un MCP propio. Solo volvería a la mesa si hiciera falta cubrir un actor con acceso a shell, que hoy está fuera del modelo de amenaza (§15).
 
 ---
 
@@ -372,7 +462,10 @@ Ordenado por valor/proximidad estimada:
 | Cliente no técnico se asusta con jerga y no confía | Regla sin-jerga + preview claro + gate simple sí/no (secciones 6.1, 9) |
 | Output suena a IA y daña la marca | Humanizer obligatorio + checklist (secciones 8.9, 9) |
 | Registro equivocado (voseo en tienda colombiana) | Registro fijado en store-standards.md por cliente |
-| Connector expone ops peligrosas (borrar, precios) | Scope acotado + skill que no las incluye; MCP custom solo si hace falta |
+| Connector expone ops peligrosas (borrar, precios) | Resuelto por código, no por prosa: `permissions.deny` sobre 7 tools de escritura + lista de mutaciones GraphQL prohibidas y alcance de campos en `backup_guard` (§11, capas 1 y 2) |
+| Sesión abierta en el subfolder o en el app pelado: connector con manos, sin guardrails | Regla dura: la sesión se abre siempre en la raíz (§5 decisión 1, §10) + paso 0 de los skills que confirma cliente y tienda |
+| El connector apunta a otra tienda de la que uno cree (`switch-shop`) | Paso 0: `get-shop-info` contra `connection.md`, y se aborta si no coinciden (§10) |
+| Un backup de placeholders o con el SEO vacío hace que el undo borre en vez de restaurar | El guard exige valores string no vacíos; el skill lee el SEO con `graphql_query` porque `get-product` no lo trae (§6, §11 capa 2) |
 | Ambigüedad de producto al editar | Paso 1 nunca adivina: muestra matches y pregunta |
 | Skills reutilizados no disponibles en el entorno del cliente | En v1 opera Gabriel (los tiene). Para el hand-off se empaquetan los imprescindibles (§7.1, §13 D2) |
 | SEO/GEO se congela el día de la instalación | Estándares con parte viva + ritual de refresh trimestral (§8.1) |
@@ -381,12 +474,26 @@ Ordenado por valor/proximidad estimada:
 
 ## 15. Testing / validación
 
-- Probar `mejorar-descripcion` end-to-end en un **producto de prueba** de blunua (o store de desarrollo) antes de tocar productos reales.
-- Verificar que el hook bloquea un write sin backup, y también un write cuyos campos no estén todos cubiertos por el backup.
-- Verificar el undo: revertir deja los **3 campos** (`body_html` + meta title + meta description) idénticos al original.
-- Verificar que el humanizer + checklist frenan un output con em-dashes / voseo / sin keyword.
-- Verificar el flujo de lote (gate único, backups completos de los 3 campos por producto).
-- Verificar (planning-time) que Claude Code descubre los skills de `.claude/skills/` del root cuando el cliente arranca desde `clients/blunua/`; si no, ajustar dónde viven los skills o desde dónde arranca.
+**Ya verificado** (dev store *Testing StandAlone Framework*, producto *The Complete Snowboard*; detalle en `docs/HANDOFF.md` y en `clients/blunua/worklog.md`):
+
+- ✅ `mejorar-descripcion` end-to-end contra el connector real: leer los 3 campos, generar, preview, gate, backup, los dos writes (`update-product` + `productUpdate`), verificado por read-back del Admin API.
+- ✅ **El hook bloquea un write sin backup.** Verificado en sesión fresca de VS Code, por comportamiento: un `update-product` sin backup previo se corta con *"Sin backup reciente…"*. El matcher `.*` captura el nombre MCP real (`mcp__claude_ai_Shopify__update-product`) y el guard lo reduce bien a `update-product`.
+- ✅ **El contrato de bloqueo es `exit 2`.** Un `exit 1` NO bloquea: es un error no-bloqueante y el tool se ejecuta igual. Se descubrió porque el secret-scan del framework devolvía 1 y por eso nunca bloqueó un commit, en ninguna plataforma (`HANDOFF.md` #1b).
+- ✅ Undo y redo: ciclo reversible probado, inmediato y diferido.
+- ✅ `reporte-tienda` y `armar-combo`: lectura contra el connector real, sin escribir nada.
+- ✅ `pytest`: 18 tests verdes (backup_guard, description_lint, secret-scan con su regresión de CRLF).
+- ✅ **Descubrimiento de hooks y skills desde el subfolder: NO funciona.** Abrir `clients/blunua/` deja la sesión sin `.claude/`, o sea sin hooks ni skills, mientras el connector sigue escribiendo. Resuelto por decisión, no por workaround: la sesión se abre siempre en la raíz (§5, decisión 1; §10).
+
+**Límites conocidos y aceptados del v1** (se están cerrando en la tanda actual):
+
+- **Frescura del backup: es un proxy.** El guard exige "existe algún backup cubriente con mtime < 15 min", no "se respaldó exactamente el valor que se está por sobrescribir". Riesgo bajo mientras sea single-operator y secuencial.
+- **Scoping multi-cliente:** el glob de backups es repo-wide y los gid son por tienda. Ver §12.
+- **Bypass por shell:** las capas 1 a 3 cubren los tools del connector. Nada impide que alguien con acceso al repo llame al Admin API por su cuenta desde una terminal. El modelo de amenaza del v1 es "el operador o el cliente se equivocan", no "un actor hostil con shell".
+- **`description_lint` es advisory** respecto del write: corre en el checklist del skill, no como gate duro.
+
+**Pendiente de verificar:**
+- El flujo de lote (gate único, backups completos por producto, revalidación de la ventana de 15 min a mitad de lote).
+- Todo lo anterior contra la tienda **real** de blunua, no la dev store.
 
 ---
 
@@ -413,5 +520,12 @@ El onboarding y el refresh son tareas de Gabriel, no del cliente. Candidatos a f
 - Hay 3 tipos de MCP de Shopify: **Storefront** (read, customer-facing), **Sidekick** (IA dentro del admin), **Admin/Dev** (read-write). Usamos Admin.
 - Los writes del connector son inmediatos, sin capa de borrador ni rollback: el backup/undo es responsabilidad nuestra (skill).
 - Post-enero 2026, los apps de Shopify usan Client ID + Client Secret del Dev Dashboard.
+
+**Verificado contra el connector real (2026-07-19):**
+- La descripción se escribe con `Shopify:update-product` (`descriptionHtml`) y se lee con `Shopify:get-product`.
+- El SEO se escribe con `Shopify:graphql_mutation` → `productUpdate(product:{ id, seo:{ title, description } })` y se lee con `Shopify:graphql_query` → `product(id:$id){ seo { title description } }`. **No** se usan los metafields `global.title_tag` / `global.description_tag`: esa suposición del diseño original era falsa para este camino.
+- `get-product` **no devuelve** el bloque `seo`. Es la causa del bug de backup con SEO vacío (§6).
+- En `productUpdate` se usa el argumento `product:`; `input:` está deprecado.
+- `Shopify:validate_graphql_codeblocks` sirve para validar la mutación antes de mandarla.
 
 Fuentes: shopify.dev (Storefront/Admin MCP docs), claudefa.st (Shopify MCP for Claude Code 2026), github.com/miller-joe/shopify-mcp, polaranalytics.com (Shopify MCP guide), claude.com/connectors/shopify.
