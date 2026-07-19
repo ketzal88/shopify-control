@@ -1,0 +1,4 @@
+{
+  "//": "Placeholder. El connector de Shopify se conecta vía la app de Claude (OAuth) por tienda. Ver docs/runbooks/conectar-tienda.md. Cuando se conozca el nombre del server MCP, documentarlo acá.",
+  "mcpServers": {}
+}
