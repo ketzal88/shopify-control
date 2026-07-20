@@ -1,0 +1,8 @@
+{
+  "maxDiscountPct": 30,
+  "maxDurationDays": 90,
+  "maxTiers": 4,
+  "requireEndsAt": true,
+  "allowCollectionScope": false,
+  "enabledStrategies": ["automatic"]
+}
