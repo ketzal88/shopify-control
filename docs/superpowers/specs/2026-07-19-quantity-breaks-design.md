@@ -54,9 +54,14 @@ Worker Brain). Este diseño se queda con la decisión y usa el motor nativo de S
 | **Descuento** | Objeto nativo (`DiscountAutomaticNode` o `DiscountCodeNode`) | Al publicar la oferta | de la estrategia (§6) |
 | **Guardrail** | Extensión de `backup_guard.py` + `deal-policy.json` | — | del techo por cliente |
 
-**Propiedad de aislamiento clave:** el widget lee del metafield y de nada más. El metafield lleva
-**todo** lo que el widget necesita bajo cualquiera de las dos estrategias (§5), así que las
-incógnitas de §14 no cambian el schema ni el widget — solo qué mutaciones usa el skill.
+**Propiedad de aislamiento (con un límite real):** el widget lee del metafield y de nada más, y el
+metafield lleva **todo** lo que el widget necesita bajo cualquiera de las dos estrategias (§5). Por
+eso **las incógnitas A y B** de §14 no tocan schema ni widget: solo cambian qué mutaciones usa el
+skill.
+
+**La incógnita C sí toca el widget.** Si el umbral de cantidad resulta ser a nivel carrito, la
+mitigación obliga a exigir N de la misma variante, o sea a sacar los selectores mezclables de §4.6.
+No se puede planificar el widget como independiente de los tests: C es su precondición.
 
 **Nota honesta sobre "estrategia intercambiable":** shopify-control no tiene runtime propio (son
 skills en markdown + hooks de Python que solo hacen de guarda). La intercambiabilidad **no es
@@ -453,7 +458,7 @@ Lo mismo para `metafieldsSet`: se bloquea cualquier namespace distinto de `worke
 
 | Mutación | Condiciones |
 |---|---|
-| `discountAutomaticBasicCreate` | `endsAt` presente · duración ≤ `maxDurationDays` · pct ≤ `maxDiscountPct` (§9.4) · `items.products` con ids explícitos · backup de deal fresco (§7.4) |
+| `discountAutomaticBasicCreate` | `endsAt` presente · duración ≤ `maxDurationDays` · pct ≤ `maxDiscountPct` (§9.4) · **`items.products` o `items.productVariants`**, con ids explícitos en cualquiera de los dos · backup de deal fresco (§7.4) |
 | `discountCodeBasicCreate` | **las mismas condiciones** + `"codes" in enabledStrategies` |
 | `discountAutomaticDeactivate` | el `id` debe estar referenciado por algún `ref` de un `worker.deal` del cliente activo. Sin backup (§7.4) |
 | `discountCodeDeactivate` | ídem |
@@ -560,9 +565,9 @@ armar-combo (opcional)          Brain: co-compra, histograma de ticket
 
 | Caso | Comportamiento |
 |---|---|
-| Falla al crear parte de los descuentos | Vence los ya creados y aborta. No se escribe metafield parcial. |
-| Falla `metafieldsSet` | Vence los nuevos. La oferta vieja (si había) sigue intacta — ver §7.2 |
-| Falla el vencido de los viejos | Estado seguro (§7.2 fila c). Se registra en worklog y se reporta. |
+| Falla al crear parte de los descuentos | Desactiva los ya creados y aborta. No se escribe metafield parcial. |
+| Falla `metafieldsSet` | Desactiva los nuevos. La oferta vieja (si había) sigue intacta — ver §7.2 |
+| Falla la desactivación de los viejos | Ver §7.2 fila (c): NO es inocuo. Se reintenta, se registra en worklog y se reporta. |
 | El producto ya tiene oferta activa | Preview ANTES vs DESPUÉS. Al confirmar, orden de §7.2 |
 | Descuentos huérfanos (con prefijo, no referenciados por el metafield) | `sacar escalones` los detecta y ofrece desactivarlos (§7.3) |
 | El % pedido supera el techo | El guard bloquea; el skill explica el límite sin jerga |
