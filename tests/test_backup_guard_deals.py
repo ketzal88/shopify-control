@@ -459,3 +459,121 @@ def test_detectors_are_not_blind_to_digits_in_mutation_names(tmp_path):
 
     # Y el detector devuelve el nombre COMPLETO, con digito incluido.
     assert bg._collection_mutations("collectionAddProductsV2(") == ["collectionaddproductsv2"]
+
+
+# --- metafield worker.deal (spec §9.1, §9.3) --------------------------------
+
+def metafield_set(tiers, namespace="worker", key="deal"):
+    value = json.dumps({"version": 1, "type": "quantity_breaks", "tiers": tiers,
+                        "strategy": "automatic", "startsAt": "2026-07-20T00:00:00Z",
+                        "endsAt": "2026-10-18T00:00:00Z"})
+    return {"tool_name": T_GQL, "tool_input": {
+        "query": "mutation ($m: [MetafieldsSetInput!]!) { metafieldsSet(metafields: $m) { metafields { id } } }",
+        "variables": {"m": [{"ownerId": PID, "namespace": namespace, "key": key,
+                             "type": "json", "value": value}]}}}
+
+TIERS_OK = [{"qty": 1, "pct": 0}, {"qty": 2, "pct": 10, "highlight": True}]
+
+def test_metafield_happy_path(tmp_path):
+    policy(tmp_path); write_deal_backup(tmp_path)
+    d, _ = bg.evaluate(metafield_set(TIERS_OK), tmp_path, time.time())
+    assert d == "allow"
+
+def test_metafield_pct_over_ceiling_is_blocked(tmp_path):
+    policy(tmp_path); write_deal_backup(tmp_path)
+    d, _ = bg.evaluate(metafield_set([{"qty": 1, "pct": 0}, {"qty": 2, "pct": 90}]),
+                       tmp_path, time.time())
+    assert d == "block"
+
+def test_metafield_too_many_tiers_is_blocked(tmp_path):
+    policy(tmp_path, maxTiers=2); write_deal_backup(tmp_path)
+    tiers = [{"qty": n, "pct": n} for n in range(1, 6)]
+    d, _ = bg.evaluate(metafield_set(tiers), tmp_path, time.time())
+    assert d == "block"
+
+def test_metafield_other_namespace_is_blocked(tmp_path):
+    policy(tmp_path); write_deal_backup(tmp_path)
+    d, _ = bg.evaluate(metafield_set(TIERS_OK, namespace="otro"), tmp_path, time.time())
+    assert d == "block"
+
+def test_metafield_without_backup_is_blocked(tmp_path):
+    policy(tmp_path)
+    d, _ = bg.evaluate(metafield_set(TIERS_OK), tmp_path, time.time())
+    assert d == "block"
+
+def test_metafield_empty_tiers_is_allowed(tmp_path):
+    """`sacar escalones` escribe tiers: [] — tiene que poder."""
+    policy(tmp_path); write_deal_backup(tmp_path)
+    d, _ = bg.evaluate(metafield_set([]), tmp_path, time.time())
+    assert d == "allow"
+
+# --- schema de §5, que el spec afirma "verificado por el guard" -------------
+
+def test_metafield_unordered_tiers_is_blocked(tmp_path):
+    policy(tmp_path); write_deal_backup(tmp_path)
+    d, _ = bg.evaluate(metafield_set(
+        [{"qty": 1, "pct": 0}, {"qty": 5, "pct": 20, "highlight": True}, {"qty": 3, "pct": 10}]),
+        tmp_path, time.time())
+    assert d == "block"
+
+def test_metafield_duplicate_qty_is_blocked(tmp_path):
+    policy(tmp_path); write_deal_backup(tmp_path)
+    d, _ = bg.evaluate(metafield_set(
+        [{"qty": 1, "pct": 0}, {"qty": 2, "pct": 10, "highlight": True}, {"qty": 2, "pct": 15}]),
+        tmp_path, time.time())
+    assert d == "block"
+
+def test_metafield_first_tier_with_discount_is_blocked(tmp_path):
+    policy(tmp_path); write_deal_backup(tmp_path)
+    d, _ = bg.evaluate(metafield_set(
+        [{"qty": 1, "pct": 5}, {"qty": 2, "pct": 10, "highlight": True}]),
+        tmp_path, time.time())
+    assert d == "block"
+
+def test_metafield_needs_exactly_one_highlight(tmp_path):
+    policy(tmp_path); write_deal_backup(tmp_path)
+    for tiers in (
+        [{"qty": 1, "pct": 0}, {"qty": 2, "pct": 10}],                                    # ninguno
+        [{"qty": 1, "pct": 0}, {"qty": 2, "pct": 10, "highlight": True},
+         {"qty": 3, "pct": 15, "highlight": True}],                                       # dos
+    ):
+        d, _ = bg.evaluate(metafield_set(tiers), tmp_path, time.time())
+        assert d == "block"
+
+
+# --- vacio es DESCONOCIDO, no limpio, tambien en el metafield ---------------
+# Misma clase de agujero que cerro la Task 3 en la rama de producto: un parse
+# que sale vacio significa "no pude leerlo", NUNCA "no hay nada fuera de
+# alcance". Si un parse vacio satisficiera el chequeo de namespace en el vacio,
+# el techo del metafield no existiria.
+
+def test_metafield_with_empty_list_is_blocked(tmp_path):
+    """`metafields: []` no deja nada que verificar: no hay namespace, no hay
+    tiers y no hay ownerId con el que buscar el backup."""
+    policy(tmp_path); write_deal_backup(tmp_path)
+    p = {"tool_name": T_GQL, "tool_input": {
+        "query": "mutation ($m: [MetafieldsSetInput!]!) { metafieldsSet(metafields: $m) { metafields { id } } }",
+        "variables": {"m": []}}}
+    d, why = bg.evaluate(p, tmp_path, time.time())
+    assert d == "block", why
+
+def test_metafield_entry_without_namespace_is_blocked(tmp_path):
+    """Una entrada sin `namespace`/`key` legibles no puede pasar el chequeo de
+    namespace por ausencia: `None != "worker"` tiene que bloquear."""
+    policy(tmp_path); write_deal_backup(tmp_path)
+    p = {"tool_name": T_GQL, "tool_input": {
+        "query": "mutation ($m: [MetafieldsSetInput!]!) { metafieldsSet(metafields: $m) { metafields { id } } }",
+        "variables": {"m": [{"ownerId": PID, "type": "json", "value": "{}"}]}}}
+    d, why = bg.evaluate(p, tmp_path, time.time())
+    assert d == "block", why
+
+def test_metafield_inline_in_the_query_is_blocked(tmp_path):
+    """El parse estructural lee `variables`, no el texto del query. Un
+    metafieldsSet con las entradas inline sale VACIO del parse, y vacio es
+    desconocido: bloquea. Falla cerrado, que es el lado correcto."""
+    policy(tmp_path); write_deal_backup(tmp_path)
+    p = {"tool_name": T_GQL, "tool_input": {
+        "query": 'mutation { metafieldsSet(metafields: [{ownerId: "%s", namespace: "worker", '
+                 'key: "deal", value: "{}", type: "json"}]) { metafields { id } } }' % PID}}
+    d, why = bg.evaluate(p, tmp_path, time.time())
+    assert d == "block", why

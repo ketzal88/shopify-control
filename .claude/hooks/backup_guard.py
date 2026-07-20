@@ -444,6 +444,80 @@ def _duration_days(starts, ends):
     return (e - s).days
 
 
+def _check_metafield(tool_input, backups_root, now: float):
+    """metafieldsSet: solo `worker.deal`, con techo (spec §9.1, §9.3)."""
+    variables = (tool_input or {}).get("variables") or {}
+    entries = []
+    for value in variables.values():
+        if isinstance(value, list):
+            entries.extend(x for x in value if isinstance(x, dict))
+        elif isinstance(value, dict) and "namespace" in value:
+            entries.append(value)
+    if not entries:
+        return "block", "no pude leer el metafield que se está escribiendo."
+
+    policy = load_policy(backups_root)
+    if policy is None:
+        return "block", "no encontré una política de ofertas única (deal-policy.json)."
+
+    owner = ""
+    for e in entries:
+        if e.get("namespace") != "worker" or e.get("key") != "deal":
+            return "block", (f"solo se puede escribir el metafield worker.deal, "
+                             f"no {e.get('namespace')}.{e.get('key')}.")
+        owner = e.get("ownerId") or owner
+        try:
+            data = json.loads(e.get("value") or "{}")
+        except Exception:
+            return "block", "el contenido de la oferta no es JSON válido."
+        tiers = data.get("tiers")
+        if not isinstance(tiers, list):
+            return "block", "la oferta no tiene escalones."
+        if len(tiers) > policy["maxTiers"]:
+            return "block", (f"la oferta tiene {len(tiers)} escalones y el máximo "
+                             f"es {policy['maxTiers']}.")
+        why = _check_tiers_schema(tiers, policy)
+        if why:
+            return "block", why
+
+    ok, why = _covering_deal_backup(backups_root, owner, now)
+    return ("allow", "ok") if ok else ("block", why)
+
+
+def _check_tiers_schema(tiers, policy):
+    """Reglas del schema de §5. Devuelve el motivo del bloqueo, o None.
+
+    §5 del spec dice que estas reglas están "todas verificadas por el guard".
+    Sin esto, esa afirmación sería falsa y el widget podría recibir una oferta
+    incoherente (escalones desordenados, dos destacados, cantidades repetidas).
+    """
+    if not tiers:
+        return None                      # tiers: [] es "sacar la oferta", válido
+    qtys = []
+    for t in tiers:
+        if not isinstance(t, dict):
+            return "cada escalón tiene que ser un objeto."
+        qty, pct = t.get("qty"), t.get("pct")
+        if not isinstance(qty, int) or qty < 1:
+            return "cada escalón necesita una cantidad entera de 1 o más."
+        if not isinstance(pct, int) or not (0 <= pct <= 100):
+            return "cada escalón necesita un porcentaje entero entre 0 y 100."
+        if pct > policy["maxDiscountPct"]:
+            return (f"un escalón tiene {pct}% y el máximo para este cliente es "
+                    f"{policy['maxDiscountPct']}%.")
+        qtys.append(qty)
+    if qtys != sorted(qtys):
+        return "los escalones tienen que estar ordenados de menor a mayor cantidad."
+    if len(set(qtys)) != len(qtys):
+        return "hay dos escalones con la misma cantidad."
+    if tiers[0].get("pct") != 0:
+        return "el primer escalón no puede tener descuento."
+    destacados = sum(1 for t in tiers if t.get("highlight"))
+    if destacados != 1:
+        return "tiene que haber exactamente un escalón destacado."
+    return None
+
+
 def _check_backup(product_id: str, backups_root, now: float):
     if not product_id:
         return "block", "no pude identificar el producto del write"
@@ -520,7 +594,9 @@ def evaluate(payload: dict, backups_root, now: float):
         if names:
             return _check_discount(names, tool_input, backups_root, now)
 
-        # 3. ← acá va el dispatch del metafield, en la Task 4. No lo agregues todavía.
+        # 3. Metafield de oferta. ANTES del fallthrough por GID_RE.
+        if "metafieldsset" in low:
+            return _check_metafield(tool_input, backups_root, now)
 
         # Familia de producto: whitelist CERRADA, por nombre y antes del control
         # de campos. El control de campos solo mira el objeto `input: {...}` /
