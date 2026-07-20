@@ -34,12 +34,17 @@ contra `clients/{slug}/connection.md`). Si no coinciden, se aborta.
 4. **Todo write:** confirmar tienda → cargar contexto → identificar → leer → generar → humanizer →
    checklist → preview → gate → backup → escribir → confirmar. Nunca escribir sin backup +
    confirmación explícita. **El undo también es un write** y lleva el mismo protocolo.
-5. **Alcance de escritura v1:** solo descripción (`descriptionHtml`, vía `Shopify:update-product`)
-   + SEO meta title/description (`seo.title`/`seo.description`, vía `Shopify:graphql_mutation`).
-   NUNCA precio, stock, status, tags, título ni handle/URL.
+5. **Alcance de escritura:** dos clases, cada una con su guardrail.
+   - **Texto:** descripción (`descriptionHtml`, vía `Shopify:update-product`) + SEO meta
+     title/description (`seo.title`/`seo.description`, vía `Shopify:graphql_mutation`).
+   - **Ofertas:** escalones por cantidad — descuentos nativos + metafield `worker.deal`, con
+     techo por cliente en `deal-policy.json` que el hook enforcea. Ver
+     `docs/superpowers/specs/2026-07-19-quantity-breaks-design.md`.
+   - NUNCA precio de lista, stock, status, tags, título ni handle/URL.
    **Esto está enforced por diseño, no por prosa:** `permissions.deny` en `settings.json` bloquea
    los tools fuera de alcance (stock, descuentos, colecciones, alta de productos), y
-   `backup_guard` bloquea cualquier write que toque un campo fuera de `{descripción, seo}`.
+   `backup_guard` bloquea cualquier write fuera de esas dos clases: campos fuera de
+   `{descripción, seo}`, y descuentos o `worker.deal` que no cumplan el techo de `deal-policy.json`.
 
 ## Estructura
 - `.claude/skills/` — procedimientos (sirven a todos los clientes)

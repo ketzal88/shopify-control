@@ -47,8 +47,10 @@
 - Estilo: ⚠️ (specs cuando lleguemos a imágenes)
 
 ## 8. Qué no tocar (alcance seguro) [ESTABLE]
-- Los skills solo tocan el field set del v1: descripción (`descriptionHtml`, vía `update-product`) + SEO (`seo.title`/`seo.description`, vía `graphql_mutation`).
-- NUNCA precio, stock, status ni handle/URL sin gate estructural (OK de Gabriel).
+- Los skills tocan dos field sets, cada uno con su guardrail:
+  - **Texto:** descripción (`descriptionHtml`, vía `update-product`) + SEO (`seo.title`/`seo.description`, vía `graphql_mutation`).
+  - **Ofertas:** escalones por cantidad — descuentos nativos + metafield `worker.deal`, con el techo de §11.
+- NUNCA precio de lista, stock, status ni handle/URL.
 - Star products: ⚠️ (cuidado extra).
 
 ## 9. Checklist "listo para publicar" (el skill lo corre antes del preview)
@@ -63,3 +65,11 @@
 
 ## 10. Señales del Brain [VIVO] (placeholder futuro)
 → keywords que convierten (seo-gaps), ángulos que ganaron (creative-intelligence), co-compra real (customer-intelligence). Enriquece §4 y §5.
+
+## 11. Ofertas — escalones por cantidad [ESTABLE]
+- La política vive en `deal-policy.json` (misma carpeta). **Ese archivo es la fuente de verdad:
+  lo lee el hook.** Esta sección solo lo explica en palabras.
+- Techo actual: **30%** máximo por escalón, **90 días** máximo de duración, **4 escalones** máximo.
+- Toda oferta necesita fecha de fin. No hay ofertas eternas.
+- Nunca a nivel colección ni sobre todo el catálogo: siempre productos o variantes explícitos.
+- Para sacar una oferta se **desactiva**, no se borra: queda el registro de qué se ofreció y cuándo.
