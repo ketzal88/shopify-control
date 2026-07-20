@@ -442,7 +442,7 @@ def test_collection_mutations_are_blocked(tmp_path):
 
 
 def test_detectors_are_not_blind_to_digits_in_mutation_names(tmp_path):
-    """Los tres detectores usaban `[A-Za-z]*`, que se corta en el primer digito.
+    r"""Los tres detectores usaban `[A-Za-z]*`, que se corta en el primer digito.
 
     `collectionAddProductsV2` no matcheaba: [A-Za-z]* paraba en la V, el `2` no
     es letra y el `\(` no llegaba. Shopify usa sufijos V2/V3 de forma habitual,

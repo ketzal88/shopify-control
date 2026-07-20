@@ -142,6 +142,114 @@ deshabilitando.** Eso es una falla de seguridad con otro nombre.
 
 ---
 
+## Ronda 2: lo que encontró el review adversarial final
+
+Los siete de arriba salieron de **implementar**. Estos cuatro salieron de **atacar** — un review
+final que escribió ~60 payloads y los ejecutó. **Dos los introdujo este milestone.**
+
+### 8. El señuelo que anulaba todo el techo de una sola vez
+
+**Severidad: alta. Introducido por este milestone.** El peor hallazgo de todos.
+
+`_discount_input` devolvía **el primer** dict de `variables` que tuviera `customerGets`. El query
+declara cuál variable usa realmente, y el guard **nunca los correlacionaba**. Las variables
+sobrantes las ignora el servidor.
+
+```json
+query: "mutation ($real: DiscountAutomaticBasicInput!) { discountAutomaticBasicCreate(automaticBasicDiscount: $real) {...} }"
+variables: {
+  "aaa_decoy": { 5%, 12 días, un producto },        ← el guard validaba ESTE
+  "real":      { 100%, 10 años, colección entera }  ← Shopify ejecutaba ESTE
+}
+```
+
+En una sola llamada se salteaban `maxDiscountPct`, `maxDurationDays`, `allowCollectionScope` **y**
+el bloqueo de `items.all`. Construimos un techo y era evitable poniendo un decorado adelante.
+
+**Cerrado en `eeca31c`** — se validan **todos** los candidatos; más de uno se rechaza. No se intenta
+correlacionar cuál nombra el query: ese parseo falla abierto, rechazar la ambigüedad falla cerrado.
+
+### 9. En `metafieldsSet` en lote, el último backup autorizaba al primero
+
+**Severidad: alta. Introducido por este milestone.** Peor de lo que decía el review.
+
+El loop **sí** validaba todas las entradas, pero `owner = e.get("ownerId") or owner` se
+reasignaba en cada vuelta. Dos entradas impecables sobre productos distintos pasaban con **un solo
+backup**: el del segundo autorizaba la escritura del primero, que quedaba **sin undo**.
+
+Estaba documentado en "Qué queda abierto" como una relajación acotada. Era un fail-open.
+
+**Cerrado en `eeca31c`** — más de una entrada se rechaza.
+
+### 10. El `re.search` que sobrevivió a su propio arreglo
+
+**Severidad: alta.** Preexistente.
+
+`_product_input_keys` usaba `re.search`: **solo el primer objeto de input**. Un documento con dos
+`productUpdate` colaba el segundo entero:
+
+```graphql
+mutation { productUpdate(input: {id: "…", descriptionHtml: "<p>ok</p>"}) { product { id } }
+           b: productUpdate(input: {id: "…", status: DRAFT, handle: "robado"}) { product { id } } }
+```
+
+El commit `c9b2dea` se llama *"inspeccionar TODAS las mutaciones del documento, no la primera"*.
+Cerró esa clase para los **nombres** y dejó el `re.search` idéntico dos funciones más abajo, en el
+control de **campos**. **Se arregló la instancia y se declaró cerrada la clase.**
+
+**Cerrado en `eeca31c`** — `finditer` + unión de todos los objetos.
+
+### 11. Todo lo que nadie enumeró estaba permitido
+
+**Severidad: alta.** Preexistente.
+
+La detección de asuntos conocía tres familias: `discount*`, `metafieldsSet`, `product*`. Cualquier
+otra caía en el `allow` final. **16 mutaciones pasaban solas**, incluidas
+`inventorySetOnHandQuantities` y `inventoryMoveQuantities` (stock), `themeFilesUpsert` (inyectar
+`<script>` en el tema), `customerUpdate`, `orderUpdate`, `webhookSubscriptionCreate`,
+`giftCardCreate`, `publicationUpdate`.
+
+Y pasaban **montadas sobre una operación legítima**:
+- `productUpdate` con una descripción real + `inventorySetOnHandQuantities(quantity: 0)` → allow
+- `discountAutomaticDeactivate` + `inventorySetOnHandQuantities` → allow, **sin backup y sin
+  `deal-policy.json`**, porque §9.8 le da paso libre al deactivate
+
+Detalle amargo: `inventorySetQuantities` **sí** estaba en la blocklist, pero el chequeo es por
+substring y `inventorySetOnHandQuantities` no la contiene. La entrada que existía para frenar
+escrituras de stock no frenaba la que se usa.
+
+**Cerrado en `eeca31c`** — allowlist sobre los root fields del documento:
+`{productUpdate} ∪ whitelist de descuentos ∪ {metafieldsSet}`. Lo que nadie enumeró **bloquea**.
+
+---
+
+## Lo que costó invertir ese default
+
+El *conjunto* permitido son tres nombres. Todo el costo estuvo en extraer los root fields de un
+documento GraphQL sin un parser: aliases (`b: productUpdate(...)` pone el alias exactamente donde
+va un root field), objetos literales dentro de los argumentos que suben la profundidad de llaves,
+strings con `{` adentro que desincronizan el contador, la cabecera de la operación
+(`mutation ($input: ProductInput!)`), y las directivas.
+
+**Es un scanner hecho a mano en el camino de la plata.** Yerra cerrado por construcción, pero eso
+significa que su modo de falla son los bloqueos falsos. Si aparecen, la decisión a tomar es
+vendorizar un parser de verdad, no aflojar el scanner.
+
+---
+
+## Cómo apareció cada cosa
+
+| Ronda | Qué la encontró | Hallazgos |
+|---|---|---|
+| — | Los **3 reviews del plan** (19 correcciones al documento) | **0** |
+| 1 | **Implementar** el código | 7 |
+| 2 | **Atacar** el código con ~60 payloads ejecutados | 4 |
+
+Cero de los once salió de leer. Los tres reviews del plan mejoraron mucho el documento y no
+encontraron un solo agujero.
+
+---
+
 ## Lo que cambió en cómo está construido el guard
 
 | Antes | Ahora |
@@ -151,13 +259,12 @@ deshabilitando.** Eso es una falla de seguridad con otro nombre.
 | Parseo vacío = "nada fuera de alcance" | Parseo vacío = **desconocido → bloquea** |
 | 3 entradas apuntando a mutaciones que ya no existen | Purgadas (`87e3436`) |
 
-**65 → 146 tests.**
+**65 → 164 tests.**
 
 ## Qué queda abierto
 
-- **`metafieldsSet` en lote sobre varios productos verifica el backup solo del último.** El techo
-  (`pct`, `maxTiers`, namespace) sí se aplica a todas las entradas, así que el riesgo de plata está
-  acotado; lo que se relaja es la garantía de backup. El skill escribe un producto por vez.
+- ~~`metafieldsSet` en lote verifica el backup solo del último~~ — **era un fail-open, no una
+  relajación acotada.** Ver hallazgo #9. Cerrado.
 - **El scoping multi-cliente sigue pendiente** (spec padre §12, spec de escalones §9.7): el guard
   no sabe cuál es el cliente activo. Con un cliente no hay ambigüedad; antes del segundo hay que
   cerrarlo.
