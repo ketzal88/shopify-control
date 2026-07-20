@@ -2,6 +2,7 @@ import json, time, os
 from datetime import datetime
 from pathlib import Path
 import importlib.util
+import pytest
 
 GUARD = Path(__file__).parent.parent / ".claude/hooks/backup_guard.py"
 spec = importlib.util.spec_from_file_location("backup_guard", GUARD)
@@ -307,3 +308,85 @@ def test_two_creates_in_one_document_are_blocked(tmp_path):
                          "items": {"products": {"productsToAdd": [PID]}}}}
     d, why = bg.evaluate(p, tmp_path, time.time())
     assert d == "block", f"el segundo create (90%) nunca se validó: {why}"
+
+
+# --- Familia de producto: whitelist cerrada ---------------------------------
+# El control de campos solo mira el objeto `input: {...}`, así que toda mutación
+# que reciba `productId:` + arrays no exponía ninguna key y quedaba gobernada
+# solo por el backup: un backup de descripción fresco era una llave de 15
+# minutos. Enumeradas contra el schema vivo del Admin API (26 en la familia).
+
+FUERA_DE_ALCANCE = [
+    "productBundleCreate", "productBundleUpdate", "productCreate",
+    "productDuplicate", "productFeedCreate", "productFeedDelete",
+    "productFullSync", "productJoinSellingPlanGroups",
+    "productLeaveSellingPlanGroups", "productOptionUpdate",
+    "productOptionsCreate", "productOptionsDelete", "productOptionsReorder",
+    "productReorderMedia", "productSet", "productVariantAppendMedia",
+    "productVariantDetachMedia", "productVariantJoinSellingPlanGroups",
+    "productVariantLeaveSellingPlanGroups",
+    "productVariantRelationshipBulkUpdate", "productVariantsBulkReorder",
+]
+
+@pytest.mark.parametrize("mut", FUERA_DE_ALCANCE)
+def test_product_mutation_outside_v1_is_blocked(tmp_path, mut):
+    """Con backup de descripción FRESCO, que es el estado normal mientras el
+    skill edita una descripción. Sin la whitelist, las 21 pasaban."""
+    write_description_backup(tmp_path)
+    p = {"tool_name": T_GQL, "tool_input": {
+        "query": f'mutation {{ {mut}(productId: "{PID}", items: [{{id: "gid://shopify/X/2"}}]) {{ userErrors {{ field }} }} }}'}}
+    d, why = bg.evaluate(p, tmp_path, time.time())
+    assert d == "block", f"{mut} pasó con un backup de descripción fresco: {why}"
+
+def test_product_set_is_blocked_in_both_argument_shapes(tmp_path):
+    """EL hallazgo: la misma mutación, el mismo efecto sobre la tienda, y el
+    guard viejo bloqueaba una forma y dejaba pasar la otra.
+
+    `input: {...}` exponía `status` y el control de campos lo agarraba;
+    `productId:` + arrays no exponía NADA, el control pasaba en el vacío y
+    mandaba el backup de descripción."""
+    write_description_backup(tmp_path)
+    formas = [
+        f'productSet(input: {{id: "{PID}", status: DRAFT}}) {{ product {{ id }} }}',
+        f'productSet(productId: "{PID}", positions: [{{id: "gid://shopify/ProductVariant/5"}}]) {{ product {{ id }} }}',
+    ]
+    for forma in formas:
+        d, why = bg.evaluate({"tool_name": T_GQL, "tool_input": {"query": "mutation { " + forma + " }"}},
+                             tmp_path, time.time())
+        assert d == "block", f"productSet pasó en esta forma: {forma} -> {why}"
+
+def test_product_create_is_blocked(tmp_path):
+    """Sin gid de producto no hay a qué agarrarse: caía en el `allow` final.
+    CLAUDE.md regla 5 dice que la herramienta nunca crea productos, y el
+    connector tenía cerrada la puerta del tool pero no la de GraphQL."""
+    write_description_backup(tmp_path)
+    p = {"tool_name": T_GQL, "tool_input": {
+        "query": 'mutation { productCreate(input: {title: "producto nuevo"}) { product { id } } }'}}
+    d, why = bg.evaluate(p, tmp_path, time.time())
+    assert d == "block", f"productCreate pasó: {why}"
+
+def test_product_duplicate_is_blocked(tmp_path):
+    write_description_backup(tmp_path)
+    p = {"tool_name": T_GQL, "tool_input": {
+        "query": f'mutation {{ productDuplicate(productId: "{PID}", newTitle: "copia") {{ newProduct {{ id }} }} }}'}}
+    d, why = bg.evaluate(p, tmp_path, time.time())
+    assert d == "block", f"productDuplicate pasó: {why}"
+
+def test_product_update_description_still_passes(tmp_path):
+    """GUARDA DE REGRESIÓN: si la whitelist sobre-bloquea, el único camino
+    legítimo del v1 deja de funcionar y este test cae."""
+    write_description_backup(tmp_path)
+    p = {"tool_name": T_GQL, "tool_input": {
+        "query": f'mutation {{ productUpdate(input: {{id: "{PID}", descriptionHtml: "<p>nueva</p>"}}) {{ product {{ id }} }} }}'}}
+    d, why = bg.evaluate(p, tmp_path, time.time())
+    assert d == "allow", f"el camino legítimo de descripción se rompió: {why}"
+
+def test_product_update_with_status_still_blocks_on_field_scope(tmp_path):
+    """La whitelist por NOMBRE no puede haber cortocircuitado el control de
+    CAMPOS de la única mutación que sigue necesitándolo."""
+    write_description_backup(tmp_path)
+    p = {"tool_name": T_GQL, "tool_input": {
+        "query": f'mutation {{ productUpdate(input: {{id: "{PID}", status: DRAFT}}) {{ product {{ id }} }} }}'}}
+    d, why = bg.evaluate(p, tmp_path, time.time())
+    assert d == "block", f"productUpdate con status pasó: {why}"
+    assert "status" in why, f"bloqueó, pero no por el control de campos: {why}"

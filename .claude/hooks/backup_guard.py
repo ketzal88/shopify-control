@@ -37,6 +37,10 @@ GUARDED_PRODUCT_ACTIONS = {"update-product"}
 ALLOWED_UPDATE_KEYS = {"id", "descriptionhtml"}
 # Lo único que puede tocar un productUpdate en el v1 (keys de primer nivel):
 ALLOWED_PRODUCT_INPUT_KEYS = {"id", "descriptionhtml", "seo"}
+# Única mutación de producto del v1: la descripción y el SEO. Lo demás se
+# bloquea por no estar acá, no por estar en una lista de prohibidos —el
+# catálogo de Shopify tiene 26 mutaciones `product*` y crece.
+PRODUCT_WRITE_ALLOWED = {"productupdate"}
 # Campos que el skill respalda SIEMPRE juntos (contrato con mejorar-descripcion):
 REQUIRED_BACKUP_FIELDS = {"descriptionHtml", "seo_title", "seo_description"}
 RECENT_WINDOW_SECONDS = 900  # 15 min
@@ -506,6 +510,21 @@ def evaluate(payload: dict, backups_root, now: float):
             return _check_discount(names, tool_input, backups_root, now)
 
         # 3. ← acá va el dispatch del metafield, en la Task 4. No lo agregues todavía.
+
+        # Familia de producto: whitelist CERRADA, por nombre y antes del control
+        # de campos. El control de campos solo mira el objeto `input: {...}` /
+        # `product: {...}`, así que las mutaciones que reciben `productId:` más
+        # arrays (`options:`, `positions:`, `moves:`, `sellingPlanGroupIds:`)
+        # no exponen ninguna key: `_product_input_keys` devuelve un conjunto
+        # VACÍO, el chequeo de alcance pasa en el vacío y quedaban gobernadas
+        # solo por el backup — o sea que un backup de descripción fresco era una
+        # llave de 15 minutos para duplicar el producto, reordenar variantes o
+        # cambiarle las opciones. Eran 21 de las 26 mutaciones `product*`.
+        fuera_de_alcance = [m for m in _product_mutations(text)
+                            if m not in PRODUCT_WRITE_ALLOWED]
+        if fuera_de_alcance:
+            return "block", (f"la mutación '{fuera_de_alcance[0]}' está fuera del alcance del v1. "
+                             "Lo único que se puede escribir de un producto es su descripción y su SEO.")
 
         # El gid suelto sigue siendo señal de write de producto: cubre una
         # mutación parametrizada cuyo nombre no reconocemos. Queda acá abajo, y
