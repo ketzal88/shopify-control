@@ -480,7 +480,15 @@ Lo mismo para `metafieldsSet`: se bloquea cualquier namespace distinto de `worke
 | `discountCodeBasicCreate` | **las mismas condiciones** + `"codes" in enabledStrategies` |
 | `discountAutomaticDeactivate` | **sin condiciones.** Ver §9.8 |
 | `discountCodeDeactivate` | **sin condiciones.** Ver §9.8 |
-| `metafieldsSet` | `namespace == "worker"` · `key == "deal"` · `ownerType == PRODUCT` · JSON válido contra §5 · **`pct` de cada tier ≤ `maxDiscountPct`** · `len(tiers)` ≤ `maxTiers` · backup de deal fresco |
+| `metafieldsSet` | `namespace == "worker"` · `key == "deal"` · **`ownerId` con un gid de producto reconocible** · JSON válido contra §5 · **`pct` de cada tier ≤ `maxDiscountPct`** · `len(tiers)` ≤ `maxTiers` · backup de deal fresco |
+
+> **Corregido en implementación:** una versión anterior de esta fila decía
+> `ownerType == PRODUCT`. El guard **no** valida ese campo, y no puede:
+> `MetafieldsSetInput` no lo tiene, así que la comparación sería siempre contra `None`. Lo que
+> restringe de verdad la oferta a un producto es el `ownerId`, que además es el gid con el que se
+> busca el backup. Se exige que contenga `/Product/`: sin eso, `owner` queda vacío, el glob del
+> backup pasa a ser `**/backups/deals/-*.json` y un archivo llamado `-loquesea.json` lo satisface
+> — bloqueaba de casualidad, no por diseño.
 | `metafieldDefinitionCreate` | **solo setup, solo operador**, namespace `worker`. No alcanzable desde el flujo del cliente. |
 
 **`discount*BasicUpdate` NO está en la whitelist**, a propósito (§6.3). Sin camino de update, no hay

@@ -354,8 +354,15 @@ def _check_discount(names, tool_input, backups_root, now: float):
         return "block", "la estrategia de códigos no está habilitada para este cliente."
 
     d = _discount_input(tool_input)
-    if not isinstance(d, dict):
-        return "block", "no pude leer los campos del descuento"
+    if not isinstance(d, dict) or not d:
+        # Distinguir "no encontré el objeto" de "el objeto no tiene endsAt" NO es
+        # cosmético. `_discount_input` solo lee `variables`; con el payload escrito
+        # inline en el query devuelve {}, que es un dict, así que el isinstance
+        # pasaba y la ejecución caía en el chequeo de `endsAt` — respondiendo
+        # "toda oferta necesita fecha de fin" sobre un documento que tiene el
+        # endsAt a la vista. El mensaje mandaba a arreglar el lugar equivocado.
+        return "block", ("no encontré los datos del descuento en las variables del pedido. "
+                         "Tienen que ir en `variables`, no escritos dentro del query.")
 
     # endsAt obligatorio y duración acotada
     starts, ends = d.get("startsAt"), d.get("endsAt")

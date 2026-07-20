@@ -598,3 +598,23 @@ def test_metafield_without_ownerId_is_blocked_even_with_a_dash_named_backup(tmp_
     d_, why = bg.evaluate(p, tmp_path, time.time())
     assert d_ == "block", why
     assert "producto" in why
+
+
+def test_inline_payload_blocks_with_the_RIGHT_reason(tmp_path):
+    """Bloquear no alcanza: tiene que bloquear diciendo la verdad.
+
+    `_discount_input` solo lee `variables`. Con el payload inline devuelve {},
+    que es un dict, asi que el isinstance pasaba y caia en el chequeo de endsAt:
+    respondia "toda oferta necesita fecha de fin" sobre un documento que tiene
+    el endsAt a la vista. Quien lo leyera agregaria un endsAt que ya estaba.
+    """
+    policy(tmp_path); write_deal_backup(tmp_path)
+    q = ('mutation { discountAutomaticBasicCreate(automaticBasicDiscount:{'
+         'title:"x", startsAt:"2026-07-20T00:00:00Z", endsAt:"2026-08-20T00:00:00Z", '
+         'customerGets:{value:{percentage:0.10}, '
+         'items:{products:{productsToAdd:["gid://shopify/Product/1"]}}}'
+         '}){automaticDiscountNode{id}} }')
+    d, why = bg.evaluate({"tool_name": T_GQL, "tool_input": {"query": q}}, tmp_path, time.time())
+    assert d == "block"
+    assert "variables" in why, f"el motivo tiene que senalar las variables, dio: {why}"
+    assert "fecha de fin" not in why, f"motivo enganoso: {why}"

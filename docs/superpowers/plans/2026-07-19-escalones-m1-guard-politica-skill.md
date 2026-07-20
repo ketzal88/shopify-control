@@ -1032,7 +1032,7 @@ cliente:
 
   1 unidad     $89.000
   2 unidades   $160.200   (ahorran 10%)   ← la que va a estar destacada
-  3 unidades   $218.900   (ahorran 18%)
+  3 unidades   $218.940   (ahorran 18%)
 
 Arranca hoy y vence el 18 de octubre.
 
@@ -1042,6 +1042,10 @@ exactamente cuánto lleva y cuánto paga.
 ¿La activo? Respondé sí o no.
 (si después querés sacarla, decime "sacá los escalones del anillo NEXO")
 ```
+
+Los totales se CALCULAN, no se estiman: 89.000 x 3 x 0.82 = 218.940. El ejemplo de arriba
+tenia 218.900 en la rev.4 de este plan, y es el unico ejemplo del que un skill que escribe
+plata va a copiar el formato.
 
 Reglas del preview: nunca decir "metafield", "descuento automático", "gid" ni "mutación". Siempre
 mostrar el **precio total por escalón**, no solo el %. Siempre decir **cuándo vence**.
