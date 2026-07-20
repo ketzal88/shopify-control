@@ -577,3 +577,24 @@ def test_metafield_inline_in_the_query_is_blocked(tmp_path):
                  'key: "deal", value: "{}", type: "json"}]) { metafields { id } } }' % PID}}
     d, why = bg.evaluate(p, tmp_path, time.time())
     assert d == "block", why
+
+
+def test_metafield_without_ownerId_is_blocked_even_with_a_dash_named_backup(tmp_path):
+    """Sin `ownerId`, `owner` quedaba vacio y el glob pasaba a ser
+    `**/backups/deals/-*.json`. Un archivo llamado `-trampa.json` lo satisfacia:
+    bloqueaba de casualidad, no por diseno. Fail-open verificado antes del fix.
+    """
+    policy(tmp_path)
+    d = tmp_path/"clients/blunua/backups/deals"
+    d.mkdir(parents=True, exist_ok=True)
+    (d/"-trampa.json").write_text(json.dumps({
+        "kind": "deal", "productId": "", "previous": None,
+        "ts": datetime.now().isoformat()}), encoding="utf-8")
+
+    p = {"tool_name": T_GQL, "tool_input": {
+        "query": "mutation ($m: [MetafieldsSetInput!]!) { metafieldsSet(metafields:$m){metafields{id}} }",
+        "variables": {"m": [{"namespace": "worker", "key": "deal", "type": "json",
+                             "value": json.dumps({"tiers": []})}]}}}
+    d_, why = bg.evaluate(p, tmp_path, time.time())
+    assert d_ == "block", why
+    assert "producto" in why

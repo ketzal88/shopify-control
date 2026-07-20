@@ -480,6 +480,15 @@ def _check_metafield(tool_input, backups_root, now: float):
         if why:
             return "block", why
 
+    # Mismo criterio que `_check_discount`: sin un gid de producto reconocible no
+    # hay contra qué buscar el backup. Sin esta guarda, un `metafieldsSet` sin
+    # `ownerId` deja `owner` vacío, el glob queda `**/backups/deals/-*.json`, y un
+    # archivo llamado `-lo-que-sea.json` lo satisface. Bloqueaba de casualidad —
+    # porque ese nombre no suele existir—, no por diseño. Vacío es DESCONOCIDO.
+    if "/Product/" not in owner:
+        return "block", ("no pude identificar sobre qué producto se está escribiendo la oferta. "
+                         "El metafield tiene que traer el id del producto.")
+
     ok, why = _covering_deal_backup(backups_root, owner, now)
     return ("allow", "ok") if ok else ("block", why)
 
