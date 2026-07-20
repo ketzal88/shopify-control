@@ -35,7 +35,24 @@ Este plan cubre **solo el Milestone 1** — el corte que sugiere §15 del spec:
 
 2. **El connector apunta a producción.** `get-shop-info` devuelve **Blunua** (`www.blunua.com`, COP). Ninguna tarea de este plan escribe en Shopify, así que no hay riesgo — pero **no corras los tests empíricos de §14 acá**. Van contra development store, en el Milestone 2.
 
-3. **Se está relajando un bloqueo existente.** Hoy `backup_guard.py:63-64` prohíbe `discountautomaticbasiccreate` y `discountcodebasiccreate` de plano. Este plan los saca de la blocklist y los pasa a una whitelist con condiciones. **El orden de las tareas importa**: los tests de las condiciones se escriben ANTES de tocar la blocklist, para que nunca exista un commit donde el bloqueo se levantó y las condiciones todavía no están.
+3. **El estado actual es más permisivo de lo que parece.** Verificado ejecutando el guard, no leyéndolo:
+
+   | Mutación | Hoy | Después |
+   |---|---|---|
+   | `discountAutomaticBasicCreate` | **bloquea** (blocklist, línea 64) | permite con techo |
+   | `discountCodeBasicCreate` | **bloquea** (línea 63) | permite si la estrategia está habilitada |
+   | `discountAutomaticDelete` y las 4 variantes | **PERMITE** | bloquea |
+   | `discountAutomaticBasicUpdate` | **PERMITE** | bloquea |
+   | `discountAutomaticBxgyCreate`, free shipping, app | **PERMITE** | bloquea |
+   | `discountAutomaticDeactivate` | **PERMITE** | permite (explícito, §9.8) |
+
+   Por qué: la blocklist solo enumera dos mutaciones de descuento, y `GID_RE` solo matchea
+   `gid://shopify/Product/\d+` — un gid de `DiscountAutomaticNode` cae en el `allow` final.
+
+   O sea: el milestone **relaja dos** bloqueos y **cierra siete**. El balance neto es a favor de la
+   seguridad, pero los dos que se relajan hay que hacerlos bien. Por eso Task 3 aterriza la
+   whitelist y la relajación de la blocklist **en el mismo commit** (Step 8): no hay estado
+   intermedio commiteado donde el bloqueo se levantó y el techo todavía no está.
 
 ---
 
@@ -55,7 +72,7 @@ Este plan cubre **solo el Milestone 1** — el corte que sugiere §15 del spec:
 | `clients/blunua/store-standards.md` | §11 Ofertas (prosa, apunta al JSON) | Modificar |
 | `CLAUDE.md` | Regla 5: nueva clase de write | Modificar |
 
-**Por qué `deal_policy.py` separado y no dentro de `backup_guard.py`:** `backup_guard.py` ya tiene 313 líneas y tres responsabilidades. La carga de política es una unidad con una interfaz clara (`load_policy(root, product_id) -> dict`) y se testea sola. Meterla adentro haría el guard más difícil de sostener en contexto.
+**Por qué `deal_policy.py` separado y no dentro de `backup_guard.py`:** `backup_guard.py` ya tiene 313 líneas y tres responsabilidades. La carga de política es una unidad con una interfaz clara (`load_policy(root) -> dict | None`) y se testea sola. Meterla adentro haría el guard más difícil de sostener en contexto.
 
 ---
 
@@ -103,6 +120,13 @@ def test_two_clients_is_ambiguous_and_returns_none(tmp_path):
     write_policy(tmp_path, slug="otra")
     # Con 2+ clientes el guard no puede saber cuál aplica (spec §9.7).
     assert dp.load_policy(tmp_path) is None
+
+def test_template_does_not_count_as_a_client(tmp_path):
+    """`_template/` es el scaffold del próximo cliente, no un cliente.
+    Si contara, un repo con blunua + template sería 'ambiguo' y bloquearía todo."""
+    write_policy(tmp_path, slug="blunua")
+    write_policy(tmp_path, slug="_template")
+    assert dp.load_policy(tmp_path) is not None
 ```
 
 - [ ] **Step 2: Correr el test para verificar que falla**
@@ -150,7 +174,7 @@ def load_policy(root):
 - [ ] **Step 4: Correr el test — debe pasar**
 
 Run: `python -m pytest tests/test_deal_policy.py -v`
-Expected: PASS (3 tests)
+Expected: PASS (4 tests)
 
 - [ ] **Step 5: Crear los dos archivos de política**
 
@@ -169,7 +193,7 @@ Expected: PASS (3 tests)
 - [ ] **Step 6: Verificar que la suite entera sigue verde**
 
 Run: `python -m pytest -q`
-Expected: 68 passed (65 previos + 3 nuevos)
+Expected: 69 passed (65 previos + 4 nuevos)
 
 - [ ] **Step 7: Commit**
 
@@ -300,7 +324,7 @@ Expected: PASS (5 tests)
 - [ ] **Step 5: Verificar que no se rompió nada**
 
 Run: `python -m pytest -q`
-Expected: 73 passed
+Expected: 74 passed
 
 - [ ] **Step 6: Commit**
 
@@ -331,11 +355,17 @@ def policy(tmp_path, **over):
     return write_policy(tmp_path, **over)
 
 def create_discount(pct=0.10, ends="2026-10-18T00:00:00Z",
-                    starts="2026-07-20T00:00:00Z", items=None):
-    items = items or {"products": {"productsToAdd": [PID]}}
+                    starts="2026-07-20T00:00:00Z", items=None, product_id=PID):
+    """`productId` va SIEMPRE como variable aparte.
+
+    Razón: cuando el descuento apunta a variantes (`productVariantsToAdd`), el
+    gid de variante no sirve para buscar el backup, que está indexado por
+    producto. El guard exige este campo en vez de intentar derivarlo.
+    """
+    items = items or {"products": {"productsToAdd": [product_id]}}
     return {"tool_name": T_GQL, "tool_input": {
-        "query": "mutation ($d: DiscountAutomaticBasicInput!) { discountAutomaticBasicCreate(automaticBasicDiscount: $d) { automaticDiscountNode { id } } }",
-        "variables": {"d": {
+        "query": "mutation ($d: DiscountAutomaticBasicInput!, $productId: ID!) { discountAutomaticBasicCreate(automaticBasicDiscount: $d) { automaticDiscountNode { id } } }",
+        "variables": {"productId": product_id, "d": {
             "title": "shopify-control - test",
             "startsAt": starts, "endsAt": ends,
             "minimumRequirement": {"quantity": {"greaterThanOrEqualToQuantity": "2"}},
@@ -383,12 +413,23 @@ def test_collection_scope_is_blocked(tmp_path):
 
 def test_product_variants_scope_is_allowed(tmp_path):
     """Mitigación de la incógnita C (spec §14): si el umbral resulta ser a nivel
-    carrito, el escalón pasa a exigir N de la misma variante."""
+    carrito, el escalón pasa a exigir N de la misma variante.
+
+    El backup se busca por el `productId` de las variables, NO por el gid de
+    variante: `"/Product/" in "gid://shopify/ProductVariant/5"` es False."""
     policy(tmp_path); write_deal_backup(tmp_path)
     d, _ = bg.evaluate(
         create_discount(items={"products": {"productVariantsToAdd": ["gid://shopify/ProductVariant/5"]}}),
         tmp_path, time.time())
     assert d == "allow"
+
+def test_discount_without_productId_variable_is_blocked(tmp_path):
+    """Sin `productId` no hay forma de saber qué backup respalda este write."""
+    policy(tmp_path); write_deal_backup(tmp_path)
+    p = create_discount()
+    del p["tool_input"]["variables"]["productId"]
+    d, _ = bg.evaluate(p, tmp_path, time.time())
+    assert d == "block"
 
 def test_codes_strategy_blocked_unless_enabled(tmp_path):
     policy(tmp_path); write_deal_backup(tmp_path)
@@ -442,12 +483,26 @@ def test_unlisted_discount_mutation_is_blocked(tmp_path):
         assert d == "block", f"{mut} no bloqueó"
 ```
 
-- [ ] **Step 2: Correr — deben fallar los de "allow"**
+- [ ] **Step 2: Correr y comparar contra ESTA tabla**
 
 Run: `python -m pytest tests/test_backup_guard_deals.py -v`
-Expected: FAIL en `test_create_discount_happy_path`, `test_product_variants_scope_is_allowed` y `test_deactivate_is_always_allowed` (hoy la blocklist los bloquea). Los de "block" ya pasan.
 
-Esto es exactamente lo que queremos ver: **el estado actual es seguro, solo que demasiado**.
+Resultado esperado, verificado contra el guard actual:
+
+| Test | Hoy | Por qué |
+|---|---|---|
+| `test_create_discount_happy_path` | ❌ FAIL | la blocklist bloquea el create |
+| `test_product_variants_scope_is_allowed` | ❌ FAIL | ídem |
+| `test_discount_without_productId_variable_is_blocked` | ✅ pasa | por la razón equivocada (blocklist) |
+| `test_deactivate_is_always_allowed` | ✅ **ya pasa** | `Deactivate` no está en la blocklist y `GID_RE` solo matchea gids de Product, así que cae en el `allow` final |
+| `test_update_mutation_is_blocked` | ❌ FAIL | **hoy se permite** |
+| `test_all_delete_variants_are_blocked` | ❌ FAIL | **hoy se permiten las cinco** |
+| `test_unlisted_discount_mutation_is_blocked` | ❌ FAIL | **hoy se permiten BXGY, free shipping, app y redeem-bulk** |
+| el resto de los `block` | ✅ pasan | blocklist |
+
+> **No es contabilidad.** Si esperabas "los de block ya pasan" y ves seis fallas, vas a pensar que
+> los tests están mal escritos. Están bien: **el guard de hoy permite borrar descuentos, cambiarles
+> el porcentaje después de creados, y crear BXGY.** Esas fallas son el trabajo de este milestone.
 
 - [ ] **Step 3: Implementar la whitelist**
 
@@ -463,9 +518,32 @@ DISCOUNT_WHITELIST = DISCOUNT_CREATE | DISCOUNT_DEACTIVATE
 
 Y la función de validación:
 
+Y arriba de todo, el import — **con el `sys.path` explícito**:
+
+```python
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from deal_policy import load_policy
+```
+
+> **Esto NO es opcional ni "por las dudas".** Los tests cargan el guard con
+> `importlib.util.spec_from_file_location` + `exec_module`, que **no** agrega el directorio del
+> módulo a `sys.path`. Sin el `insert`, el import explota con `ModuleNotFoundError` en tiempo de
+> **collection**, y no fallan algunos tests: **fallan los 93**, incluidos los 65 que hoy están
+> verdes. El camino del hook real (`python .claude/hooks/backup_guard.py`) sí funciona sin el
+> insert, porque pone `.claude/hooks` en `sys.path[0]` — o sea que el test de humo del Step 7
+> pasaría en verde mientras la suite entera está rota.
+
 ```python
 def _discount_mutation(text: str) -> str:
-    """Nombre de la mutación `discount*` presente en el query, o ''."""
+    """Nombre de la mutación `discount*` presente en el query, o ''.
+
+    Case-sensitive sobre el prefijo en minúscula a propósito: así NO matchea
+    `"gid://shopify/DiscountAutomaticNode/111"` dentro del valor de un
+    metafield. Puede dar falso positivo con un campo de selección como
+    `discountApplications(first:5)`, y eso falla CERRADO (bloquea), que es el
+    lado correcto para equivocarse.
+    """
     m = re.search(r"\b(discount[A-Za-z]*)\s*\(", text)
     return m.group(1).lower() if m else ""
 
@@ -524,7 +602,15 @@ def _check_discount(name: str, tool_input, backups_root, now: float):
     if not ids:
         return "block", "el descuento tiene que apuntar a productos o variantes explícitos."
 
-    ok, why = _covering_deal_backup(backups_root, _first_product_gid(ids), now)
+    # El backup se busca por el PRODUCTO, y el gid de variante no sirve para eso
+    # ("/Product/" no es substring de "gid://shopify/ProductVariant/5"). Por eso
+    # se exige `productId` como variable explícita en vez de intentar derivarlo.
+    product_gid = ((tool_input or {}).get("variables") or {}).get("productId")
+    if not isinstance(product_gid, str) or "/Product/" not in product_gid:
+        return "block", ("la mutación tiene que traer `productId` en las variables, "
+                         "con el gid del producto de la oferta.")
+
+    ok, why = _covering_deal_backup(backups_root, product_gid, now)
     return ("allow", "ok") if ok else ("block", why)
 ```
 
@@ -575,48 +661,58 @@ def _duration_days(starts, ends):
     return (e - s).days
 
 
-def _first_product_gid(ids):
-    for gid in ids:
-        if "/Product/" in gid:
-            return gid
-        if "/ProductVariant/" in gid:
-            return gid   # el skill respalda por producto; ver nota abajo
-    return ids[0] if ids else ""
 ```
 
-> **Nota para quien implemente:** cuando el descuento apunta a variantes
-> (`productVariantsToAdd`), el gid de variante **no** sirve para buscar el backup,
-> que está indexado por producto. El skill tiene que pasar también el product gid.
-> La forma más simple: exigir que el query incluya el product gid en el `title`
-> o en una variable `productId`. **Definir esto al implementar y agregar su test.**
+> **Decisión tomada (era un hueco en la rev.1 de este plan):** el `productId` va como **variable
+> explícita** de la mutación. La alternativa —derivarlo de los ids del `items`— no funciona cuando
+> el scope es por variante, que es justamente la mitigación de la incógnita C que §9.1 del spec
+> whitelistea. El skill tiene que incluirlo siempre; el test
+> `test_discount_without_productId_variable_is_blocked` lo enforcea.
 
-- [ ] **Step 4: Conectar en `evaluate()`**
+- [ ] **Step 4: Conectar en `evaluate()` — la blocklist va PRIMERO**
 
-En `evaluate()`, dentro de la rama `graphql_mutation`, ANTES del loop de `FORBIDDEN_MUTATIONS`:
+En `evaluate()`, dentro de la rama `graphql_mutation`, **después** del loop de `FORBIDDEN_MUTATIONS`:
 
 ```python
     if action == "graphql_mutation":
         text = _graphql_text(tool_input)
         low = text.lower()
 
-        # Ofertas: whitelist cerrada, evaluada antes que la blocklist general.
+        # 1. La blocklist general SIEMPRE primero. Ver la nota de abajo.
+        for mutation in FORBIDDEN_MUTATIONS:
+            if mutation in low:
+                return "block", (f"la mutación '{mutation}' está fuera del alcance ...")
+
+        # 2. Recién ahí, ofertas: whitelist cerrada con techo.
         name = _discount_mutation(text)
         if name:
             return _check_discount(name, tool_input, backups_root, now)
 
-        for mutation in FORBIDDEN_MUTATIONS:
+        # 3. Metafield de oferta. ANTES del fallthrough por GID_RE — ver Task 4.
+        if "metafieldsset" in low:
+            return _check_metafield(tool_input, backups_root, now)
+
+        if "productupdate" not in low and not GID_RE.search(text):
             ...
 ```
 
-Y agregar el import arriba:
-
-```python
-from deal_policy import load_policy
-```
-
-> Si el import relativo falla porque el hook se ejecuta desde la raíz, usar la
-> misma técnica de `importlib` que los tests, o agregar el directorio del hook a
-> `sys.path`. **Verificar con el test de humo del Step 7.**
+> ### ⚠️ Por qué el orden importa (bypass real, no teórico)
+>
+> **GraphQL admite varios root fields en un mismo documento.** Con la whitelist primero:
+>
+> ```graphql
+> mutation {
+>   discountAutomaticDeactivate(id: "gid://shopify/DiscountAutomaticNode/7") { … }
+>   productDelete(input: { id: "gid://shopify/Product/1" }) { … }
+> }
+> ```
+>
+> `_discount_mutation` matchea `discountAutomaticDeactivate` → `_check_discount` lo permite **sin
+> condiciones** (§9.8) → retorna → **el loop de la blocklist nunca corre** → el `productDelete`
+> pasa. Se borra un producto usando la vía rápida de la compensación como llave.
+>
+> Con la blocklist primero el bypass se cierra y **no cuesta nada**: ninguna de las mutaciones de
+> los tests de esta tarea aparece en `FORBIDDEN_MUTATIONS`, así que todos siguen dando lo mismo.
 
 - [ ] **Step 5: Sacar las dos mutaciones de la blocklist**
 
@@ -630,7 +726,7 @@ En `FORBIDDEN_MUTATIONS`, borrar estas dos líneas (ahora las cubre la whitelist
 - [ ] **Step 6: Correr todo — debe pasar**
 
 Run: `python -m pytest -q`
-Expected: 87 passed
+Expected: 89 passed
 
 - [ ] **Step 7: Test de humo del hook real (no solo `evaluate`)**
 
@@ -715,12 +811,45 @@ def test_metafield_empty_tiers_is_allowed(tmp_path):
     policy(tmp_path); write_deal_backup(tmp_path)
     d, _ = bg.evaluate(metafield_set([]), tmp_path, time.time())
     assert d == "allow"
+
+# --- schema de §5, que el spec afirma "verificado por el guard" -------------
+
+def test_metafield_unordered_tiers_is_blocked(tmp_path):
+    policy(tmp_path); write_deal_backup(tmp_path)
+    d, _ = bg.evaluate(metafield_set(
+        [{"qty": 1, "pct": 0}, {"qty": 5, "pct": 20, "highlight": True}, {"qty": 3, "pct": 10}]),
+        tmp_path, time.time())
+    assert d == "block"
+
+def test_metafield_duplicate_qty_is_blocked(tmp_path):
+    policy(tmp_path); write_deal_backup(tmp_path)
+    d, _ = bg.evaluate(metafield_set(
+        [{"qty": 1, "pct": 0}, {"qty": 2, "pct": 10, "highlight": True}, {"qty": 2, "pct": 15}]),
+        tmp_path, time.time())
+    assert d == "block"
+
+def test_metafield_first_tier_with_discount_is_blocked(tmp_path):
+    policy(tmp_path); write_deal_backup(tmp_path)
+    d, _ = bg.evaluate(metafield_set(
+        [{"qty": 1, "pct": 5}, {"qty": 2, "pct": 10, "highlight": True}]),
+        tmp_path, time.time())
+    assert d == "block"
+
+def test_metafield_needs_exactly_one_highlight(tmp_path):
+    policy(tmp_path); write_deal_backup(tmp_path)
+    for tiers in (
+        [{"qty": 1, "pct": 0}, {"qty": 2, "pct": 10}],                                    # ninguno
+        [{"qty": 1, "pct": 0}, {"qty": 2, "pct": 10, "highlight": True},
+         {"qty": 3, "pct": 15, "highlight": True}],                                       # dos
+    ):
+        d, _ = bg.evaluate(metafield_set(tiers), tmp_path, time.time())
+        assert d == "block"
 ```
 
 - [ ] **Step 2: Correr — falla**
 
 Run: `python -m pytest tests/test_backup_guard_deals.py -k metafield -v`
-Expected: FAIL
+Expected: FAIL (10 tests)
 
 - [ ] **Step 3: Implementar**
 
@@ -751,35 +880,68 @@ def _check_metafield(tool_input, backups_root, now: float):
             data = json.loads(e.get("value") or "{}")
         except Exception:
             return "block", "el contenido de la oferta no es JSON válido."
+        if e.get("ownerType") not in (None, "PRODUCT"):
+            return "block", "la oferta solo se puede escribir sobre un producto."
         tiers = data.get("tiers")
         if not isinstance(tiers, list):
             return "block", "la oferta no tiene escalones."
         if len(tiers) > policy["maxTiers"]:
             return "block", (f"la oferta tiene {len(tiers)} escalones y el máximo "
                              f"es {policy['maxTiers']}.")
-        for t in tiers:
-            pct = t.get("pct")
-            if not isinstance(pct, int) or not (0 <= pct <= 100):
-                return "block", "cada escalón necesita un porcentaje entero entre 0 y 100."
-            if pct > policy["maxDiscountPct"]:
-                return "block", (f"un escalón tiene {pct}% y el máximo es "
-                                 f"{policy['maxDiscountPct']}%.")
+        why = _check_tiers_schema(tiers, policy)
+        if why:
+            return "block", why
 
     ok, why = _covering_deal_backup(backups_root, owner, now)
     return ("allow", "ok") if ok else ("block", why)
+
+
+def _check_tiers_schema(tiers, policy):
+    """Reglas del schema de §5. Devuelve el motivo del bloqueo, o None.
+
+    §5 del spec dice que estas reglas están "todas verificadas por el guard".
+    Sin esto, esa afirmación sería falsa y el widget podría recibir una oferta
+    incoherente (escalones desordenados, dos destacados, cantidades repetidas).
+    """
+    if not tiers:
+        return None                      # tiers: [] es "sacar la oferta", válido
+    qtys = []
+    for t in tiers:
+        if not isinstance(t, dict):
+            return "cada escalón tiene que ser un objeto."
+        qty, pct = t.get("qty"), t.get("pct")
+        if not isinstance(qty, int) or qty < 1:
+            return "cada escalón necesita una cantidad entera de 1 o más."
+        if not isinstance(pct, int) or not (0 <= pct <= 100):
+            return "cada escalón necesita un porcentaje entero entre 0 y 100."
+        if pct > policy["maxDiscountPct"]:
+            return (f"un escalón tiene {pct}% y el máximo para este cliente es "
+                    f"{policy['maxDiscountPct']}%.")
+        qtys.append(qty)
+    if qtys != sorted(qtys):
+        return "los escalones tienen que estar ordenados de menor a mayor cantidad."
+    if len(set(qtys)) != len(qtys):
+        return "hay dos escalones con la misma cantidad."
+    if tiers[0].get("pct") != 0:
+        return "el primer escalón no puede tener descuento."
+    destacados = sum(1 for t in tiers if t.get("highlight"))
+    if destacados != 1:
+        return "tiene que haber exactamente un escalón destacado."
+    return None
 ```
 
-Conectar en `evaluate()`, junto a la rama de descuentos:
+**Dónde va la llamada en `evaluate()`:** en el bloque del Step 4 de la Task 3, en la posición
+marcada como `# 3.`
 
-```python
-        if "metafieldsset" in low:
-            return _check_metafield(tool_input, backups_root, now)
-```
+> ⚠️ **Tiene que ir ANTES de la línea `if "productupdate" not in low and not GID_RE.search(text)`.**
+> Las variables del metafield traen `ownerId: "gid://shopify/Product/1"`, así que `GID_RE` matchea
+> y la llamada cae en `_check_backup` — que exige un backup de **descripción**. Puesto después,
+> `test_metafield_happy_path` falla y el motivo es completamente engañoso.
 
 - [ ] **Step 4: Correr todo**
 
 Run: `python -m pytest -q`
-Expected: 93 passed
+Expected: 99 passed
 
 - [ ] **Step 5: Commit**
 
@@ -864,26 +1026,54 @@ Reemplazar el texto actual por:
    - **NUNCA:** precio de lista, stock, status ni handle/URL.
 ```
 
-- [ ] **Step 2: `store-standards.md`, sección 11 nueva**
+- [ ] **Step 2: `store-standards.md` §8 — la línea que hoy contradice el milestone**
+
+`clients/blunua/store-standards.md:78` dice hoy:
 
 ```markdown
-11. OFERTAS (escalones por cantidad)
-    • La política vive en `deal-policy.json` (misma carpeta). Ese archivo es la
-      FUENTE DE VERDAD: lo lee el hook. Esta sección solo lo explica.
-    • Techo actual: 30% máximo, 90 días máximo, 4 escalones máximo.
-    • Toda oferta necesita fecha de fin.
-    • Nunca a nivel colección ni sobre todo el catálogo.
-    • Para sacar una oferta: se desactiva, no se borra (queda el registro).
+- NUNCA precio, stock, status ni handle/URL sin gate estructural (OK de Gabriel).
 ```
 
-Mismo bloque en `_template/`, con los valores del template.
+Reemplazar esa línea **y la de arriba** por:
 
-- [ ] **Step 3: Verificar coherencia**
+```markdown
+- Los skills tocan dos field sets, cada uno con su guardrail:
+  - **Texto:** descripción (`descriptionHtml`, vía `update-product`) + SEO (`seo.title`/`seo.description`, vía `graphql_mutation`).
+  - **Ofertas:** escalones por cantidad — descuentos nativos + metafield `worker.deal`, con el techo de §11.
+- NUNCA precio de lista, stock, status ni handle/URL.
+```
 
-Run: `grep -n "nunca precio\|NUNCA precio" CLAUDE.md clients/*/store-standards.md`
-Expected: ninguna línea que contradiga la nueva regla 5.
+> El "sin gate estructural (OK de Gabriel)" se va a propósito: contradice D5 del spec padre
+> (Gabriel no es gate) y el techo de §11 ya cumple esa función por código.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 3: `store-standards.md` §11 nueva**
+
+Respetar el formato del archivo: `## N. Título [ESTABLE|VIVO]` + viñetas con `-`.
+
+```markdown
+## 11. Ofertas — escalones por cantidad [ESTABLE]
+- La política vive en `deal-policy.json` (misma carpeta). **Ese archivo es la fuente de verdad:
+  lo lee el hook.** Esta sección solo lo explica en palabras.
+- Techo actual: **30%** máximo por escalón, **90 días** máximo de duración, **4 escalones** máximo.
+- Toda oferta necesita fecha de fin. No hay ofertas eternas.
+- Nunca a nivel colección ni sobre todo el catálogo: siempre productos o variantes explícitos.
+- Para sacar una oferta se **desactiva**, no se borra: queda el registro de qué se ofreció y cuándo.
+```
+
+Mismo bloque en `clients/_template/store-standards.md`, con los ⚠️ del template en los valores.
+
+- [ ] **Step 4: Verificar que no quedó ninguna contradicción**
+
+Run: `grep -rn "NUNCA precio, stock\|nunca precio, stock" CLAUDE.md clients/`
+
+Expected: **cero resultados.** Si aparece alguno, es una copia de la regla vieja que quedó sin
+actualizar — hay que reemplazarla por la nueva redacción de `CLAUDE.md` regla 5.
+
+Run: `grep -rn "solo descripción\|solo descripcion" CLAUDE.md clients/*/store-standards.md`
+
+Expected: cero, o solo dentro de la nueva redacción que enumera **dos** field sets.
+
+- [ ] **Step 5: Commit**
 
 ```bash
 git add CLAUDE.md clients/blunua/store-standards.md clients/_template/store-standards.md
@@ -897,7 +1087,7 @@ git commit -m "docs(ofertas): regla 5 y store-standards reconocen la clase ofert
 - [ ] **Step 1: Suite completa**
 
 Run: `python -m pytest -q`
-Expected: 93 passed
+Expected: 99 passed
 
 - [ ] **Step 2: Los dos tests de humo del hook** (Tarea 3, Step 7) — repetir y confirmar `exit=0` / `exit=2`
 
@@ -914,6 +1104,19 @@ Expected: `1` — sigue denegado (spec §10). Si alguien lo sacó, revertir.
 git add clients/blunua/worklog.md
 git commit -m "docs: worklog del milestone 1 de escalones"
 ```
+
+---
+
+## Cabos sueltos conocidos (decididos, no olvidados)
+
+Ninguno bloquea el milestone. Se documentan para que nadie los "descubra" y los arregle mal.
+
+| Cabo | Decisión |
+|---|---|
+| `metafieldDefinitionCreate` (§9.1, setup solo-operador) cae en el `allow` final del guard | Se deja así en M1. Solo se usa una vez, en setup, y no hay flujo de cliente que lo alcance. Si el M2 lo necesita, se le agrega su condición. |
+| El happy path usa exactamente 90 días contra `maxDurationDays: 90` y pasa porque la comparación es `>` | Correcto y deliberado: el techo es inclusivo. Vale un test de borde a cada lado (89 y 91) si se quiere ser explícito. |
+| `_discount_mutation` da falso positivo con campos de selección tipo `discountApplications(first:5)` | Falla **cerrado** (bloquea), que es el lado correcto. Documentado en el docstring. |
+| `from tests.test_deal_policy import write_policy` en `test_backup_guard_deals.py` | Funciona con `python -m pytest` desde la raíz, que es lo que fija `stack.json`. Falla solo si se invoca pytest desde adentro de `tests/`. |
 
 ---
 
