@@ -1,8 +1,14 @@
 # Hallazgos de seguridad en `backup_guard.py` (2026-07-20)
 
-**Contexto:** encontrados mientras se implementaba el milestone de escalones por cantidad
-(`docs/superpowers/plans/2026-07-19-escalones-m1-guard-politica-skill.md`). **Ninguno lo introdujo
-ese milestone.** Los siete estaban en `main`, en producción, antes de empezar. Todos cerrados.
+**Contexto:** once agujeros encontrados mientras se implementaba el milestone de escalones por
+cantidad (`docs/superpowers/plans/2026-07-19-escalones-m1-guard-politica-skill.md`). Todos cerrados.
+
+**Nueve ya estaban en `main`**, en producción, antes de empezar. **Dos los introdujo este
+milestone** (#8 y #9) y los encontró el review adversarial final — incluido el peor de los once.
+
+**Cómo aparecieron:** los 3 reviews del plan produjeron 19 correcciones al documento y **cero**
+hallazgos. Siete salieron de escribir el código. Cuatro salieron de atacarlo con payloads
+ejecutados. Ninguno salió de leer.
 
 **Por qué este documento existe:** el spec padre §11 afirma que el alcance de escritura está
 "enforced por código, no por prosa". Era cierto para el camino que se había probado, y falso para
@@ -12,7 +18,7 @@ varios que no. Dejar eso escrito importa más que el diff.
 
 ## La clase: "vacío" tratado como "limpio"
 
-Seis de los siete son la misma falla. El guard parsea un payload, obtiene una estructura vacía, y
+Seis de los primeros siete son la misma falla. El guard parsea un payload, obtiene una estructura vacía, y
 lo interpreta como **"no hay nada fuera de alcance"** en vez de **"no pude parsear esto"**.
 
 > **Regla que sale de acá:** en un guard de seguridad, un parseo vacío es **desconocido**, nunca
