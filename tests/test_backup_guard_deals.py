@@ -55,3 +55,138 @@ def test_deal_backup_does_not_enable_a_description_write(tmp_path):
     write_deal_backup(tmp_path)
     ok, _ = bg._covering_backup(tmp_path, PID, time.time())
     assert ok is False
+
+
+T_GQL = "mcp__claude_ai_Shopify__graphql_mutation"
+
+def policy(tmp_path, **over):
+    from tests.test_deal_policy import write_policy
+    return write_policy(tmp_path, **over)
+
+def create_discount(pct=0.10, ends="2026-10-18T00:00:00Z",
+                    starts="2026-07-20T00:00:00Z", items=None, product_id=PID):
+    """`productId` va SIEMPRE como variable aparte.
+
+    Razón: cuando el descuento apunta a variantes (`productVariantsToAdd`), el
+    gid de variante no sirve para buscar el backup, que está indexado por
+    producto. El guard exige este campo en vez de intentar derivarlo.
+    """
+    items = items or {"products": {"productsToAdd": [product_id]}}
+    return {"tool_name": T_GQL, "tool_input": {
+        "query": "mutation ($d: DiscountAutomaticBasicInput!, $productId: ID!) { discountAutomaticBasicCreate(automaticBasicDiscount: $d) { automaticDiscountNode { id } } }",
+        "variables": {"productId": product_id, "d": {
+            "title": "shopify-control - test",
+            "startsAt": starts, "endsAt": ends,
+            "minimumRequirement": {"quantity": {"greaterThanOrEqualToQuantity": "2"}},
+            "customerGets": {"value": {"percentage": pct}, "items": items},
+        }}}}
+
+def test_create_discount_happy_path(tmp_path):
+    policy(tmp_path); write_deal_backup(tmp_path)
+    d, _ = bg.evaluate(create_discount(), tmp_path, time.time())
+    assert d == "allow"
+
+def test_create_discount_without_backup_is_blocked(tmp_path):
+    policy(tmp_path)
+    d, _ = bg.evaluate(create_discount(), tmp_path, time.time())
+    assert d == "block"
+
+def test_percentage_unit_trap(tmp_path):
+    """0.7 es 70%, NO 0.7%. Comparar contra maxDiscountPct=30 sin convertir
+    dejaría pasar 0.7 <= 30. Spec §9.4."""
+    policy(tmp_path); write_deal_backup(tmp_path)
+    d, why = bg.evaluate(create_discount(pct=0.7), tmp_path, time.time())
+    assert d == "block", f"70% debe bloquear con techo 30%, dio: {why}"
+
+def test_missing_endsAt_is_blocked(tmp_path):
+    policy(tmp_path); write_deal_backup(tmp_path)
+    d, _ = bg.evaluate(create_discount(ends=None), tmp_path, time.time())
+    assert d == "block"
+
+def test_duration_over_ceiling_is_blocked(tmp_path):
+    policy(tmp_path); write_deal_backup(tmp_path)
+    d, _ = bg.evaluate(create_discount(ends="2031-01-01T00:00:00Z"), tmp_path, time.time())
+    assert d == "block"
+
+def test_items_all_is_blocked(tmp_path):
+    policy(tmp_path); write_deal_backup(tmp_path)
+    d, _ = bg.evaluate(create_discount(items={"all": True}), tmp_path, time.time())
+    assert d == "block"
+
+def test_collection_scope_is_blocked(tmp_path):
+    policy(tmp_path); write_deal_backup(tmp_path)
+    d, _ = bg.evaluate(
+        create_discount(items={"collections": {"add": ["gid://shopify/Collection/9"]}}),
+        tmp_path, time.time())
+    assert d == "block"
+
+def test_product_variants_scope_is_allowed(tmp_path):
+    """Mitigación de la incógnita C (spec §14): si el umbral resulta ser a nivel
+    carrito, el escalón pasa a exigir N de la misma variante.
+
+    El backup se busca por el `productId` de las variables, NO por el gid de
+    variante: `"/Product/" in "gid://shopify/ProductVariant/5"` es False."""
+    policy(tmp_path); write_deal_backup(tmp_path)
+    d, _ = bg.evaluate(
+        create_discount(items={"products": {"productVariantsToAdd": ["gid://shopify/ProductVariant/5"]}}),
+        tmp_path, time.time())
+    assert d == "allow"
+
+def test_discount_without_productId_variable_is_blocked(tmp_path):
+    """Sin `productId` no hay forma de saber qué backup respalda este write."""
+    policy(tmp_path); write_deal_backup(tmp_path)
+    p = create_discount()
+    del p["tool_input"]["variables"]["productId"]
+    d, _ = bg.evaluate(p, tmp_path, time.time())
+    assert d == "block"
+
+def test_codes_strategy_blocked_unless_enabled(tmp_path):
+    policy(tmp_path); write_deal_backup(tmp_path)
+    p = create_discount()
+    p["tool_input"]["query"] = p["tool_input"]["query"].replace(
+        "discountAutomaticBasicCreate", "discountCodeBasicCreate")
+    d, _ = bg.evaluate(p, tmp_path, time.time())
+    assert d == "block"
+
+def test_no_policy_fails_closed(tmp_path):
+    """Sin deal-policy.json no hay techo que aplicar => se bloquea."""
+    write_deal_backup(tmp_path)
+    d, _ = bg.evaluate(create_discount(), tmp_path, time.time())
+    assert d == "block"
+
+def test_deactivate_is_always_allowed(tmp_path):
+    """Spec §9.8: la compensación no puede estar condicionada a un estado que
+    la compensación misma modifica. Sin política y sin backup, igual pasa."""
+    p = {"tool_name": T_GQL, "tool_input": {
+        "query": 'mutation { discountAutomaticDeactivate(id: "gid://shopify/DiscountAutomaticNode/7") { automaticDiscountNode { id } } }'}}
+    d, _ = bg.evaluate(p, tmp_path, time.time())
+    assert d == "allow"
+
+def test_update_mutation_is_blocked(tmp_path):
+    """Spec §6.3: sin camino de update no hay forma de estirar endsAt ni
+    cambiar el percentage después de creado."""
+    policy(tmp_path); write_deal_backup(tmp_path)
+    p = {"tool_name": T_GQL, "tool_input": {
+        "query": 'mutation { discountAutomaticBasicUpdate(id: "gid://shopify/DiscountAutomaticNode/7", automaticBasicDiscount: {endsAt: "2031-01-01T00:00:00Z"}) { automaticDiscountNode { id } } }'}}
+    d, _ = bg.evaluate(p, tmp_path, time.time())
+    assert d == "block"
+
+def test_all_delete_variants_are_blocked(tmp_path):
+    """Las cinco. Las tres Bulk faltaban en la primera redacción del spec."""
+    policy(tmp_path); write_deal_backup(tmp_path)
+    for mut in ["discountAutomaticDelete", "discountCodeDelete",
+                "discountAutomaticBulkDelete", "discountCodeBulkDelete",
+                "discountCodeRedeemCodeBulkDelete"]:
+        p = {"tool_name": T_GQL, "tool_input": {
+            "query": f'mutation {{ {mut}(id: "gid://shopify/DiscountAutomaticNode/7") {{ deletedId }} }}'}}
+        d, _ = bg.evaluate(p, tmp_path, time.time())
+        assert d == "block", f"{mut} no bloqueó"
+
+def test_unlisted_discount_mutation_is_blocked(tmp_path):
+    """Whitelist CERRADA (spec §9.0): lo no enumerado se bloquea."""
+    policy(tmp_path); write_deal_backup(tmp_path)
+    for mut in ["discountAutomaticBxgyCreate", "discountAutomaticFreeShippingCreate",
+                "discountAutomaticAppCreate", "discountRedeemCodeBulkAdd"]:
+        p = {"tool_name": T_GQL, "tool_input": {"query": f"mutation {{ {mut}(x: 1) {{ id }} }}"}}
+        d, _ = bg.evaluate(p, tmp_path, time.time())
+        assert d == "block", f"{mut} no bloqueó"

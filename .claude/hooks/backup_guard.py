@@ -28,6 +28,9 @@ import sys, json, time, re
 from datetime import datetime
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from deal_policy import load_policy
+
 # Acción (parte después de "Shopify:") que el skill usa para editar un producto:
 GUARDED_PRODUCT_ACTIONS = {"update-product"}
 # Lo único que un update-product puede traer en el v1:
@@ -60,8 +63,6 @@ FORBIDDEN_MUTATIONS = {
     "inventorysetquantities",
     "inventoryadjustquantities",
     "inventoryactivate",
-    "discountcodebasiccreate",
-    "discountautomaticbasiccreate",
     "collectioncreate",
     "collectionupdate",
     "collectionaddproducts",
@@ -69,6 +70,11 @@ FORBIDDEN_MUTATIONS = {
     "publishableunpublish",
     "productdeletemedia",
 }
+
+# --- Ofertas (spec §9) ------------------------------------------------------
+# Whitelist CERRADA: toda mutación `discount*` que no esté acá se bloquea.
+DISCOUNT_CREATE = {"discountautomaticbasiccreate", "discountcodebasiccreate"}
+DISCOUNT_DEACTIVATE = {"discountautomaticdeactivate", "discountcodedeactivate"}
 
 
 def _action(tool_name: str) -> str:
@@ -259,6 +265,129 @@ def _covering_deal_backup(backups_root, product_id: str, now: float):
                    "El skill debe guardar el backup antes de escribir.")
 
 
+def _discount_mutation(text: str) -> str:
+    """Nombre de la mutación `discount*` presente en el query, o ''.
+
+    Case-sensitive sobre el prefijo en minúscula a propósito: así NO matchea
+    `"gid://shopify/DiscountAutomaticNode/111"` dentro del valor de un
+    metafield. Puede dar falso positivo con un campo de selección como
+    `discountApplications(first:5)`, y eso falla CERRADO (bloquea), que es el
+    lado correcto para equivocarse.
+    """
+    m = re.search(r"\b(discount[A-Za-z]*)\s*\(", text)
+    return m.group(1).lower() if m else ""
+
+
+def _check_discount(name: str, tool_input, backups_root, now: float):
+    """Whitelist de descuentos con techo (spec §9.0-9.4)."""
+    if name in DISCOUNT_DEACTIVATE:
+        # Sin condiciones a propósito (spec §9.8): la compensación no puede
+        # depender de un estado que la compensación misma modifica.
+        return "allow", "desactivar siempre está permitido"
+
+    if name not in DISCOUNT_CREATE:
+        return "block", (f"'{name}' no está en la whitelist de descuentos. "
+                         "Solo se permiten crear (con techo) y desactivar.")
+
+    policy = load_policy(backups_root)
+    if policy is None:
+        return "block", ("no encontré una política de ofertas única (deal-policy.json). "
+                         "Sin techo que aplicar, no se crean descuentos.")
+
+    if name == "discountcodebasiccreate" and "codes" not in policy.get("enabledStrategies", []):
+        return "block", "la estrategia de códigos no está habilitada para este cliente."
+
+    d = _discount_input(tool_input)
+    if not isinstance(d, dict):
+        return "block", "no pude leer los campos del descuento"
+
+    # endsAt obligatorio y duración acotada
+    starts, ends = d.get("startsAt"), d.get("endsAt")
+    if policy.get("requireEndsAt") and not ends:
+        return "block", "toda oferta necesita fecha de fin."
+    if ends:
+        days = _duration_days(starts, ends)
+        if days is None:
+            return "block", "no pude leer las fechas de la oferta."
+        if days > policy["maxDurationDays"]:
+            return "block", (f"la oferta dura {days} días y el máximo es "
+                             f"{policy['maxDurationDays']}.")
+
+    # Techo de porcentaje. OJO: la API va en fracción y el techo en entero.
+    pct = _percentage_int(d)
+    if pct is None:
+        return "block", "no pude leer el porcentaje del descuento."
+    if pct > policy["maxDiscountPct"]:
+        return "block", (f"el descuento es de {pct}% y el máximo para este "
+                         f"cliente es {policy['maxDiscountPct']}%.")
+
+    # Scope: ids explícitos, nunca `all`, nunca colección (salvo que se habilite)
+    items = ((d.get("customerGets") or {}).get("items")) or {}
+    if items.get("all"):
+        return "block", "un descuento sobre TODO el catálogo no se permite."
+    if "collections" in items and not policy.get("allowCollectionScope"):
+        return "block", "un descuento a nivel colección no se permite para este cliente."
+    products = items.get("products") or {}
+    ids = (products.get("productsToAdd") or []) + (products.get("productVariantsToAdd") or [])
+    if not ids:
+        return "block", "el descuento tiene que apuntar a productos o variantes explícitos."
+
+    # El backup se busca por el PRODUCTO, y el gid de variante no sirve para eso
+    # ("/Product/" no es substring de "gid://shopify/ProductVariant/5"). Por eso
+    # se exige `productId` como variable explícita en vez de intentar derivarlo.
+    product_gid = ((tool_input or {}).get("variables") or {}).get("productId")
+    if not isinstance(product_gid, str) or "/Product/" not in product_gid:
+        return "block", ("la mutación tiene que traer `productId` en las variables, "
+                         "con el gid del producto de la oferta.")
+
+    ok, why = _covering_deal_backup(backups_root, product_gid, now)
+    return ("allow", "ok") if ok else ("block", why)
+
+
+def _discount_input(tool_input) -> dict:
+    """El objeto del descuento, venga por `variables` o inline en el query."""
+    if not isinstance(tool_input, dict):
+        return {}
+    variables = tool_input.get("variables")
+    if isinstance(variables, dict):
+        for value in variables.values():
+            if isinstance(value, dict) and "customerGets" in value:
+                return value
+    return {}
+
+
+def _percentage_int(d: dict):
+    """Porcentaje como ENTERO 0-100.
+
+    TRAMPA (spec §9.4): la API toma fracción (0.10 == 10%) y la política está
+    en entero (30 == 30%). Comparar sin convertir deja pasar 0.7 (=70%) contra
+    un techo de 30, porque 0.7 <= 30.
+    """
+    value = ((d.get("customerGets") or {}).get("value")) or {}
+    raw = value.get("percentage")
+    if raw is None:
+        return None
+    try:
+        return round(float(raw) * 100)
+    except (TypeError, ValueError):
+        return None
+
+
+def _duration_days(starts, ends):
+    def parse(x):
+        if not isinstance(x, str) or not x.strip():
+            return None
+        try:
+            return datetime.fromisoformat(x.strip().replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    e = parse(ends)
+    if e is None:
+        return None
+    s = parse(starts) or datetime.now(e.tzinfo)
+    return (e - s).days
+
+
 def _check_backup(product_id: str, backups_root, now: float):
     if not product_id:
         return "block", "no pude identificar el producto del write"
@@ -298,10 +427,23 @@ def evaluate(payload: dict, backups_root, now: float):
     if action == "graphql_mutation":
         text = _graphql_text(tool_input)
         low = text.lower()
+        # 1. La blocklist general SIEMPRE primero: GraphQL admite varios root
+        #    fields en un mismo documento, así que si la whitelist de descuentos
+        #    corriera antes, un `discountAutomaticDeactivate` (permitido sin
+        #    condiciones) retornaría "allow" y el `productDelete` que viaja en el
+        #    mismo documento nunca se evaluaría.
         for mutation in FORBIDDEN_MUTATIONS:
             if mutation in low:
                 return "block", (f"la mutación '{mutation}' está fuera del alcance del v1 "
                                  "(toca precio, stock, status, publicación o borra).")
+
+        # 2. Recién ahí, ofertas: whitelist cerrada con techo.
+        name = _discount_mutation(text)
+        if name:
+            return _check_discount(name, tool_input, backups_root, now)
+
+        # 3. ← acá va el dispatch del metafield, en la Task 4. No lo agregues todavía.
+
         if "productupdate" not in low and not GID_RE.search(text):
             return "allow", "no es un write de producto vigilado"
         keys = _product_input_keys(text) | _variables_product_keys(tool_input)
