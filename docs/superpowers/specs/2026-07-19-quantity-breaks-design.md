@@ -403,8 +403,14 @@ Regla en el guard: el backup que habilita un write de deal debe estar **bajo `ba
 y tener **`kind == "deal"`**. Las dos condiciones, no una. Los backups de descripción conservan su
 forma actual sin cambios y no ganan `kind` (su ruta ya los distingue).
 
-**Frescura:** misma ventana de 15 minutos por mtime que el guard padre (§11 capa 2). Se hereda
-tal cual, incluida su limitación conocida: es un proxy de "se respaldó lo que se está por
+**Frescura:** misma ventana de 15 minutos que el guard padre, y con su **doble condición**: el
+`mtime` del archivo **y** el `ts` de adentro tienen que estar dentro de la ventana
+(`backup_guard.py:173-189`). No es redundancia: cualquier operación de git —un `pull`, un cambio de
+branch— refresca el mtime de todo el checkout y resucitaría backups viejos, abriendo una ventana
+donde el guard queda efectivamente desactivado. El `ts` viaja dentro del archivo y git no lo
+reescribe.
+
+Se hereda también su limitación conocida: es un proxy de "se respaldó lo que se está por
 sobrescribir", no una garantía.
 
 **Qué writes exige backup:** `metafieldsSet` **y** las mutaciones de creación de descuento. Los
@@ -444,6 +450,14 @@ humanos y apunta al JSON como fuente de verdad. `clients/_template/` lo hereda c
 ### 9.0 Postura: whitelist cerrada
 
 **Toda mutación cuyo nombre matchee `discount*` y no esté en la tabla de §9.1 se bloquea.**
+
+> **Estado actual del código (a corregir en implementación):** `backup_guard.py:63-64` hoy tiene
+> `discountcodebasiccreate` y `discountautomaticbasiccreate` dentro de `FORBIDDEN_MUTATIONS`, es
+> decir en la **blocklist**. La implementación tiene que **sacarlos de ahí y enrutarlos por la
+> whitelist con condiciones** — no simplemente borrarlos. Es el punto más delicado del milestone:
+> se está relajando un bloqueo existente, y si el paso de "agregar las condiciones" quedara a
+> medias, el resultado neto sería menos seguro que hoy. Por eso el orden de tareas del plan pone
+> los tests de la whitelist **antes** de tocar la blocklist.
 
 No es un detalle de redacción. El guard del spec padre opera por blocklist; heredado tal cual,
 todo lo no enumerado pasaría sin techo — incluidos `discountAutomaticBxgyCreate`,
