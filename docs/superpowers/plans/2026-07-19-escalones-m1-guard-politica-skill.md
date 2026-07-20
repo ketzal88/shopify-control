@@ -69,7 +69,8 @@ Este plan cubre **solo el Milestone 1** — el corte que sugiere §15 del spec:
 | `.claude/skills/armar-escalones/SKILL.md` | Orquestación del flujo | Crear |
 | `.claude/skills/armar-escalones/strategies/automatic.md` | Procedimiento estrategia por defecto | Crear |
 | `.claude/skills/armar-escalones/strategies/codes.md` | Procedimiento fallback | Crear |
-| `clients/blunua/store-standards.md` | §11 Ofertas (prosa, apunta al JSON) | Modificar |
+| `clients/blunua/store-standards.md` | §8 reescrita + §11 Ofertas nueva | Modificar |
+| `clients/_template/store-standards.md` | Lo mismo, con los valores del template | Modificar |
 | `CLAUDE.md` | Regla 5: nueva clase de write | Modificar |
 
 **Por qué `deal_policy.py` separado y no dentro de `backup_guard.py`:** `backup_guard.py` ya tiene 313 líneas y tres responsabilidades. La carga de política es una unidad con una interfaz clara (`load_policy(root) -> dict | None`) y se testea sola. Meterla adentro haría el guard más difícil de sostener en contexto.
@@ -279,7 +280,9 @@ def test_deal_backup_does_not_enable_a_description_write(tmp_path):
 - [ ] **Step 2: Correr — debe fallar**
 
 Run: `python -m pytest tests/test_backup_guard_deals.py -v`
-Expected: FAIL — `AttributeError: module has no attribute '_covering_deal_backup'`
+Expected: **4 failed, 1 passed** — los 4 mueren con `AttributeError: module has no attribute
+'_covering_deal_backup'`. El que pasa es `test_deal_backup_does_not_enable_a_description_write`,
+que llama a `_covering_backup` (el que ya existe) y por eso no toca la funcion nueva.
 
 - [ ] **Step 3: Implementar en `backup_guard.py`**
 
@@ -500,7 +503,9 @@ Resultado esperado, verificado contra el guard actual:
 | `test_unlisted_discount_mutation_is_blocked` | ❌ FAIL | **hoy se permiten BXGY, free shipping, app y redeem-bulk** |
 | el resto de los `block` | ✅ pasan | blocklist |
 
-> **No es contabilidad.** Si esperabas "los de block ya pasan" y ves seis fallas, vas a pensar que
+Total: **`5 failed, 15 passed`**, y las 5 son exactamente las marcadas ❌.
+
+> **No es contabilidad.** Si esperabas "los de block ya pasan" y ves cinco fallas, vas a pensar que
 > los tests están mal escritos. Están bien: **el guard de hoy permite borrar descuentos, cambiarles
 > el porcentaje después de creados, y crear BXGY.** Esas fallas son el trabajo de este milestone.
 
@@ -513,26 +518,33 @@ Agregar a `backup_guard.py`, después de `FORBIDDEN_MUTATIONS`:
 # Whitelist CERRADA: toda mutación `discount*` que no esté acá se bloquea.
 DISCOUNT_CREATE = {"discountautomaticbasiccreate", "discountcodebasiccreate"}
 DISCOUNT_DEACTIVATE = {"discountautomaticdeactivate", "discountcodedeactivate"}
-DISCOUNT_WHITELIST = DISCOUNT_CREATE | DISCOUNT_DEACTIVATE
 ```
 
 Y la función de validación:
 
-Y arriba de todo, el import — **con el `sys.path` explícito**:
+Primero el import — **inmediatamente después de los imports que ya tiene el archivo** (línea 29,
+debajo de `from pathlib import Path`), nunca arriba de todo:
 
 ```python
-import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from deal_policy import load_policy
 ```
 
-> **Esto NO es opcional ni "por las dudas".** Los tests cargan el guard con
+> **Por qué después y no antes:** este snippet usa `Path`, que se importa en la línea 29. Pegado
+> al principio del archivo da `NameError: name 'Path' is not defined` y la collection se
+> interrumpe. (`sys` ya está importado en la línea 27, no hace falta agregarlo.)
+>
+> **Y por qué el `insert` no es opcional:** los tests cargan el guard con
 > `importlib.util.spec_from_file_location` + `exec_module`, que **no** agrega el directorio del
-> módulo a `sys.path`. Sin el `insert`, el import explota con `ModuleNotFoundError` en tiempo de
-> **collection**, y no fallan algunos tests: **fallan los 93**, incluidos los 65 que hoy están
-> verdes. El camino del hook real (`python .claude/hooks/backup_guard.py`) sí funciona sin el
-> insert, porque pone `.claude/hooks` en `sys.path[0]` — o sea que el test de humo del Step 7
-> pasaría en verde mientras la suite entera está rota.
+> módulo a `sys.path`. Sin él, el import explota con `ModuleNotFoundError` en tiempo de
+> **collection**: no fallan algunos tests, **no corre ninguno** — los dos archivos de test del
+> guard mueren, incluidos los 65 que hoy están verdes.
+>
+> El camino del hook real (`python .claude/hooks/backup_guard.py`) sí funciona sin el insert,
+> porque pone `.claude/hooks` en `sys.path[0]`. O sea que **el test de humo del Step 7 pasaría en
+> verde con la suite entera muerta.**
+
+Y ahora sí, las funciones de validación:
 
 ```python
 def _discount_mutation(text: str) -> str:
@@ -846,10 +858,24 @@ def test_metafield_needs_exactly_one_highlight(tmp_path):
         assert d == "block"
 ```
 
-- [ ] **Step 2: Correr — falla**
+- [ ] **Step 2: Correr y comparar contra ESTA tabla**
 
 Run: `python -m pytest tests/test_backup_guard_deals.py -k metafield -v`
-Expected: FAIL (10 tests)
+
+Resultado esperado: **`2 failed, 8 passed`**.
+
+| Test | Antes del wiring | Por qué |
+|---|---|---|
+| `test_metafield_happy_path` | ❌ FAIL | es el único que espera `allow` con oferta |
+| `test_metafield_empty_tiers_is_allowed` | ❌ FAIL | ídem con `tiers: []` |
+| los otros 8 | ✅ pasan | **por la razón equivocada** |
+
+> **Los 8 que pasan son una trampa.** Sin el wiring, `metafieldsSet` cae en `_check_backup`, que
+> exige un backup de **descripción** y bloquea. Todos los `assert d == "block"` quedan satisfechos
+> por accidente, sin que ninguna de las condiciones del Step 3 exista todavía.
+>
+> Por eso el Step 4 —correr la suite completa— no es opcional: es lo único que distingue "bloquea
+> por la condición correcta" de "bloquea porque cayó en otro camino".
 
 - [ ] **Step 3: Implementar**
 
@@ -880,8 +906,6 @@ def _check_metafield(tool_input, backups_root, now: float):
             data = json.loads(e.get("value") or "{}")
         except Exception:
             return "block", "el contenido de la oferta no es JSON válido."
-        if e.get("ownerType") not in (None, "PRODUCT"):
-            return "block", "la oferta solo se puede escribir sobre un producto."
         tiers = data.get("tiers")
         if not isinstance(tiers, list):
             return "block", "la oferta no tiene escalones."
@@ -931,12 +955,16 @@ def _check_tiers_schema(tiers, policy):
 ```
 
 **Dónde va la llamada en `evaluate()`:** en el bloque del Step 4 de la Task 3, en la posición
-marcada como `# 3.`
+marcada como `# 3.` — antes de la línea `if "productupdate" not in low and not GID_RE.search(text)`.
 
-> ⚠️ **Tiene que ir ANTES de la línea `if "productupdate" not in low and not GID_RE.search(text)`.**
-> Las variables del metafield traen `ownerId: "gid://shopify/Product/1"`, así que `GID_RE` matchea
-> y la llamada cae en `_check_backup` — que exige un backup de **descripción**. Puesto después,
-> `test_metafield_happy_path` falla y el motivo es completamente engañoso.
+> **Nota sobre `ownerType`:** no se valida, a propósito. `MetafieldsSetInput` **no tiene ese
+> campo** — validarlo sería comparar contra `None` siempre. La restricción real de que la oferta
+> vaya sobre un producto la da el `ownerId`, que es el gid con el que se busca el backup.
+
+> **Limitación conocida:** el loop hace `owner = e.get("ownerId") or owner`, así que un
+> `metafieldsSet` en lote sobre dos productos solo verifica el backup **del último**. El techo
+> (`pct`, `maxTiers`, namespace) sí se aplica a **todas** las entradas, así que el riesgo de plata
+> está acotado; lo que se relaja es la garantía de backup. El skill escribe un producto por vez.
 
 - [ ] **Step 4: Correr todo**
 
@@ -1015,20 +1043,47 @@ Sin esto el repo queda con una regla dura que el skill nuevo viola (spec §10).
 
 - [ ] **Step 1: `CLAUDE.md`, regla 5**
 
-Reemplazar el texto actual por:
+⚠️ **Releer el archivo antes de editar.** Este bloque quedó desactualizado una vez ya (otra sesión
+cambió la regla 5 mientras se escribía este plan). Verificar que las tres líneas de abajo siguen
+siendo las que están.
+
+Reemplazar **solo estas tres líneas** (hoy 37-39):
+
+```markdown
+5. **Alcance de escritura v1:** solo descripción (`descriptionHtml`, vía `Shopify:update-product`)
+   + SEO meta title/description (`seo.title`/`seo.description`, vía `Shopify:graphql_mutation`).
+   NUNCA precio, stock, status, tags, título ni handle/URL.
+```
+
+por:
 
 ```markdown
 5. **Alcance de escritura:** dos clases, cada una con su guardrail.
-   - **Texto:** descripción (`descriptionHtml`) + SEO meta title/description.
-   - **Ofertas:** escalones por cantidad — descuentos nativos y el metafield
-     `worker.deal`, con techo por cliente en `deal-policy.json` que el hook
-     enforcea. Ver `docs/superpowers/specs/2026-07-19-quantity-breaks-design.md`.
-   - **NUNCA:** precio de lista, stock, status ni handle/URL.
+   - **Texto:** descripción (`descriptionHtml`, vía `Shopify:update-product`) + SEO meta
+     title/description (`seo.title`/`seo.description`, vía `Shopify:graphql_mutation`).
+   - **Ofertas:** escalones por cantidad — descuentos nativos + metafield `worker.deal`, con
+     techo por cliente en `deal-policy.json` que el hook enforcea. Ver
+     `docs/superpowers/specs/2026-07-19-quantity-breaks-design.md`.
+   - NUNCA precio de lista, stock, status, tags, título ni handle/URL.
 ```
 
-- [ ] **Step 2: `store-standards.md` §8 — la línea que hoy contradice el milestone**
+> **Dos cosas que NO hay que perder:**
+> 1. **`tags` y `título` siguen en la lista de prohibidos.** El código los sigue bloqueando
+>    (`ALLOWED_PRODUCT_INPUT_KEYS`), pero la regla 5 es el texto que gobierna: si se caen de acá,
+>    la prosa queda más débil que el código.
+> 2. **Las líneas 40-42 (`**Esto está enforced por diseño, no por prosa:**` …) se dejan intactas.**
+>    Spec §10 se apoya en ellas: son las que dicen que `permissions.deny` y `backup_guard` hacen
+>    cumplir el alcance. Borrarlas al "reemplazar la regla 5" sería quitar la justificación de por
+>    qué `create-discount` sigue denegado.
 
-`clients/blunua/store-standards.md:78` dice hoy:
+- [ ] **Step 2: `store-standards.md` §8 — en LOS DOS archivos**
+
+⚠️ **Esta edición va en `clients/blunua/store-standards.md` (línea 78) Y en
+`clients/_template/store-standards.md` (línea 51).** Los dos tienen la misma línea. Hacer solo uno
+deja el grep del Step 4 devolviendo la del template — o sea, la puerta de verificación del propio
+plan no pasa.
+
+Ambos dicen hoy:
 
 ```markdown
 - NUNCA precio, stock, status ni handle/URL sin gate estructural (OK de Gabriel).
