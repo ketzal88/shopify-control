@@ -265,8 +265,21 @@ def _covering_deal_backup(backups_root, product_id: str, now: float):
                    "El skill debe guardar el backup antes de escribir.")
 
 
-def _discount_mutation(text: str) -> str:
-    """Nombre de la mutación `discount*` presente en el query, o ''.
+def _discount_mutations(text: str) -> list:
+    """TODAS las mutaciones `discount*` del documento, en minúscula.
+
+    Devuelve la lista completa, NO la primera. No es una optimización pendiente:
+    con `re.search` (primer match) este documento pasaba entero,
+
+        mutation { discountAutomaticDeactivate(id: "...") { ... }
+                   discountAutomaticDelete(id: "...") { deletedId } }
+
+    porque matcheaba el `Deactivate`, que se permite sin condiciones (§9.8), se
+    retornaba "allow" y el `Delete` de atrás nunca se miraba. Las mutaciones de
+    descuento no están en `FORBIDDEN_MUTATIONS` —se sacaron a propósito para
+    que las cubra esta whitelist—, así que el loop de la blocklist tampoco lo
+    frenaba: se borraba un descuento usando la compensación como llave, que es
+    exactamente el invariante que el milestone enforcea por código.
 
     Case-sensitive sobre el prefijo en minúscula a propósito: así NO matchea
     `"gid://shopify/DiscountAutomaticNode/111"` dentro del valor de un
@@ -274,20 +287,32 @@ def _discount_mutation(text: str) -> str:
     `discountApplications(first:5)`, y eso falla CERRADO (bloquea), que es el
     lado correcto para equivocarse.
     """
-    m = re.search(r"\b(discount[A-Za-z]*)\s*\(", text)
-    return m.group(1).lower() if m else ""
+    return [m.lower() for m in re.findall(r"\b(discount[A-Za-z]*)\s*\(", text)]
 
 
-def _check_discount(name: str, tool_input, backups_root, now: float):
-    """Whitelist de descuentos con techo (spec §9.0-9.4)."""
-    if name in DISCOUNT_DEACTIVATE:
-        # Sin condiciones a propósito (spec §9.8): la compensación no puede
-        # depender de un estado que la compensación misma modifica.
+def _check_discount(names, tool_input, backups_root, now: float):
+    """Whitelist de descuentos con techo (spec §9.0-9.4).
+
+    Recibe TODAS las mutaciones del documento: cada una tiene que ser
+    aceptable por sí sola. Ninguna se vuelve inocente por la compañía.
+    """
+    fuera = [n for n in names if n not in DISCOUNT_CREATE | DISCOUNT_DEACTIVATE]
+    if fuera:
+        return "block", (f"'{fuera[0]}' no está en la whitelist de descuentos. "
+                         "Solo se permiten crear (con techo) y desactivar.")
+
+    creates = [n for n in names if n in DISCOUNT_CREATE]
+    if not creates:
+        # Puras desactivaciones: sin condiciones a propósito (spec §9.8), la
+        # compensación no puede depender de un estado que ella misma modifica.
         return "allow", "desactivar siempre está permitido"
 
-    if name not in DISCOUNT_CREATE:
-        return "block", (f"'{name}' no está en la whitelist de descuentos. "
-                         "Solo se permiten crear (con techo) y desactivar.")
+    # Un solo create por documento: el objeto que se valida sale de `variables`
+    # y es UNO solo, así que con dos creates el segundo viajaría sin techo.
+    if len(creates) > 1:
+        return "block", ("hay más de una oferta en la misma operación y solo puedo "
+                         "verificar el techo de una. Mandalas de a una.")
+    name = creates[0]
 
     policy = load_policy(backups_root)
     if policy is None:
@@ -437,10 +462,18 @@ def evaluate(payload: dict, backups_root, now: float):
                 return "block", (f"la mutación '{mutation}' está fuera del alcance del v1 "
                                  "(toca precio, stock, status, publicación o borra).")
 
-        # 2. Recién ahí, ofertas: whitelist cerrada con techo.
-        name = _discount_mutation(text)
-        if name:
-            return _check_discount(name, tool_input, backups_root, now)
+        # 2. Recién ahí, ofertas: whitelist cerrada con techo. Se pasan TODAS
+        #    las mutaciones del documento, no la primera (ver _discount_mutations).
+        names = _discount_mutations(text)
+        if names:
+            # Documento mixto (ofertas + write de producto): no se puede validar
+            # de una sola pasada. `_check_discount` retorna, y el control de
+            # campos del productUpdate de más abajo nunca correría — o sea que
+            # `status`/`handle`/`variants` entrarían detrás de un deactivate.
+            if "productupdate" in low:
+                return "block", ("no puedo verificar una operación que mezcla ofertas con "
+                                 "cambios de producto. Mandalas por separado.")
+            return _check_discount(names, tool_input, backups_root, now)
 
         # 3. ← acá va el dispatch del metafield, en la Task 4. No lo agregues todavía.
 

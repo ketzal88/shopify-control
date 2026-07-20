@@ -190,3 +190,74 @@ def test_unlisted_discount_mutation_is_blocked(tmp_path):
         p = {"tool_name": T_GQL, "tool_input": {"query": f"mutation {{ {mut}(x: 1) {{ id }} }}"}}
         d, _ = bg.evaluate(p, tmp_path, time.time())
         assert d == "block", f"{mut} no bloqueó"
+
+
+# --- Documentos con varios root fields (bypass del prefijo `Deactivate`) -----
+# GraphQL admite varias mutaciones en un mismo documento. Un `Deactivate`
+# adelante NO puede volver inocente a lo que viene atrás.
+
+DEACTIVATE = 'discountAutomaticDeactivate(id: "gid://shopify/DiscountAutomaticNode/7") { automaticDiscountNode { id } }'
+
+def test_deactivate_plus_delete_is_blocked(tmp_path):
+    """El invariante central del milestone: se desactiva, NO se borra.
+    Un `Deactivate` de prefijo no puede colar un `Delete` atrás."""
+    policy(tmp_path); write_deal_backup(tmp_path)
+    p = {"tool_name": T_GQL, "tool_input": {
+        "query": f'mutation {{ {DEACTIVATE} discountAutomaticDelete(id: "gid://shopify/DiscountAutomaticNode/7") {{ deletedId }} }}'}}
+    d, why = bg.evaluate(p, tmp_path, time.time())
+    assert d == "block", f"el delete pasó escondido detrás del deactivate: {why}"
+
+def test_deactivate_plus_bxgy_is_blocked(tmp_path):
+    policy(tmp_path); write_deal_backup(tmp_path)
+    p = {"tool_name": T_GQL, "tool_input": {
+        "query": f"mutation {{ {DEACTIVATE} discountAutomaticBxgyCreate(x: 1) {{ id }} }}"}}
+    d, why = bg.evaluate(p, tmp_path, time.time())
+    assert d == "block", f"el BXGY pasó escondido detrás del deactivate: {why}"
+
+def test_deactivate_plus_create_applies_full_conditions(tmp_path):
+    """Un create NO queda exento por compartir documento con un deactivate:
+    el 70% tiene que chocar contra el techo de 30% igual."""
+    policy(tmp_path); write_deal_backup(tmp_path)
+    p = create_discount(pct=0.7)
+    p["tool_input"]["query"] = p["tool_input"]["query"].replace(
+        "{ discountAutomaticBasicCreate", "{ " + DEACTIVATE + " discountAutomaticBasicCreate", 1)
+    d, why = bg.evaluate(p, tmp_path, time.time())
+    assert d == "block", f"el create de 70% pasó detrás del deactivate: {why}"
+    assert "70" in why, f"bloqueó, pero no por el techo: {why}"
+
+def test_two_deactivates_are_allowed(tmp_path):
+    """§9.8 sigue intacto: un documento de PURAS desactivaciones pasa sin
+    política, sin backup y sin techo. Lo que se corrigió no fue el permiso,
+    fue retornar antes de mirar el resto del documento."""
+    p = {"tool_name": T_GQL, "tool_input": {
+        "query": f'mutation {{ {DEACTIVATE} discountCodeDeactivate(id: "gid://shopify/DiscountCodeNode/8") {{ codeDiscountNode {{ id }} }} }}'}}
+    d, _ = bg.evaluate(p, tmp_path, time.time())
+    assert d == "allow"
+
+def test_deactivate_plus_product_update_is_blocked(tmp_path):
+    """Documento mixto: el `_check_discount` retornaba y el control de campos
+    de `productUpdate` no llegaba a correr, así que `status`/`handle` —lo que
+    el v1 NUNCA toca— pasaban detrás de un deactivate."""
+    policy(tmp_path); write_deal_backup(tmp_path)
+    p = {"tool_name": T_GQL, "tool_input": {
+        "query": f'mutation {{ {DEACTIVATE} productUpdate(input: {{id: "gid://shopify/Product/1", handle: "x", status: DRAFT}}) {{ product {{ id }} }} }}'}}
+    d, why = bg.evaluate(p, tmp_path, time.time())
+    assert d == "block", f"el productUpdate de status/handle pasó detrás del deactivate: {why}"
+
+def test_two_creates_in_one_document_are_blocked(tmp_path):
+    """Misma clase de agujero: el objeto validado sale de `variables` y es UNO
+    SOLO (`_discount_input` devuelve el primero con `customerGets`). Con dos
+    creates en el mismo documento el segundo —acá, 90%— nunca se validaría."""
+    policy(tmp_path); write_deal_backup(tmp_path)
+    p = create_discount()
+    p["tool_input"]["query"] = (
+        "mutation ($d: DiscountAutomaticBasicInput!, $d2: DiscountAutomaticBasicInput!, $productId: ID!) "
+        "{ discountAutomaticBasicCreate(automaticBasicDiscount: $d) { automaticDiscountNode { id } } "
+        "discountAutomaticBasicCreate(automaticBasicDiscount: $d2) { automaticDiscountNode { id } } }")
+    p["tool_input"]["variables"]["d2"] = {
+        "title": "el que no se valida",
+        "startsAt": "2026-07-20T00:00:00Z", "endsAt": "2026-10-18T00:00:00Z",
+        "customerGets": {"value": {"percentage": 0.9},
+                         "items": {"products": {"productsToAdd": [PID]}}}}
+    d, why = bg.evaluate(p, tmp_path, time.time())
+    assert d == "block", f"el segundo create (90%) nunca se validó: {why}"
