@@ -63,16 +63,13 @@ FORBIDDEN_MUTATIONS = {
     "productvariantsbulkupdate",
     "productvariantsbulkcreate",
     "productvariantsbulkdelete",
-    "productchangestatus",
     "inventorysetquantities",
     "inventoryadjustquantities",
     "inventoryactivate",
     "collectioncreate",
     "collectionupdate",
-    "collectionaddproducts",
     "publishablepublish",
     "publishableunpublish",
-    "productdeletemedia",
 }
 
 # --- Ofertas (spec §9) ------------------------------------------------------
