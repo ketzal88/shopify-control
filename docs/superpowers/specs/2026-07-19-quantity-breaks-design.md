@@ -2,10 +2,10 @@
 
 - **Fecha:** 2026-07-19
 - **Autor:** Gabriel (Worker) + Claude
-- **Estado:** diseñado, sin implementar. Dos incógnitas empíricas abiertas (§13) que NO bloquean la construcción.
+- **Estado:** diseñado, sin implementar. Tres incógnitas empíricas abiertas (§14) que NO bloquean la construcción.
 - **Cliente piloto:** blunua
 - **Spec padre:** `2026-07-19-shopify-control-v1-design.md` (este documento extiende §13 "Combos como write")
-- **Revisión:** rev.2 — incorpora 11 correcciones del review de spec (ver §16).
+- **Revisión:** rev.3 — incorpora 11 correcciones del primer review y 4 del segundo (ver §16).
 
 ---
 
@@ -35,12 +35,12 @@ Worker Brain). Este diseño se queda con la decisión y usa el motor nativo de S
 | E2 | Quién autoriza | **Quien pide es quien autoriza.** Sin gate externo, consistente con D5 del spec padre. |
 | E3 | Techo duro | **Sí, por cliente.** Límites mecánicos que la confirmación humana no puede saltear. |
 | E4 | Instalación del widget | **Bloque Custom Liquid del editor de temas.** Cero writes a archivos del tema. |
-| E5 | Semántica del undo | **Vencer, no borrar** (`endsAt = ahora`). Preserva el rastro histórico. |
+| E5 | Semántica del undo | **Desactivar, no borrar** (`discount*Deactivate`). Preserva el rastro histórico. Ver §6.3. |
 | E6 | Capa de descuentos | **Estrategia intercambiable** (§6). Default `automatic`; `codes` como fallback. |
 | E7 | Preselección en el widget | **Arranca en 1 unidad**, con el escalón 2 destacado pero no marcado. Ver §4.4. |
 | E8 | Skill | **Skill nuevo `armar-escalones`**, no una extensión de `armar-combo`. Ver §7. |
-| E9 | Semántica de carrito | El widget **fija** la cantidad de la línea (`change.js`), no la suma. Ver §4.6. |
-| E10 | Variantes | El escalón cuenta **unidades del producto, con variantes mezclables**. Ver §4.7. |
+| E9 | Semántica de carrito | El widget **fija** las cantidades por variante (`update.js`), no las suma. Ver §4.6. |
+| E10 | Variantes | El escalón cuenta **unidades del producto, con variantes mezclables** — sujeto a la incógnita C. Ver §4.6 y §14. |
 | E11 | Restore de ofertas | **No existe.** El backup es insumo del guard y rastro de auditoría. Ver §7.3. |
 
 ---
@@ -56,7 +56,7 @@ Worker Brain). Este diseño se queda con la decisión y usa el motor nativo de S
 
 **Propiedad de aislamiento clave:** el widget lee del metafield y de nada más. El metafield lleva
 **todo** lo que el widget necesita bajo cualquiera de las dos estrategias (§5), así que las
-incógnitas de §13 no cambian el schema ni el widget — solo qué mutaciones usa el skill.
+incógnitas de §14 no cambian el schema ni el widget — solo qué mutaciones usa el skill.
 
 **Nota honesta sobre "estrategia intercambiable":** shopify-control no tiene runtime propio (son
 skills en markdown + hooks de Python que solo hacen de guarda). La intercambiabilidad **no es
@@ -122,31 +122,40 @@ información quede fuera del momento de decidir.
 - **Mobile (< 480px):** colapsa al escalón seleccionado + enlace "ver los demás". Sin colapso, el
   widget empuja el botón de comprar abajo del pliegue en un viewport de 390px.
 
-### 4.6 Semántica de carrito (E9)
+### 4.6 Semántica de carrito y de variantes (E9 + E10) — un solo algoritmo
 
-El widget **fija** la cantidad de la línea del producto, no la suma:
+El widget **fija** las cantidades del producto en el carrito; no las suma. Una sola llamada, que
+cubre tanto el caso mono-variante como el mezclado:
 
 ```
-POST /cart/change.js   { id: <line>, quantity: <qty del escalón> }
+POST /cart/update.js
+{ "updates": {
+    "<variantId elegida #1>": <n1>,
+    "<variantId elegida #2>": <n2>,
+    "<toda otra variante del producto>": 0
+} }
 ```
 
-Razón: si el carrito ya tiene 1 unidad y el botón dice "Llevar 2", un `cart/add.js` dejaría 3 en el
-carrito y aplicaría el escalón 3 — el botón habría mentido. Fijando la línea, **la promesa del
-botón siempre se cumple**.
+Reglas del algoritmo:
 
-Si al cargar la ficha el producto ya está en el carrito, el widget preselecciona el escalón que
-corresponde a esa cantidad y lo indica ("ya tenés 2 en el carrito"). Si la cantidad en carrito no
-coincide con ningún escalón, preselecciona el escalón inmediato inferior.
+1. El widget arma un mapa `variantId → cantidad` con las variantes elegidas para el escalón.
+   `Σ cantidades == qty` del escalón.
+2. **Toda otra variante del mismo producto va explícitamente en 0.** Sin esto, unidades
+   preexistentes de otra variante quedan en el carrito y el total supera el escalón anunciado.
+3. Ninguna variante de **otros** productos se toca.
 
-### 4.7 Variantes (E10)
+Por qué `update.js` y no `add.js` ni `change.js`: `add.js` suma (si ya había 1 y el botón dice
+"Llevar 2", quedan 3 y aplica otro escalón — el botón mintió). `change.js` opera sobre **una** línea
+por llamada, lo que no sirve con variantes mezcladas. `update.js` fija por variante, es idempotente
+y resuelve los dos casos con una sola escritura.
 
-El `minimumRequirement` de §6.1 se define **a nivel producto** (`productsToAdd`), así que el
-descuento dispara con N unidades de **cualquier** combinación de variantes de ese producto.
+**Estado inicial:** al cargar la ficha, el widget suma las unidades del producto **en todas sus
+variantes**, preselecciona el escalón correspondiente (o el inmediato inferior si no coincide con
+ninguno) y lo indica: "ya tenés 2 en el carrito".
 
-El widget es consistente con eso: para un escalón de N, muestra **N selectores de variante**, uno
-por unidad, y permite mezclarlas. Cada unidad se agrega como su propia línea de carrito.
-
-Para productos con una sola variante (`has_only_default_variant`), los selectores no se renderizan.
+**Selectores de variante:** para un escalón de N, el widget muestra N selectores, uno por unidad, y
+permite mezclarlas — sujeto a la incógnita C de §14. Para productos con una sola variante
+(`has_only_default_variant`), no se renderizan.
 
 ---
 
@@ -197,7 +206,7 @@ Reglas del schema (todas verificadas por el guard, §9.1):
 ```
 .claude/skills/armar-escalones/strategies/
 ├── automatic.md    ← discountAutomaticBasicCreate   (default)
-└── codes.md        ← discountCodeBasicCreate        (fallback, ver §13)
+└── codes.md        ← discountCodeBasicCreate        (fallback, ver §14)
 ```
 
 Cada archivo documenta tres operaciones con la misma forma de entrada y salida:
@@ -205,7 +214,7 @@ Cada archivo documenta tres operaciones con la misma forma de entrada y salida:
 | Operación | Entrada | Salida |
 |---|---|---|
 | `crear` | product gid, tiers, startsAt, endsAt | por tier con `pct > 0`: `ref` y (si aplica) `code` |
-| `vencer` | lista de `ref` | — (deja `endsAt = ahora`) |
+| `desactivar` | lista de `ref` | — (ver §6.3) |
 | `verificar` | lista de `ref` | estado real leído del Admin API |
 
 ### 6.1 Estrategia `automatic` (default)
@@ -240,7 +249,7 @@ mutation ($d: DiscountAutomaticBasicInput!) {
 - **`title` con prefijo `shopify-control ·`**: permite auditar en el admin qué descuentos creó la
   herramienta y cuáles puso una persona a mano.
 
-`vencer` usa `discountAutomaticBasicUpdate` con `endsAt` = ahora, sin tocar ningún otro campo.
+`desactivar` usa `discountAutomaticDeactivate` (§6.3).
 
 ### 6.2 Estrategia `codes` (fallback)
 
@@ -248,15 +257,35 @@ Un `DiscountCodeBasicNode` por escalón, con el **mismo** `minimumRequirement` d
 código no aplica aunque alguien lo comparta sin cumplir la condición. El widget aplica el código
 vía `/discount/{code}?redirect=/cart` (§4.2), tomando `code` del metafield.
 
-Existe porque **elimina las dos incógnitas de §13**: el widget decide qué código aplicar (no
+Existe porque **elimina las incógnitas A y B de §14**: el widget decide qué código aplicar (no
 Shopify), y el límite de códigos es órdenes de magnitud mayor que el de automáticos.
 
-`vencer` usa `discountCodeBasicUpdate` con `endsAt` = ahora.
+`desactivar` usa `discountCodeDeactivate` (§6.3).
 
 **Rige el mismo techo que `automatic`** (§9.1): `endsAt` presente, duración y `pct` bajo límite,
 ids explícitos. Activar el fallback no puede degradar E3.
 
-Se documenta ahora y **se implementa solo si el test de §13 lo exige.**
+Se documenta ahora y **se implementa solo si el test de §14 lo exige.**
+
+### 6.3 `desactivar`: por qué `Deactivate` y no `endsAt = ahora`
+
+La primitiva de neutralización es `discountAutomaticDeactivate` / `discountCodeDeactivate`.
+**No** se usa `discount*BasicUpdate` con `endsAt = ahora`.
+
+Razón, y es una trampa real: **Shopify rechaza `endsAt <= startsAt`.** Una oferta con `startsAt`
+futuro —que el flujo soporta, porque §7.1 paso 5 previsualiza cuándo arranca— sería
+**imposible de neutralizar**: el update fallaría, `discount*Delete` está duramente bloqueado
+(§9.2), y quedaría un descuento huérfano que entra en vigencia al día siguiente sin forma de
+frenarlo. El camino de compensación de §7.2 sería inalcanzable justo cuando más se lo necesita.
+
+`Deactivate` es independiente de fechas, funciona igual con `startsAt` pasado o futuro, y preserva
+el objeto con su historial — que es lo que E5 protege. "Vencer" y "borrar" no eran las únicas dos
+opciones.
+
+**Corolario:** `discountAutomaticBasicUpdate` y `discountCodeBasicUpdate` **no entran en la
+whitelist** (§9.1). Sin camino de update no hay forma de estirar `endsAt` a 2031 y saltear
+`maxDurationDays`, ni de tocar el `percentage` después de creado. La superficie se achica en vez
+de acotarse con condiciones.
 
 ---
 
@@ -285,57 +314,72 @@ Espeja el flujo de 9 pasos de `mejorar-descripcion` (§6 del spec padre):
 5. PREVIEW              en el chat, texto sin jerga: qué va a ver quien compra, cuánto sale
                         cada escalón, cuándo arranca y cuándo vence.
 6. GATE                 nada se escribe hasta confirmación explícita.
-7. BACKUP               clients/{slug}/backups/deals/{tail}-{fecha}.json (§7.4).
+7. BACKUP               clients/{slug}/backups/deals/{tail}-{timestamp}.json (§7.4).
 8. ESCRIBIR             ver §7.2 — el orden importa.
 9. CONFIRMAR            "Listo. Para sacarlo: 'sacá los escalones del anillo NEXO'."
 ```
 
 ### 7.2 Orden de escritura (falla del lado seguro)
 
-El orden es **crear → publicar → vencer**, nunca al revés:
+El orden es **crear → publicar → desactivar**, nunca al revés:
 
 ```
 a. crear los descuentos nuevos          → refs (+ codes)
 b. metafieldsSet con los refs nuevos    → el widget ya anuncia lo que el carrito aplica
-c. vencer los descuentos VIEJOS (si los había)
+c. desactivar los descuentos VIEJOS (si los había)
 ```
 
 Razón: en cualquier punto de fallo, el estado intermedio es coherente.
 
 | Falla en | Estado resultante | Acción |
 |---|---|---|
-| (a) | nada publicado; se vencen los parciales creados | aborta y reporta |
-| (b) | descuentos nuevos activos pero no anunciados; los viejos siguen vigentes y anunciados | se vencen los nuevos; la oferta vieja sigue funcionando intacta |
-| (c) | ambos descuentos vigentes; el metafield anuncia el nuevo | **estado seguro**: el comprador ve el nuevo y, si Shopify aplicara el viejo, sería a favor suyo. Se reintenta vencer y se reporta |
+| (a) | nada publicado; se desactivan los parciales creados | aborta y reporta |
+| (b) | descuentos nuevos activos pero no anunciados; los viejos siguen vigentes y anunciados | se desactivan los nuevos; la oferta vieja sigue funcionando intacta |
+| (c) | ambos vigentes; el metafield anuncia el nuevo | se reintenta desactivar y se reporta. Ver la advertencia abajo |
 
-El orden inverso (vencer primero) deja una ventana donde **el widget anuncia escalones que el
+El orden inverso (desactivar primero) deja una ventana donde **el widget anuncia escalones que el
 carrito ya no aplica** — el bug de brickwar2 causado por nuestra propia compensación.
 
-Si la operación compensatoria de `vencer` falla, el skill lo registra en `worklog.md` como
-inconsistencia pendiente y lo reporta en lenguaje natural. No hay reintento silencioso.
+**Advertencia sobre el estado (c):** no es inocuo. Con los dos juegos vigentes, si la oferta nueva
+es **menor** que la vieja, Shopify aplica la vieja por ser más favorable, y el comprador paga menos
+de lo que el widget anuncia. Es divergencia widget↔carrito, aunque a favor del comprador. Por eso
+(c) se reintenta y, si el reintento falla, se registra en `worklog.md` como inconsistencia
+pendiente y se reporta en lenguaje natural. No hay reintento silencioso ni se da por cerrado.
 
 ### 7.3 Flujo `sacar escalones` (E11)
 
 ```
 1. leer el metafield → refs y strategy
-2. metafieldsSet con tiers: []          ← PRIMERO: el widget deja de anunciar
-3. vencer cada ref (endsAt = ahora). NUNCA borrar.
-4. registrar en worklog
+2. BACKUP (§7.4)                        ← habilita el metafieldsSet del paso 3
+3. metafieldsSet con tiers: []          ← el widget deja de anunciar
+4. desactivar cada ref (§6.3). NUNCA borrar.
+5. registrar en worklog
 ```
 
-Mismo criterio de orden: se deja de anunciar antes de dejar de aplicar.
+Mismo criterio de orden: se deja de anunciar antes de dejar de aplicar. **El paso 2 no es
+opcional:** `metafieldsSet` exige backup fresco (§9.1), así que sin él el propio guard bloquearía
+el undo.
 
 **No existe un flujo `revertir` para ofertas** (E11). Si alguien quiere volver a una oferta
 anterior, la vuelve a armar. El backup de §7.4 es insumo del guard y rastro de auditoría, no
-fuente de restore: des-vencer descuentos ya vencidos reintroduce ambigüedad sobre qué estuvo
+fuente de restore: reactivar descuentos ya desactivados reintroduce ambigüedad sobre qué estuvo
 vigente cuándo, y las órdenes ya cobradas no se recalculan.
 
-Si el metafield está vacío pero existen descuentos con prefijo `shopify-control ·` para ese
-producto, el skill lo reporta como inconsistencia y ofrece vencerlos.
+**Detección de huérfanos.** El skill reporta como inconsistencia todo descuento con prefijo
+`shopify-control ·` sobre ese producto que **no esté referenciado por algún `ref` del metafield
+actual**, y ofrece desactivarlo.
+
+La condición se define así, y no como "si el metafield está vacío", precisamente para cubrir el
+estado (c) de §7.2: ahí el metafield **no** está vacío —anuncia la oferta nueva— y los huérfanos
+son los viejos que quedaron activos. Una condición basada en el metafield vacío no dispararía justo
+en el único caso donde hace falta.
 
 ### 7.4 Contrato del backup de ofertas
 
-`clients/{slug}/backups/deals/{productIdTail}-{fecha}.json`
+`clients/{slug}/backups/deals/{productIdTail}-{YYYYMMDD-HHMMSS}.json`
+
+El nombre lleva **timestamp**, no fecha: dos escrituras al mismo producto el mismo día colisionan.
+(Los backups de descripción del spec padre heredan ese defecto; acá no se replica.)
 
 ```json
 { "kind": "deal",
@@ -353,6 +397,15 @@ podría habilitar un write de descuento.
 Regla en el guard: el backup que habilita un write de deal debe estar **bajo `backups/deals/`**
 y tener **`kind == "deal"`**. Las dos condiciones, no una. Los backups de descripción conservan su
 forma actual sin cambios y no ganan `kind` (su ruta ya los distingue).
+
+**Frescura:** misma ventana de 15 minutos por mtime que el guard padre (§11 capa 2). Se hereda
+tal cual, incluida su limitación conocida: es un proxy de "se respaldó lo que se está por
+sobrescribir", no una garantía.
+
+**Qué writes exige backup:** `metafieldsSet` **y** las mutaciones de creación de descuento. Los
+dos caminos, porque los dos alteran lo que el comprador ve o paga. `discount*Deactivate` **no**
+lo exige: es la operación de compensación, y condicionarla a un backup fresco haría que un fallo
+de backup impidiera limpiar un estado inconsistente.
 
 ---
 
@@ -392,7 +445,7 @@ todo lo no enumerado pasaría sin techo — incluidos `discountAutomaticBxgyCrea
 `discountAutomaticFreeShippingCreate`, `discountAutomaticAppCreate`, `discountRedeemCodeBulkAdd`
 y los `discount*Activate/Deactivate`. El caso más grave es `discountCodeBasicUpdate` sin acotar:
 permitiría **cambiar el `percentage` después de creado** y saltear `maxDiscountPct` por completo,
-dejando abierto justo el riesgo "typo 7 → 70" que §15 dice cerrar.
+dejando abierto justo el riesgo "typo 7 → 70" que §16 dice cerrar.
 
 Lo mismo para `metafieldsSet`: se bloquea cualquier namespace distinto de `worker`.
 
@@ -402,15 +455,23 @@ Lo mismo para `metafieldsSet`: se bloquea cualquier namespace distinto de `worke
 |---|---|
 | `discountAutomaticBasicCreate` | `endsAt` presente · duración ≤ `maxDurationDays` · pct ≤ `maxDiscountPct` (§9.4) · `items.products` con ids explícitos · backup de deal fresco (§7.4) |
 | `discountCodeBasicCreate` | **las mismas condiciones** + `"codes" in enabledStrategies` |
-| `discountAutomaticBasicUpdate` | solo si el único campo modificado es `endsAt` |
-| `discountCodeBasicUpdate` | solo si el único campo modificado es `endsAt` |
-| `metafieldsSet` | `namespace == "worker"` · `key == "deal"` · `ownerType == PRODUCT` · JSON válido contra §5 · **`pct` de cada tier ≤ `maxDiscountPct`** · `len(tiers)` ≤ `maxTiers` |
+| `discountAutomaticDeactivate` | el `id` debe estar referenciado por algún `ref` de un `worker.deal` del cliente activo. Sin backup (§7.4) |
+| `discountCodeDeactivate` | ídem |
+| `metafieldsSet` | `namespace == "worker"` · `key == "deal"` · `ownerType == PRODUCT` · JSON válido contra §5 · **`pct` de cada tier ≤ `maxDiscountPct`** · `len(tiers)` ≤ `maxTiers` · backup de deal fresco |
 | `metafieldDefinitionCreate` | **solo setup, solo operador**, namespace `worker`. No alcanzable desde el flujo del cliente. |
+
+**`discount*BasicUpdate` NO está en la whitelist**, a propósito (§6.3). Sin camino de update, no hay
+forma de estirar `endsAt` para saltear `maxDurationDays` ni de cambiar el `percentage` después de
+creado. Achicar la superficie es más robusto que acotarla con condiciones.
 
 ### 9.2 Bloqueos duros (no hay backup que los habilite)
 
-- `discountAutomaticDelete` y `discountCodeDelete` — **E5 (vencer, no borrar) queda enforced por
-  código**, no por prosa del skill.
+- **Todas las variantes de borrado**: `discountAutomaticDelete`, `discountCodeDelete`,
+  `discountAutomaticBulkDelete`, `discountCodeBulkDelete`, `discountCodeRedeemCodeBulkDelete`.
+  **E5 (desactivar, no borrar) queda enforced por código**, no por prosa del skill.
+  > Enumerarlas todas es ilustrativo, no la defensa: la defensa es §9.0. En la primera redacción
+  > de esta lista faltaban las tres variantes `Bulk`, que habrían salteado el bloqueo por completo.
+  > Sobre una superficie de 28 mutaciones `discount*`, una blocklist es indefendible.
 - Cualquier descuento con `customerGets.items.all: true`.
 - Cualquier descuento con `customerGets.items.collections` si `allowCollectionScope` es false.
   Es el bloqueo de mayor valor: un descuento a nivel colección puede vender el catálogo entero
@@ -422,7 +483,7 @@ Lo mismo para `metafieldsSet`: se bloquea cualquier namespace distinto de `worke
 `metafieldsSet` valida `pct` y `maxTiers` (§9.1), no solo la forma del JSON. Razón: **el widget lee
 del metafield, no del descuento**. Un metafield con `pct: 90` y un `ref` a un descuento vencido
 pasaría un guard que solo validara estructura, y produciría exactamente la divergencia
-widget↔carrito que §12.2 testea y que §15 nombra como el riesgo más caro.
+widget↔carrito que §13.2 testea y que §16 nombra como el riesgo más caro.
 
 ### 9.4 Unidades de porcentaje (trampa)
 
@@ -503,10 +564,10 @@ armar-combo (opcional)          Brain: co-compra, histograma de ticket
 | Falla `metafieldsSet` | Vence los nuevos. La oferta vieja (si había) sigue intacta — ver §7.2 |
 | Falla el vencido de los viejos | Estado seguro (§7.2 fila c). Se registra en worklog y se reporta. |
 | El producto ya tiene oferta activa | Preview ANTES vs DESPUÉS. Al confirmar, orden de §7.2 |
-| Descuentos huérfanos (existen con prefijo, sin metafield) | `sacar escalones` los detecta y ofrece vencerlos |
+| Descuentos huérfanos (con prefijo, no referenciados por el metafield) | `sacar escalones` los detecta y ofrece desactivarlos (§7.3) |
 | El % pedido supera el techo | El guard bloquea; el skill explica el límite sin jerga |
 | Carrito con unidades preexistentes del producto | El widget **fija** la línea (§4.6): la promesa del botón se cumple |
-| Producto multi-variante | N selectores, variantes mezclables (§4.7) |
+| Producto multi-variante | N selectores, variantes mezclables (§4.6), sujeto a la incognita C |
 | Stock insuficiente para el escalón mayor | Advertencia en el preview, no bloqueo. Shopify ya maneja el oversell |
 | El widget no encuentra el metafield | No renderiza. La ficha queda como estaba |
 | `endsAt` ya pasó | El widget no renderiza; el skill lo reporta como oferta vencida |
@@ -524,8 +585,13 @@ Sobre el guard:
 - bloquea duración por encima de `maxDurationDays`
 - bloquea `items.all: true`
 - bloquea scope por colección con `allowCollectionScope: false`
-- bloquea `discountAutomaticDelete` y `discountCodeDelete` **siempre**
-- bloquea `discountCodeBasicUpdate` que modifique algo distinto de `endsAt`
+- bloquea **las cinco** variantes de borrado, incluidas `discountAutomaticBulkDelete`,
+  `discountCodeBulkDelete` y `discountCodeRedeemCodeBulkDelete` (§9.2)
+- bloquea `discountAutomaticBasicUpdate` y `discountCodeBasicUpdate` **siempre** (§6.3),
+  incluido el caso `endsAt: "2031-01-01"` que estiraría la oferta más allá de `maxDurationDays`
+- permite `discount*Deactivate` solo si el `id` está referenciado por un `worker.deal`;
+  lo bloquea para un id arbitrario
+- **`metafieldsSet` exige backup fresco**; `discount*Deactivate` **no** (§7.4)
 - **bloquea toda mutación `discount*` fuera de la whitelist** (§9.0): BXGY, free shipping, app,
   redeem-code-bulk-add
 - bloquea `metafieldsSet` con namespace ≠ `worker`
@@ -540,7 +606,7 @@ Sobre el guard:
 - Matriz de widget: desktop / mobile 390px, cambio de escalón, colapso en mobile.
 - Que la cantidad en el carrito coincida con la que cantaba el botón.
 - **Carrito con unidades preexistentes del mismo producto** (§4.6).
-- **Producto multi-variante con variantes mezcladas** en un mismo escalón (§4.7).
+- **Producto multi-variante con variantes mezcladas** en un mismo escalón (§4.6).
 - Que el precio del carrito coincida con el que mostraba el widget — **el fallo observado en
   brickwar2**.
 - Ciclo completo crear → verificar en checkout → sacar → verificar que dejó de aplicar.
@@ -554,10 +620,11 @@ puede agregar al carrito, que es justamente lo que hay que probar.
 
 ---
 
-## 14. Las dos incógnitas empíricas
+## 14. Las tres incógnitas empíricas
 
-Ninguna bloquea la construcción del widget, el metafield, el skill ni el guard. Ambas se responden
-contra development store y solo determinan qué estrategia de §6 queda activa.
+Ninguna bloquea la construcción del widget, el metafield, el skill ni el guard. Las tres se
+responden contra development store. A y B determinan qué estrategia de §6 queda activa; C puede
+obligar a acotar el alcance del widget.
 
 **A — ¿Shopify permite más de un descuento automático activo a la vez?**
 Eliminatoria para `automatic`: los escalones necesitan uno por tier. Si la respuesta es no, se
@@ -571,8 +638,32 @@ los escalones funcionan solos. Si aplica por orden de creación, o exige priorid
 deliberadamente no se agrega**: administrar prioridades de descuento es complejidad que el fallback
 evita por completo.
 
-**Procedimiento:** crear dos descuentos automáticos sobre un producto de prueba (min 2 → 10%,
-min 3 → 20%), agregar 3 unidades al carrito y leer el precio en el checkout.
+**C — ¿`minimumRequirement.quantity` cuenta unidades del producto entitled, o de todo el carrito?**
+
+`minimumRequirement` y `customerGets.items` son **dos inputs separados** de la API. El segundo dice
+qué se descuenta; el primero dice cuánto hay que llevar — pero la documentación describe el umbral
+sobre "qualifying items in the customer's cart", lo que **no resuelve** si "qualifying" significa
+"los del `items`" o "los del carrito".
+
+Rev.2 de este spec afirmaba el scoping a nivel producto como hecho establecido. **No lo está**, y
+la diferencia es grave: si el umbral es a nivel carrito, llevar 1 anillo + 1 collar dispara el
+escalón "2+" del anillo, y el widget anuncia un precio que el carrito no respeta — exactamente el
+riesgo que §16 dice cerrar. **La estrategia `codes` no lo arregla**: §6.2 usa el mismo
+`minimumRequirement`.
+
+Si resulta ser a nivel carrito, la mitigación es que el escalón exija N de la **misma variante**
+(con `productVariantsToAdd` en vez de `productsToAdd`), lo que obliga a sacar las variantes
+mezclables de §4.6.
+
+**Procedimientos:**
+
+| | Test | Qué se mira |
+|---|---|---|
+| **A + B** | dos descuentos automáticos sobre el mismo producto (min 2 → 10%, min 3 → 20%); agregar **3 unidades de ese producto** | ¿coexisten? ¿cuál aplica? |
+| **C** | un solo descuento (min 2 → 10%) sobre el producto A; agregar **1 unidad de A + 1 unidad de B** | si descuenta A, el umbral es a nivel carrito |
+
+El test de C es indispensable por separado: el de A/B usa 3 unidades de un mismo producto y
+**pasaría igual con cualquiera de los dos scopings**, así que no lo detecta.
 
 ---
 
@@ -599,10 +690,12 @@ min 3 → 20%), agregar 3 unidades al carrito y leer el precio en el checkout.
 | Un descuento mal scopeado vende el catálogo con rebaja | `allowCollectionScope: false` + bloqueo de `items.all` (§9.2) |
 | Un typo en el % (7 → 70) llega a producción | `maxDiscountPct` enforced por código en **los dos** caminos (crear y metafield), con la conversión de unidades fijada en §9.4 |
 | Una mutación de descuento no prevista saltea el techo | Whitelist cerrada (§9.0) |
-| El `percentage` se cambia después de creado | `discount*BasicUpdate` acotado a `endsAt` (§9.1) |
+| El `percentage` o la duración se cambian después de creado | `discount*BasicUpdate` fuera de la whitelist (§6.3). Sin camino de update no hay bypass que acotar |
+| Una oferta con `startsAt` futuro queda imposible de neutralizar | `Deactivate` en vez de `endsAt = ahora`: es independiente de fechas (§6.3) |
+| El umbral de cantidad resulta ser a nivel carrito y no de producto | Incógnita C de §14, con test propio. Si se confirma, el escalón pasa a exigir N de la misma variante |
 | Oferta que nunca termina | `requireEndsAt` + `maxDurationDays` |
 | El widget muestra un precio que el carrito no respeta | Techo en el metafield (§9.3) + semántica de carrito (§4.6) + test explícito (§13.2) |
-| Write a medias deja el widget anunciando lo que el carrito no aplica | Orden crear → publicar → vencer (§7.2) |
+| Write a medias deja el widget anunciando lo que el carrito no aplica | Orden crear → publicar → desactivar (§7.2) |
 | Un backup de descripción habilita un write de descuento | Discriminador `kind` + ruta, ambas condiciones (§7.4) |
 | Se elige `automatic` y resulta inviable | Estrategia intercambiable con el campo `code` ya en el schema (§5, §14) |
 | Descuentos creados a mano se confunden con los de la herramienta | Prefijo `shopify-control ·` en el `title` (§6.1) |
