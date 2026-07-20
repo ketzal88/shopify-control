@@ -227,13 +227,17 @@ Cada archivo documenta tres operaciones con la misma forma de entrada y salida:
 Un `DiscountAutomaticNode` por escalón con `pct > 0`:
 
 ```graphql
-mutation ($d: DiscountAutomaticBasicInput!) {
+mutation ($d: DiscountAutomaticBasicInput!, $productId: ID!) {
   discountAutomaticBasicCreate(automaticBasicDiscount: $d) {
     automaticDiscountNode { id }
     userErrors { field message }
   }
 }
 ```
+
+**`productId` es obligatorio** aunque la mutación no lo consuma: es lo que el guard usa para
+encontrar el backup que habilita el write (§9.1). Cuando el scope es por variante, los ids del
+`items` no contienen el gid del producto, así que no hay de dónde derivarlo.
 
 ```json
 { "d": {

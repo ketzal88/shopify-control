@@ -700,13 +700,16 @@ En `evaluate()`, dentro de la rama `graphql_mutation`, **después** del loop de 
         if name:
             return _check_discount(name, tool_input, backups_root, now)
 
-        # 3. Metafield de oferta. ANTES del fallthrough por GID_RE — ver Task 4.
-        if "metafieldsset" in low:
-            return _check_metafield(tool_input, backups_root, now)
+        # 3. ← acá va el dispatch del metafield, en la Task 4. No lo agregues todavía.
 
         if "productupdate" not in low and not GID_RE.search(text):
             ...
 ```
+
+> **Por qué el dispatch del metafield NO va en esta tarea:** su función (`_check_metafield`) se
+> define recién en la Task 4. Pegar el `if` acá deja el archivo llamando a un nombre inexistente,
+> y los 10 tests de metafield de la Task 4 mueren con `NameError` en vez de fallar por lo que
+> tienen que fallar. Cada tarea aterriza su función **y** su wiring, juntos.
 
 > ### ⚠️ Por qué el orden importa (bypass real, no teórico)
 >
@@ -954,8 +957,14 @@ def _check_tiers_schema(tiers, policy):
     return None
 ```
 
-**Dónde va la llamada en `evaluate()`:** en el bloque del Step 4 de la Task 3, en la posición
-marcada como `# 3.` — antes de la línea `if "productupdate" not in low and not GID_RE.search(text)`.
+**Y ahora sí, el wiring.** En `evaluate()`, reemplazar el comentario marcador `# 3.` que dejó la
+Task 3 por:
+
+```python
+        # 3. Metafield de oferta. ANTES del fallthrough por GID_RE.
+        if "metafieldsset" in low:
+            return _check_metafield(tool_input, backups_root, now)
+```
 
 > **Nota sobre `ownerType`:** no se valida, a propósito. `MetafieldsSetInput` **no tiene ese
 > campo** — validarlo sería comparar contra `None` siempre. La restricción real de que la oferta
@@ -1010,18 +1019,84 @@ Cuerpo: el flujo de 9 pasos de §7.1 del spec, con el orden de escritura de §7.
 - Nunca adivinar el producto.
 - El preview va en **lenguaje natural, sin jerga** (nada de "metafield", "gid", "mutation").
 - El gate es explícito: no se escribe sin un "sí" del cliente.
-- El backup va **antes** de escribir, en `clients/{slug}/backups/deals/{tail}-{YYYYMMDD-HHMMSS}.json`.
+- El backup va **antes** de escribir, en `clients/{slug}/backups/deals/{tail}-{YYYYMMDD-HHMMSS}.json`,
+  **con `kind: "deal"`** (§7.4). Sin ese campo el guard no lo acepta y el write se bloquea.
 - Registrar en `worklog.md` cada `ref` creado y desactivado (auditoría, **no** permiso — §9.8).
+
+**Esqueleto literal del preview** — incluirlo en el SKILL.md para que no quede a interpretación.
+El skill de referencia dedica ~40 líneas a esto justamente porque es la superficie que ve el
+cliente:
+
+```
+💍 Anillo NEXO Plateado — te propongo esta oferta para que se lleven más de uno:
+
+  1 unidad     $89.000
+  2 unidades   $160.200   (ahorran 10%)   ← la que va a estar destacada
+  3 unidades   $218.900   (ahorran 18%)
+
+Arranca hoy y vence el 18 de octubre.
+
+Quien entre a la ficha va a ver las tres opciones y un botón que dice
+exactamente cuánto lleva y cuánto paga.
+
+¿La activo? Respondé sí o no.
+(si después querés sacarla, decime "sacá los escalones del anillo NEXO")
+```
+
+Reglas del preview: nunca decir "metafield", "descuento automático", "gid" ni "mutación". Siempre
+mostrar el **precio total por escalón**, no solo el %. Siempre decir **cuándo vence**.
 
 - [ ] **Step 3: Escribir las dos estrategias**
 
-`automatic.md` con la mutación de §6.1 del spec y `codes.md` con la de §6.2, cada una documentando `crear` / `desactivar` / `verificar`.
+⚠️ **La mutación de §6.1 del spec está incompleta: le falta `productId`.** Copiada tal cual, el
+guard de la Task 3 la bloquea **en el 100% de las llamadas**, y como esta tarea no tiene tests, el
+error recién aparecería contra una tienda real. Usar esta versión:
 
-- [ ] **Step 4: Verificar que el skill se descubre**
+```graphql
+mutation ($d: DiscountAutomaticBasicInput!, $productId: ID!) {
+  discountAutomaticBasicCreate(automaticBasicDiscount: $d) {
+    automaticDiscountNode { id }
+    userErrors { field message }
+  }
+}
+```
 
-Reiniciar la sesión de Claude Code y confirmar que `armar-escalones` aparece en la lista de skills.
+```json
+{ "productId": "gid://shopify/Product/999",
+  "d": { "title": "shopify-control · <producto> · 2+", "startsAt": "...", "endsAt": "...",
+         "minimumRequirement": { "quantity": { "greaterThanOrEqualToQuantity": "2" } },
+         "customerGets": { "value": { "percentage": 0.10 },
+                           "items": { "products": { "productsToAdd": ["gid://shopify/Product/999"] } } },
+         "combinesWith": { "productDiscounts": false, "orderDiscounts": true, "shippingDiscounts": true } } }
+```
 
-> Los skills y hooks se cargan al **iniciar** la sesión (ver `CLAUDE.md`). Sin reiniciar, no aparece.
+`productId` es **obligatorio y redundante a propósito**: es lo que el guard usa para encontrar el
+backup. Cuando el scope es por variante (`productVariantsToAdd`, la mitigación de la incógnita C),
+los ids del `items` no contienen el gid del producto, así que no hay de dónde derivarlo.
+
+Cada archivo documenta `crear` / `desactivar` / `verificar`. `desactivar` usa
+`discountAutomaticDeactivate` (o `discountCodeDeactivate`), **nunca** un update de `endsAt`.
+
+`codes.md` va con la mutación de §6.2 del spec, con el mismo `productId` y el mismo techo.
+
+- [ ] **Step 4: Verificar la estructura (ejecutable por un agente)**
+
+```bash
+python -c "
+import io,re,sys
+p='.claude/skills/armar-escalones/SKILL.md'
+s=io.open(p,encoding='utf-8').read()
+assert s.startswith('---'), 'falta el frontmatter'
+fm=s.split('---')[1]
+assert re.search(r'^name:\s*armar-escalones\s*$', fm, re.M), 'name mal'
+assert re.search(r'^description:\s*\S', fm, re.M), 'description vacia'
+for f in ['strategies/automatic.md', 'strategies/codes.md']:
+    io.open('.claude/skills/armar-escalones/'+f, encoding='utf-8').read()
+print('estructura OK')
+"
+```
+
+Expected: `estructura OK`
 
 - [ ] **Step 5: Commit**
 
@@ -1029,6 +1104,14 @@ Reiniciar la sesión de Claude Code y confirmar que `armar-escalones` aparece en
 git add .claude/skills/armar-escalones/
 git commit -m "feat(ofertas): skill armar-escalones con sus dos estrategias"
 ```
+
+- [ ] **Step 6: [OPERADOR] Verificar que el skill se descubre**
+
+Reiniciar la sesión de Claude Code y confirmar que `armar-escalones` aparece en la lista de skills.
+
+> Los skills y hooks se cargan al **iniciar** la sesión (ver `CLAUDE.md`). Sin reiniciar, no aparece.
+> **Este paso no lo puede hacer un agente** — requiere reiniciar el proceso que lo está ejecutando.
+> Queda para Gabriel, y no bloquea las tareas 6 y 7.
 
 ---
 
@@ -1067,14 +1150,28 @@ por:
    - NUNCA precio de lista, stock, status, tags, título ni handle/URL.
 ```
 
-> **Dos cosas que NO hay que perder:**
-> 1. **`tags` y `título` siguen en la lista de prohibidos.** El código los sigue bloqueando
->    (`ALLOWED_PRODUCT_INPUT_KEYS`), pero la regla 5 es el texto que gobierna: si se caen de acá,
->    la prosa queda más débil que el código.
-> 2. **Las líneas 40-42 (`**Esto está enforced por diseño, no por prosa:**` …) se dejan intactas.**
->    Spec §10 se apoya en ellas: son las que dicen que `permissions.deny` y `backup_guard` hacen
->    cumplir el alcance. Borrarlas al "reemplazar la regla 5" sería quitar la justificación de por
->    qué `create-discount` sigue denegado.
+> **`tags` y `título` siguen en la lista de prohibidos.** El código los sigue bloqueando
+> (`ALLOWED_PRODUCT_INPUT_KEYS`), pero la regla 5 es el texto que gobierna: si se caen de acá, la
+> prosa queda más débil que el código.
+
+Y **actualizar también la línea 42**, que después de las tareas 3 y 4 queda falsa. Hoy dice:
+
+```markdown
+   `backup_guard` bloquea cualquier write que toque un campo fuera de `{descripción, seo}`.
+```
+
+Reemplazar por:
+
+```markdown
+   `backup_guard` bloquea cualquier write fuera de esas dos clases: campos fuera de
+   `{descripción, seo}`, y descuentos o `worker.deal` que no cumplan el techo de `deal-policy.json`.
+```
+
+> **Las líneas 40-41 sí se dejan intactas** (`**Esto está enforced por diseño, no por prosa:**` y
+> la de `permissions.deny`). Spec §10 se apoya en ellas: son la justificación de por qué
+> `create-discount` sigue denegado. Pero "dejar intacto" ≠ "dejar desactualizado": la 42 describe
+> lo que el guard hace, y eso cambia en este milestone. **Los greps del Step 4 no la detectan** —
+> solo buscan las cadenas viejas de la regla 5.
 
 - [ ] **Step 2: `store-standards.md` §8 — en LOS DOS archivos**
 
@@ -1115,7 +1212,10 @@ Respetar el formato del archivo: `## N. Título [ESTABLE|VIVO]` + viñetas con `
 - Para sacar una oferta se **desactiva**, no se borra: queda el registro de qué se ofreció y cuándo.
 ```
 
-Mismo bloque en `clients/_template/store-standards.md`, con los ⚠️ del template en los valores.
+Mismo bloque en `clients/_template/store-standards.md`, **con los mismos valores concretos**
+(30 / 90 / 4). No van ⚠️ acá: la Task 1 Step 5 escribe esos mismos números en
+`clients/_template/deal-policy.json`, y spec §8 dice que el template los hereda. Un ⚠️ en la
+prosa contra un número concreto en el JSON deja al cliente nuevo con dos fuentes en conflicto.
 
 - [ ] **Step 4: Verificar que no quedó ninguna contradicción**
 
@@ -1144,12 +1244,36 @@ git commit -m "docs(ofertas): regla 5 y store-standards reconocen la clase ofert
 Run: `python -m pytest -q`
 Expected: 99 passed
 
-- [ ] **Step 2: Los dos tests de humo del hook** (Tarea 3, Step 7) — repetir y confirmar `exit=0` / `exit=2`
+- [ ] **Step 2: Los TRES tests de humo del hook real**
 
-- [ ] **Step 3: Verificar que `permissions.deny` NO cambió**
+Los dos de la Tarea 3 (Step 7) más uno nuevo para el camino del metafield:
 
-Run: `grep -c "create-discount" .claude/settings.json`
-Expected: `1` — sigue denegado (spec §10). Si alguien lo sacó, revertir.
+```bash
+echo '{"tool_name":"mcp__claude_ai_Shopify__graphql_mutation","tool_input":{"query":"mutation ($m: [MetafieldsSetInput!]!) { metafieldsSet(metafields: $m) { metafields { id } } }","variables":{"m":[{"ownerId":"gid://shopify/Product/1","namespace":"otro","key":"deal","type":"json","value":"{}"}]}},"cwd":"."}' | python .claude/hooks/backup_guard.py; echo "exit=$?"
+```
+
+Expected: `exit=2` (namespace ≠ `worker`)
+
+> **Por qué hace falta el tercero:** durante el review se observó que los dos smokes de la Tarea 3
+> pasaban en verde **mientras `_check_metafield` estaba sin definir**. Verifican el camino de
+> descuentos, no el del metafield — que es justamente el punto ciego que el Step 7 de la Tarea 3
+> existe para cubrir.
+
+- [ ] **Step 3: Verificar que `create-discount` sigue DENEGADO**
+
+```bash
+python -c "
+import json
+d = json.load(open('.claude/settings.json', encoding='utf-8'))
+assert 'mcp__claude_ai_Shopify__create-discount' in d['permissions']['deny'], 'YA NO ESTA DENEGADO'
+print('create-discount sigue denegado, OK')
+"
+```
+
+Expected: `create-discount sigue denegado, OK`
+
+> Un `grep -c` daría 1 aunque alguien hubiera **movido** la entrada de `deny` a `allow` — que es
+> precisamente el error tentador al implementar este milestone (spec §10).
 
 - [ ] **Step 4: Actualizar el worklog de blunua** con lo que se construyó y lo que queda pendiente.
 
