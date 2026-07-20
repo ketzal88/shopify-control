@@ -80,6 +80,25 @@ FORBIDDEN_MUTATIONS = {
 DISCOUNT_CREATE = {"discountautomaticbasiccreate", "discountcodebasiccreate"}
 DISCOUNT_DEACTIVATE = {"discountautomaticdeactivate", "discountcodedeactivate"}
 
+# --- Allowlist de root fields ----------------------------------------------
+# EL DEFAULT ESTÁ INVERTIDO A PROPÓSITO: una familia de mutaciones que nadie
+# enumeró BLOQUEA. Antes el guard solo conocía `discount*`, `metafieldsSet` y
+# `product*`, y todo lo demás caía en un `return allow` final. Pasaban sueltas
+# `inventorySetOnHandQuantities`, `inventoryMoveQuantities`, `themeFilesUpsert`,
+# `customerUpdate`, `orderUpdate`, `webhookSubscriptionCreate`, `giftCardCreate`
+# y `publicationUpdate`, entre otras; y pasaban también montadas sobre una
+# operación legítima (un `productUpdate` de descripción adelante, o un
+# `discountAutomaticDeactivate` que ni siquiera exige política ni backup).
+# `inventorySetQuantities` SÍ estaba en la blocklist, pero el chequeo es por
+# substring y `inventorySetOnHandQuantities` no la contiene: es la demostración
+# de que enumerar prohibidos no escala contra un catálogo de cientos de
+# mutaciones que crece cada release.
+#
+# La superficie de escritura del v1 es minúscula —descripción, SEO, ofertas—,
+# así que la allowlist es a la vez correcta y corta.
+ROOT_FIELD_ALLOWED = (PRODUCT_WRITE_ALLOWED | DISCOUNT_CREATE | DISCOUNT_DEACTIVATE
+                      | {"metafieldsset"})
+
 
 def _action(tool_name: str) -> str:
     # Soporta el nombre real de MCP ("mcp__claude_ai_Shopify__update-product")
@@ -108,6 +127,76 @@ def _graphql_text(tool_input) -> str:
         except Exception:
             text += " " + str(variables)
     return text
+
+
+def _query_text(tool_input) -> str:
+    """SOLO el documento GraphQL, sin las variables pegadas atrás.
+
+    `_graphql_text` sirve para buscar substrings; para leer la ESTRUCTURA del
+    documento no, porque las llaves del JSON de las variables se mezclarían con
+    las del query y desbaratarían el conteo de profundidad.
+    """
+    if not isinstance(tool_input, dict):
+        return ""
+    return tool_input.get("query") or tool_input.get("mutation") or ""
+
+
+def _root_mutation_fields(query: str) -> list:
+    """Los root fields del documento (profundidad 1), en minúscula.
+
+    Recorre el texto contando llaves y paréntesis en vez de regexear nombres
+    sueltos, porque hace falta distinguir el root field del campo anidado: en
+    `productUpdate(input: {status: DRAFT}) { product { id } }` lo único que se
+    ejecuta contra la tienda es `productUpdate`.
+
+    Detalles que importan:
+    - Los strings se vacían primero: un valor puede traer llaves.
+    - Los alias (`b: productUpdate(...)`) no cuentan como nombre; el root field
+      es el identificador que va DESPUÉS del `:`.
+    - Solo se cosechan los bloques de una `mutation` (o de un documento anónimo).
+      El cuerpo de un `fragment` o de una `query` también vive en profundidad 1
+      y son campos de lectura, no writes.
+    - Ante cualquier duda devuelve de más, no de menos: quien consume esta lista
+      bloquea lo que no reconoce, así que equivocarse es equivocarse CERRADO.
+    """
+    clean = re.sub(r"#[^\n]*", " ", query or "")
+    clean = re.sub(r'"""(?:.|\n)*?"""', ' "" ', clean)
+    clean = re.sub(r'"(?:[^"\\]|\\.)*"', ' "" ', clean)
+    word_re = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+    names, depth, paren, top_kind, last_word = [], 0, 0, "", ""
+    i, n = 0, len(clean)
+    while i < n:
+        c = clean[i]
+        if c == "{":
+            if depth == 0:
+                top_kind = last_word
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth <= 0:
+                depth, top_kind, last_word = 0, "", ""
+        elif c == "(":
+            paren += 1
+        elif c == ")":
+            paren = max(0, paren - 1)
+        elif c == "@":
+            # Directiva: el nombre que sigue no es un root field.
+            m = word_re.match(clean, i + 1)
+            i += 1 + (len(m.group(0)) if m else 0)
+            continue
+        else:
+            m = word_re.match(clean, i)
+            if m:
+                word = m.group(0)
+                i += len(word)
+                if depth == 0 and paren == 0:
+                    last_word = word.lower()
+                elif depth == 1 and paren == 0 and top_kind in ("", "mutation"):
+                    if not re.match(r"\s*:", clean[i:]):     # no es un alias
+                        names.append(word.lower())
+                continue
+        i += 1
+    return names
 
 
 def _balanced_object(text: str, start: int) -> str:
@@ -143,11 +232,30 @@ def _top_level_keys(obj_text: str) -> set:
 
 
 def _product_input_keys(text: str) -> set:
-    """Keys de primer nivel del objeto `product:` / `input:` de la mutación."""
-    m = re.search(r"\b(?:product|input)\s*:\s*\{", text, re.I)
-    if not m:
-        return set()
-    return _top_level_keys(_balanced_object(text, m.end() - 1))
+    """Unión de las keys de primer nivel de TODOS los objetos `product:`/`input:`.
+
+    `finditer`, no `search`. La ironía vale la pena anotarla: el commit c9b2dea
+    cerró exactamente esta clase de agujero para los NOMBRES de las mutaciones
+    —dejar de mirar solo el primer match de un documento con varios root
+    fields— y dejó vivo el mismo `re.search` dos funciones más abajo, en el
+    control de CAMPOS. Con el primer match alcanzaba con poner un
+    `productUpdate` legítimo adelante:
+
+        mutation { productUpdate(input: {id: "...", descriptionHtml: "<p>ok</p>"}) { product { id } }
+                   b: productUpdate(input: {id: "...", status: DRAFT, handle: "robado"}) { product { id } } }
+
+    El primer objeto daba {id, descriptionhtml}, `extra` quedaba vacío y el
+    write pasaba con el backup de la descripción como llave. El tell era que
+    poniendo el objeto malo PRIMERO bloqueaba: el mismo documento, el mismo
+    efecto sobre la tienda, distinta decisión según el orden.
+
+    Unir en vez de elegir cubre además el caso de nombres de argumento mezclados
+    (`product:` en una y `input:` en la otra).
+    """
+    keys = set()
+    for m in re.finditer(r"\b(?:product|input)\s*:\s*\{", text, re.I):
+        keys |= _top_level_keys(_balanced_object(text, m.end() - 1))
+    return keys
 
 
 def _variables_product_keys(tool_input) -> set:
@@ -353,8 +461,15 @@ def _check_discount(names, tool_input, backups_root, now: float):
     if name == "discountcodebasiccreate" and "codes" not in policy.get("enabledStrategies", []):
         return "block", "la estrategia de códigos no está habilitada para este cliente."
 
-    d = _discount_input(tool_input)
-    if not isinstance(d, dict) or not d:
+    # Un solo descuento en las variables. Ver `_discount_inputs`: con más de uno
+    # no hay forma de saber cuál ejecuta el servidor, y validar "el primero" era
+    # una invitación a mandar un señuelo manso adelante.
+    candidatos = _discount_inputs(tool_input)
+    if len(candidatos) > 1:
+        return "block", ("las variables del pedido traen más de un descuento y no puedo "
+                         "saber cuál se aplica. Mandá uno solo.")
+    d = candidatos[0] if candidatos else {}
+    if not d:
         # Distinguir "no encontré el objeto" de "el objeto no tiene endsAt" NO es
         # cosmético. `_discount_input` solo lee `variables`; con el payload escrito
         # inline en el query devuelve {}, que es un dict, así que el isinstance
@@ -407,16 +522,34 @@ def _check_discount(names, tool_input, backups_root, now: float):
     return ("allow", "ok") if ok else ("block", why)
 
 
-def _discount_input(tool_input) -> dict:
-    """El objeto del descuento, venga por `variables` o inline en el query."""
+def _discount_inputs(tool_input) -> list:
+    """TODOS los objetos de `variables` que tienen forma de descuento.
+
+    Devuelve la lista completa, NO el primero. Con el primero, una variable
+    SEÑUELO derrotaba todos los techos de golpe: el query nombra la variable que
+    realmente usa, el guard nunca correlacionaba las dos cosas, y las variables
+    no declaradas el servidor las ignora sin chistar.
+
+        query:     mutation ($real: DiscountAutomaticBasicInput!) { discountAutomaticBasicCreate(automaticBasicDiscount: $real) {...} }
+        variables: { "aaa_decoy": <5%, 12 días, un producto>,
+                     "real":      <100%, 10 años, una colección entera> }
+
+    El guard validaba `aaa_decoy` (que no ejecuta nadie) y aprobaba `real`.
+    Ordenar alfabéticamente el señuelo alcanzaba, porque los dicts de JSON
+    conservan el orden de inserción.
+
+    No intentamos parsear QUÉ variable referencia el query: correlacionar es
+    frágil (alias, fragmentos, defaults, varias operaciones en un documento) y
+    un error de parseo ahí falla ABIERTO. Negarse ante la ambigüedad no. Una
+    llamada legítima trae exactamente un descuento.
+    """
     if not isinstance(tool_input, dict):
-        return {}
+        return []
     variables = tool_input.get("variables")
-    if isinstance(variables, dict):
-        for value in variables.values():
-            if isinstance(value, dict) and "customerGets" in value:
-                return value
-    return {}
+    if not isinstance(variables, dict):
+        return []
+    return [v for v in variables.values()
+            if isinstance(v, dict) and "customerGets" in v]
 
 
 def _percentage_int(d: dict):
@@ -458,10 +591,21 @@ def _check_metafield(tool_input, backups_root, now: float):
     for value in variables.values():
         if isinstance(value, list):
             entries.extend(x for x in value if isinstance(x, dict))
-        elif isinstance(value, dict) and "namespace" in value:
+        elif isinstance(value, dict) and ("namespace" in value or "ownerId" in value):
             entries.append(value)
     if not entries:
         return "block", "no pude leer el metafield que se está escribiendo."
+
+    # Una sola entrada, por el mismo motivo que un solo descuento. Acá el
+    # esconderse era todavía más barato: el loop de abajo valida TODAS las
+    # entradas, pero `owner` se pisa en cada vuelta (`owner = e.get("ownerId") or
+    # owner`), así que gana la ÚLTIMA. Dos entradas worker.deal impecables sobre
+    # productos distintos —la primera sobre un producto sin backup, la segunda
+    # sobre el que sí lo tiene— pasaban enteras: el backup de la segunda
+    # habilitaba la escritura de la primera, que quedaba sin undo posible.
+    if len(entries) > 1:
+        return "block", ("el pedido escribe más de una oferta a la vez y solo puedo "
+                         "verificar el respaldo de una. Mandalas de a una.")
 
     policy = load_policy(backups_root)
     if policy is None:
@@ -580,7 +724,30 @@ def evaluate(payload: dict, backups_root, now: float):
                 return "block", (f"la mutación '{mutation}' está fuera del alcance del v1 "
                                  "(toca precio, stock, status, publicación o borra).")
 
-        # 2. UN SOLO ASUNTO POR DOCUMENTO.
+        # 2. ALLOWLIST DE ROOT FIELDS: el default se invierte.
+        #
+        # Todo lo que sigue (asuntos, whitelists por familia, control de campos)
+        # solo sabe razonar sobre `discount*`, `metafieldsSet` y `product*`. El
+        # resto del catálogo del Admin API —cientos de mutaciones, y más en cada
+        # release— llegaba al `return allow` del final. Enumerar prohibidos es
+        # perseguir un blanco móvil; enumerar permitidos no, porque la superficie
+        # de escritura del v1 no se mueve.
+        #
+        # Va acá arriba, antes de identificar asuntos, para que ninguna operación
+        # legítima adelante pueda servir de vehículo a una desconocida atrás.
+        roots = _root_mutation_fields(_query_text(tool_input))
+        if not roots:
+            # VACÍO ES DESCONOCIDO, NO LIMPIO: mismo criterio que el control de
+            # campos. Si no pudimos leer qué se ejecuta, no lo dejamos ejecutar.
+            return "block", ("no pude leer qué mutaciones ejecuta este pedido. "
+                             "La operación tiene que venir en `query`, como un documento GraphQL.")
+        desconocidas = [r for r in roots if r not in ROOT_FIELD_ALLOWED]
+        if desconocidas:
+            return "block", (f"la mutación '{desconocidas[0]}' está fuera del alcance del v1. "
+                             "Desde acá solo se escriben la descripción y el SEO de un producto, "
+                             "y las ofertas por cantidad.")
+
+        # 3. UN SOLO ASUNTO POR DOCUMENTO.
         #
         # GraphQL admite varios root fields en un mismo documento. Esta rama
         # antes retornaba apenas reconocía el primero, así que cada dispatch

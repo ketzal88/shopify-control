@@ -600,6 +600,167 @@ def test_metafield_without_ownerId_is_blocked_even_with_a_dash_named_backup(tmp_
     assert "producto" in why
 
 
+def test_variable_senuelo_no_derrota_el_techo(tmp_path):
+    """F2. El query nombra la variable que usa; el guard miraba la PRIMERA de
+    `variables` que tuviera `customerGets` y nunca correlacionaba las dos cosas.
+    Las variables no declaradas el servidor las ignora, asi que un senuelo manso
+    ordenado alfabeticamente adelante (`aaa_decoy`) se llevaba puestos los tres
+    techos: 100% de descuento, sobre una coleccion entera, por diez anos."""
+    policy(tmp_path); write_deal_backup(tmp_path)
+    p = {"tool_name": T_GQL, "tool_input": {
+        "query": "mutation ($real: DiscountAutomaticBasicInput!) { discountAutomaticBasicCreate(automaticBasicDiscount: $real) { automaticDiscountNode { id } } }",
+        "variables": {
+            "aaa_decoy": {"startsAt": "2026-07-20T00:00:00Z", "endsAt": "2026-08-01T00:00:00Z",
+                          "customerGets": {"value": {"percentage": 0.05},
+                                           "items": {"products": {"productsToAdd": ["gid://shopify/Product/1"]}}}},
+            "real": {"startsAt": "2026-07-20T00:00:00Z", "endsAt": "2036-01-01T00:00:00Z",
+                     "customerGets": {"value": {"percentage": 1.0},
+                                      "items": {"collections": {"add": ["gid://shopify/Collection/1"]}}}},
+            "productId": "gid://shopify/Product/1"}}}
+    d, why = bg.evaluate(p, tmp_path, time.time())
+    assert d == "block", f"el senuelo tapo un descuento de 100% a diez anos: {why}"
+
+
+def test_un_solo_descuento_por_pedido_sigue_pasando(tmp_path):
+    """Control de sobre-bloqueo: variables con UN descuento y ruido alrededor
+    (el `productId`, un titulo suelto) siguen siendo un pedido valido."""
+    policy(tmp_path); write_deal_backup(tmp_path)
+    p = create_discount()
+    p["tool_input"]["variables"]["nota"] = "esto no es un descuento"
+    d, why = bg.evaluate(p, tmp_path, time.time())
+    assert d == "allow", why
+
+
+def test_dos_entradas_de_metafield_esconden_una(tmp_path):
+    """F2, misma clase, rama del metafield. El loop valida TODAS las entradas,
+    pero `owner = e.get("ownerId") or owner` se pisa en cada vuelta y gana la
+    ULTIMA. Dos worker.deal impecables sobre productos distintos pasaban enteras:
+    el backup del segundo habilitaba la escritura sobre el primero, que quedaba
+    sin undo. Verificado en ALLOW antes del fix."""
+    policy(tmp_path); write_deal_backup(tmp_path)          # backup solo del Product/1
+    victima = json.dumps({"tiers": [{"qty": 1, "pct": 0},
+                                    {"qty": 2, "pct": 25, "highlight": True}]})
+    tapadera = json.dumps({"tiers": [{"qty": 1, "pct": 0},
+                                     {"qty": 2, "pct": 10, "highlight": True}]})
+    p = {"tool_name": T_GQL, "tool_input": {
+        "query": "mutation ($m: [MetafieldsSetInput!]!) { metafieldsSet(metafields: $m) { metafields { id } } }",
+        "variables": {"m": [
+            {"ownerId": "gid://shopify/Product/999", "namespace": "worker", "key": "deal",
+             "type": "json", "value": victima},
+            {"ownerId": PID, "namespace": "worker", "key": "deal",
+             "type": "json", "value": tapadera}]}}}
+    d, why = bg.evaluate(p, tmp_path, time.time())
+    assert d == "block", f"la oferta sobre Product/999 viajo sin backup propio: {why}"
+
+
+# --- F1: el control de campos miraba solo el PRIMER objeto input ------------
+# El commit c9b2dea cerro esta clase para los NOMBRES de las mutaciones y dejo
+# el mismo `re.search` dos funciones mas abajo, en el control de CAMPOS.
+
+F1_BUENO = 'productUpdate(input: {id: "gid://shopify/Product/1", descriptionHtml: "<p>ok</p>"}) { product { id } }'
+F1_MALO = 'b: productUpdate(input: {id: "gid://shopify/Product/1", status: DRAFT, handle: "robado"}) { product { id } }'
+
+def test_segundo_product_update_no_escapa_al_control_de_campos(tmp_path):
+    """El documento entero pasaba con un backup de descripcion fresco: el primer
+    objeto daba {id, descriptionHtml}, `extra` quedaba vacio y `status`/`handle`
+    del segundo nunca se miraban."""
+    write_description_backup(tmp_path)
+    p = {"tool_name": T_GQL, "tool_input": {
+        "query": "mutation { %s %s }" % (F1_BUENO, F1_MALO)}}
+    d, why = bg.evaluate(p, tmp_path, time.time())
+    assert d == "block", f"el segundo productUpdate paso escondido detras del primero: {why}"
+    assert "status" in why and "handle" in why, \
+        f"tiene que bloquear por ALCANCE DE CAMPOS, no de casualidad: {why}"
+
+def test_el_orden_de_los_objetos_no_cambia_la_decision(tmp_path):
+    """EL TELL del hallazgo: el MISMO documento, el MISMO efecto sobre la tienda,
+    y el guard viejo decidia distinto segun cual objeto viniera primero. Este
+    control existe para que el test de arriba no pueda pasar por el motivo viejo."""
+    write_description_backup(tmp_path)
+    p = {"tool_name": T_GQL, "tool_input": {
+        "query": "mutation { %s %s }" % (F1_MALO, F1_BUENO)}}
+    d, why = bg.evaluate(p, tmp_path, time.time())
+    assert d == "block", why
+    assert "status" in why and "handle" in why, why
+
+
+# --- F3: el default invertido -----------------------------------------------
+# `asuntos` solo conocia discount*, metafieldsSet y product*. Todo lo demas
+# llegaba al `return allow` final. Ojo: `inventorySetQuantities` SI estaba en la
+# blocklist, pero el chequeo es por substring y `inventorySetOnHandQuantities`
+# no la contiene.
+
+F3_NO_ENUMERADAS = [
+    "inventorySetOnHandQuantities", "inventoryMoveQuantities", "themeFilesUpsert",
+    "customerUpdate", "orderUpdate", "webhookSubscriptionCreate",
+    "giftCardCreate", "publicationUpdate",
+]
+
+@pytest.mark.parametrize("mut", F3_NO_ENUMERADAS)
+def test_mutacion_no_enumerada_bloquea(tmp_path, mut):
+    """Con backup de descripcion fresco, que es el estado normal mientras el
+    skill trabaja. Las ocho pasaban sueltas."""
+    write_description_backup(tmp_path)
+    p = {"tool_name": T_GQL, "tool_input": {
+        "query": f'mutation {{ {mut}(input: {{id: "gid://shopify/Foo/1"}}) {{ userErrors {{ field }} }} }}'}}
+    d, why = bg.evaluate(p, tmp_path, time.time())
+    assert d == "block", f"{mut} paso suelta: {why}"
+    assert mut.lower() in why.lower(), f"tiene que nombrar al infractor: {why}"
+
+
+INVENTARIO_A_CERO = ('inventorySetOnHandQuantities(input: {reason: "correction", setQuantities: '
+                     '[{inventoryItemId: "gid://shopify/InventoryItem/1", '
+                     'locationId: "gid://shopify/Location/1", quantity: 0}]}) { userErrors { field } }')
+
+def test_inventario_montado_sobre_una_descripcion_legitima_bloquea(tmp_path):
+    """La descripcion de adelante es real y su backup tambien. El vehiculo era
+    justamente eso: la operacion legitima que abre la puerta."""
+    write_description_backup(tmp_path)
+    p = {"tool_name": T_GQL, "tool_input": {
+        "query": 'mutation { productUpdate(input: {id: "gid://shopify/Product/1", '
+                 'descriptionHtml: "<p>nueva</p>"}) { product { id } } %s }' % INVENTARIO_A_CERO}}
+    d, why = bg.evaluate(p, tmp_path, time.time())
+    assert d == "block", f"el stock a cero viajo con la descripcion: {why}"
+    assert "inventorysetonhandquantities" in why.lower(), why
+
+def test_inventario_montado_sobre_un_deactivate_bloquea(tmp_path):
+    """El peor de los dos: el deactivate no exige NI politica NI backup (§9.8),
+    asi que el stock a cero pasaba sin ningun archivo en el repo."""
+    p = {"tool_name": T_GQL, "tool_input": {
+        "query": "mutation { %s %s }" % (DEACTIVATE, INVENTARIO_A_CERO)}}
+    d, why = bg.evaluate(p, tmp_path, time.time())
+    assert d == "block", f"el stock a cero paso sin politica y sin backup: {why}"
+    assert "inventorysetonhandquantities" in why.lower(), why
+
+def test_deactivate_solo_sigue_pasando_sin_politica_ni_backup(tmp_path):
+    """§9.8 despues de invertir el default. Propiedad PORTANTE del camino de
+    compensacion: si sacar una oferta dependiera de una politica o de un backup,
+    dejaria de estar disponible justo en el momento en que hace falta."""
+    assert not list(tmp_path.glob("**/*.json")), "el escenario tiene que estar vacio"
+    p = {"tool_name": T_GQL, "tool_input": {"query": "mutation { %s }" % DEACTIVATE}}
+    d, why = bg.evaluate(p, tmp_path, time.time())
+    assert d == "allow", why
+
+def test_documento_sin_query_legible_bloquea(tmp_path):
+    """Vacio es DESCONOCIDO: sin documento no se sabe que se ejecuta."""
+    write_description_backup(tmp_path)
+    for ti in ({"variables": {"input": {"id": PID, "descriptionHtml": "x"}}}, {}, "oops"):
+        d, why = bg.evaluate({"tool_name": T_GQL, "tool_input": ti}, tmp_path, time.time())
+        assert d == "block", f"{ti} paso: {why}"
+
+
+def test_root_fields_ignora_los_campos_anidados(tmp_path):
+    """El extractor tiene que ver el root field y NO los campos de la seleccion
+    ni las keys de los argumentos; si contara de mas, sobre-bloquearia el unico
+    camino legitimo del v1."""
+    q = ('mutation ($input: ProductInput!) { b: productUpdate(input: $input) '
+         '{ product { id seo { title } } userErrors { field message } } }')
+    assert bg._root_mutation_fields(q) == ["productupdate"]
+    assert bg._root_mutation_fields(
+        'mutation { productUpdate(input: {id: "x", descriptionHtml: "{ status: DRAFT }"}) { product { id } } }'
+    ) == ["productupdate"]
+
+
 def test_inline_payload_blocks_with_the_RIGHT_reason(tmp_path):
     """Bloquear no alcanza: tiene que bloquear diciendo la verdad.
 
