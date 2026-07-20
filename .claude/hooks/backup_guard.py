@@ -290,6 +290,22 @@ def _discount_mutations(text: str) -> list:
     return [m.lower() for m in re.findall(r"\b(discount[A-Za-z]*)\s*\(", text)]
 
 
+def _product_mutations(text: str) -> list:
+    """Todas las mutaciones `product*` del documento, en minúscula.
+
+    Espejo de `_discount_mutations`, y se usa para lo mismo: saber QUÉ asuntos
+    toca el documento antes de decidir. Detecta también las que el guard no
+    nombra en ninguna lista (`productSet`, `productCreate`...), que es lo que
+    permitía colar un write de producto detrás de una oferta.
+
+    Exige el paréntesis pegado al nombre a propósito: así `"productsToAdd":
+    [...]` dentro de las variables de un descuento —que es una key JSON, no una
+    llamada— NO cuenta como write de producto. Sin eso, toda oferta legítima
+    quedaría clasificada como documento mixto.
+    """
+    return [m.lower() for m in re.findall(r"\b(product[A-Za-z]*)\s*\(", text)]
+
+
 def _check_discount(names, tool_input, backups_root, now: float):
     """Whitelist de descuentos con techo (spec §9.0-9.4).
 
@@ -452,31 +468,49 @@ def evaluate(payload: dict, backups_root, now: float):
     if action == "graphql_mutation":
         text = _graphql_text(tool_input)
         low = text.lower()
-        # 1. La blocklist general SIEMPRE primero: GraphQL admite varios root
-        #    fields en un mismo documento, así que si la whitelist de descuentos
-        #    corriera antes, un `discountAutomaticDeactivate` (permitido sin
-        #    condiciones) retornaría "allow" y el `productDelete` que viaja en el
-        #    mismo documento nunca se evaluaría.
+        # 1. La blocklist general SIEMPRE primero: si está en el documento
+        #    bloquea, venga acompañada de lo que venga.
         for mutation in FORBIDDEN_MUTATIONS:
             if mutation in low:
                 return "block", (f"la mutación '{mutation}' está fuera del alcance del v1 "
                                  "(toca precio, stock, status, publicación o borra).")
 
-        # 2. Recién ahí, ofertas: whitelist cerrada con techo. Se pasan TODAS
-        #    las mutaciones del documento, no la primera (ver _discount_mutations).
+        # 2. UN SOLO ASUNTO POR DOCUMENTO.
+        #
+        # GraphQL admite varios root fields en un mismo documento. Esta rama
+        # antes retornaba apenas reconocía el primero, así que cada dispatch
+        # nuevo podía tapar a todos los demás: un `discountAutomaticDeactivate`
+        # adelante —que se permite sin condiciones, §9.8— colaba atrás un
+        # delete, un `productUpdate` con `status`/`handle`, o mañana un
+        # `metafieldsSet`. Parchear par por par es combinatorio: cada dispatch
+        # nuevo se multiplica contra todos los que ya están.
+        #
+        # Así que primero se IDENTIFICA qué asuntos toca el documento y recién
+        # después se decide. Mezclar dos bloquea: el skill no tiene ningún
+        # motivo legítimo para mandar una oferta, un metafield y una edición de
+        # producto en el mismo pedido, y negarse es mucho más fácil de razonar
+        # que intentar satisfacer todas las combinaciones a la vez.
         names = _discount_mutations(text)
+        asuntos = []
         if names:
-            # Documento mixto (ofertas + write de producto): no se puede validar
-            # de una sola pasada. `_check_discount` retorna, y el control de
-            # campos del productUpdate de más abajo nunca correría — o sea que
-            # `status`/`handle`/`variants` entrarían detrás de un deactivate.
-            if "productupdate" in low:
-                return "block", ("no puedo verificar una operación que mezcla ofertas con "
-                                 "cambios de producto. Mandalas por separado.")
+            asuntos.append("ofertas")
+        if "metafieldsset" in low:
+            asuntos.append("metafields")
+        if _product_mutations(text):
+            asuntos.append("cambios de producto")
+        if len(asuntos) > 1:
+            return "block", (f"esta operación mezcla {' y '.join(asuntos)} en un mismo pedido "
+                             "y no puedo verificar las dos cosas juntas. Mandalas por separado.")
+
+        if names:
             return _check_discount(names, tool_input, backups_root, now)
 
         # 3. ← acá va el dispatch del metafield, en la Task 4. No lo agregues todavía.
 
+        # El gid suelto sigue siendo señal de write de producto: cubre una
+        # mutación parametrizada cuyo nombre no reconocemos. Queda acá abajo, y
+        # no como asunto, porque las ofertas legítimas traen gids de producto
+        # en `productsToAdd` sin ser un write de producto.
         if "productupdate" not in low and not GID_RE.search(text):
             return "allow", "no es un write de producto vigilado"
         keys = _product_input_keys(text) | _variables_product_keys(tool_input)

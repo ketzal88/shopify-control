@@ -234,6 +234,52 @@ def test_two_deactivates_are_allowed(tmp_path):
     d, _ = bg.evaluate(p, tmp_path, time.time())
     assert d == "allow"
 
+def test_metafields_plus_discount_is_blocked(tmp_path):
+    """Protege a la Task 4: sin esto, el dispatch del metafield que se agrega
+    ahí queda tapado por el de ofertas apenas aterriza."""
+    policy(tmp_path); write_deal_backup(tmp_path)
+    p = {"tool_name": T_GQL, "tool_input": {
+        "query": f'mutation {{ {DEACTIVATE} metafieldsSet(metafields: [{{ownerId: "gid://shopify/Product/1", namespace: "x", key: "y", value: "z", type: "single_line_text_field"}}]) {{ metafields {{ id }} }} }}'}}
+    d, why = bg.evaluate(p, tmp_path, time.time())
+    assert d == "block", f"el metafieldsSet pasó detrás del deactivate: {why}"
+
+def test_metafields_plus_product_update_is_blocked(tmp_path):
+    policy(tmp_path); write_deal_backup(tmp_path)
+    p = {"tool_name": T_GQL, "tool_input": {
+        "query": 'mutation { metafieldsSet(metafields: [{ownerId: "gid://shopify/Product/1", namespace: "x", key: "y", value: "z", type: "single_line_text_field"}]) { metafields { id } } productUpdate(input: {id: "gid://shopify/Product/1", descriptionHtml: "<p>x</p>"}) { product { id } } }'}}
+    d, why = bg.evaluate(p, tmp_path, time.time())
+    assert d == "block", f"documento mixto metafields+producto no bloqueó: {why}"
+
+def test_three_concerns_in_one_document_are_blocked(tmp_path):
+    """Oferta + metafield + edición de producto, todo junto."""
+    policy(tmp_path); write_deal_backup(tmp_path)
+    p = create_discount()
+    p["tool_input"]["query"] = p["tool_input"]["query"].replace(
+        "{ discountAutomaticBasicCreate",
+        '{ metafieldsSet(metafields: [{ownerId: "gid://shopify/Product/1", namespace: "x", key: "y", value: "z", type: "single_line_text_field"}]) { metafields { id } } '
+        'productUpdate(input: {id: "gid://shopify/Product/1", descriptionHtml: "<p>x</p>"}) { product { id } } '
+        'discountAutomaticBasicCreate', 1)
+    d, why = bg.evaluate(p, tmp_path, time.time())
+    assert d == "block", f"documento con los tres asuntos no bloqueó: {why}"
+
+def test_deactivate_only_still_allowed_after_restructure(tmp_path):
+    """§9.8 intacto tras el restructure: puras desactivaciones pasan SIN
+    política, SIN backup y SIN techo. Es la compensación; si depende de algo,
+    deja de estar disponible justo cuando hace falta."""
+    p = {"tool_name": T_GQL, "tool_input": {"query": f"mutation {{ {DEACTIVATE} }}"}}
+    d, _ = bg.evaluate(p, tmp_path, time.time())
+    assert d == "allow"
+
+def test_deactivate_plus_unnamed_product_write_is_blocked(tmp_path):
+    """`productSet` no está en ninguna lista del guard: ni en la blocklist ni
+    en `productUpdate`. El chequeo puntual anterior (solo `productupdate`) lo
+    dejaba pasar detrás de un deactivate; la regla general lo agarra."""
+    policy(tmp_path); write_deal_backup(tmp_path)
+    p = {"tool_name": T_GQL, "tool_input": {
+        "query": f'mutation {{ {DEACTIVATE} productSet(input: {{id: "gid://shopify/Product/1", status: DRAFT}}) {{ product {{ id }} }} }}'}}
+    d, why = bg.evaluate(p, tmp_path, time.time())
+    assert d == "block", f"el productSet pasó detrás del deactivate: {why}"
+
 def test_deactivate_plus_product_update_is_blocked(tmp_path):
     """Documento mixto: el `_check_discount` retornaba y el control de campos
     de `productUpdate` no llegaba a correr, así que `status`/`handle` —lo que
