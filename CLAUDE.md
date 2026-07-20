@@ -42,9 +42,13 @@ contra `clients/{slug}/connection.md`). Si no coinciden, se aborta.
      `docs/superpowers/specs/2026-07-19-quantity-breaks-design.md`.
    - NUNCA precio de lista, stock, status, tags, título ni handle/URL.
    **Esto está enforced por diseño, no por prosa:** `permissions.deny` en `settings.json` bloquea
-   los tools fuera de alcance (stock, descuentos, colecciones, alta de productos), y
-   `backup_guard` bloquea cualquier write fuera de esas dos clases: campos fuera de
-   `{descripción, seo}`, y descuentos o `worker.deal` que no cumplan el techo de `deal-policy.json`.
+   los tools fuera de alcance (`set-inventory`, `create-product`, `create-collection`,
+   `create-discount`…), y `backup_guard` bloquea cualquier write fuera de esas dos clases: campos
+   fuera de `{descripción, seo}`, y descuentos o `worker.deal` que no cumplan el techo de
+   `deal-policy.json`.
+   > El tool `create-discount` sigue denegado **a propósito**, aunque las ofertas ya estén en
+   > alcance: esa tool no puede llevar techo, ni `endsAt`, ni scope validado. El camino canónico
+   > es `graphql_mutation` pasando por la whitelist del guard, que sí los enforcea.
 
 ## Estructura
 - `.claude/skills/` — procedimientos (sirven a todos los clientes)

@@ -38,6 +38,22 @@ Al probar el hook de secret-scan (matcher `Bash`) salieron DOS cosas:
 
 </details>
 
+## 🔴 LEER: 7 agujeros de seguridad encontrados en `backup_guard.py` (2026-07-20)
+
+Durante el milestone de escalones se encontraron **siete agujeros que ya estaban en `main`**.
+Ninguno lo introdujo ese trabajo. Todos cerrados; 65 -> 146 tests.
+
+El peor: **el backup de descripción era una llave maestra de 15 minutos.** Después de cada
+`mejorar-descripcion`, 21 de las 26 mutaciones `product*` quedaban habilitadas —duplicar el
+producto, reordenar variantes, cambiar opciones— porque el control de alcance de campos pasaba
+*en el vacío* para las mutaciones sin objeto `input: {...}`.
+
+Seis de los siete son la misma clase: **un parseo vacío tratado como "limpio" en vez de como
+"no pude leer esto"**. El guard pasó de blocklists a whitelists cerradas por familia.
+
+Detalle completo, con severidad y commit por hallazgo:
+`docs/2026-07-20-hallazgos-de-seguridad-backup-guard.md`
+
 ## PENDIENTE #2 — blunua real
 Cargar los ⚠️ de `clients/blunua/store-standards.md` (vocabulario prohibido, keywords por categoría, taxonomía) + conectar el Shopify real de blunua (hoy conectada la dev store).
 
