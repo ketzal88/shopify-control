@@ -5,7 +5,7 @@
 - **Estado:** diseñado, sin implementar. Tres incógnitas empíricas abiertas (§14) que NO bloquean la construcción.
 - **Cliente piloto:** blunua
 - **Spec padre:** `2026-07-19-shopify-control-v1-design.md` (este documento extiende §13 "Combos como write")
-- **Revisión:** rev.3 — incorpora 11 correcciones del primer review y 4 del segundo (ver §16).
+- **Revisión:** rev.4 — cerrado tras 3 rondas de review (19 correcciones). Listo para planificar.
 
 ---
 
@@ -460,8 +460,8 @@ Lo mismo para `metafieldsSet`: se bloquea cualquier namespace distinto de `worke
 |---|---|
 | `discountAutomaticBasicCreate` | `endsAt` presente · duración ≤ `maxDurationDays` · pct ≤ `maxDiscountPct` (§9.4) · **`items.products` o `items.productVariants`**, con ids explícitos en cualquiera de los dos · backup de deal fresco (§7.4) |
 | `discountCodeBasicCreate` | **las mismas condiciones** + `"codes" in enabledStrategies` |
-| `discountAutomaticDeactivate` | el `id` debe estar referenciado por algún `ref` de un `worker.deal` del cliente activo. Sin backup (§7.4) |
-| `discountCodeDeactivate` | ídem |
+| `discountAutomaticDeactivate` | **sin condiciones.** Ver §9.8 |
+| `discountCodeDeactivate` | **sin condiciones.** Ver §9.8 |
 | `metafieldsSet` | `namespace == "worker"` · `key == "deal"` · `ownerType == PRODUCT` · JSON válido contra §5 · **`pct` de cada tier ≤ `maxDiscountPct`** · `len(tiers)` ≤ `maxTiers` · backup de deal fresco |
 | `metafieldDefinitionCreate` | **solo setup, solo operador**, namespace `worker`. No alcanzable desde el flujo del cliente. |
 
@@ -520,6 +520,31 @@ El techo se lee de `clients/{slug}/deal-policy.json`, pero el guard **no sabe cu
 activo** — misma limitación de scoping multi-cliente ya documentada en §12 del spec padre. Con un
 solo cliente no hay ambigüedad. **Antes del 2º cliente hay que cerrar las dos juntas** (scoping de
 backups y resolución del cliente activo), porque comparten causa raíz.
+
+### 9.8 Por qué `Deactivate` va sin condiciones
+
+Una versión anterior de §9.1 exigía que el `id` a desactivar estuviera referenciado por algún
+`worker.deal`. **Esa condición bloqueaba todos los caminos que necesitan desactivar**, sin
+excepción: §7.2(c) desactiva los refs viejos *después* de haber escrito los nuevos en el metafield;
+§7.3 desactiva *después* de escribir `tiers: []`; los huérfanos están definidos como ids **no**
+referenciados; y los parciales de §7.2(a) nunca llegaron a persistirse en ningún lado. La
+compensación quedaba trabada exactamente en los cuatro escenarios para los que existe.
+
+**Regla general que sale de ahí, y que aplica más allá de este spec:** un camino de compensación no
+puede estar condicionado a un estado que la compensación misma modifica.
+
+Se acepta el riesgo residual —desactivar un descuento que el cliente creó a mano— porque:
+
+1. `Deactivate` es **reversible**: existe `discountAutomaticActivate` / `discountCodeActivate`, y
+   el cliente lo reactiva con un click desde el admin de Shopify.
+2. Lo **irreversible** sigue duramente bloqueado: las cinco variantes de borrado (§9.2).
+3. El modelo de amenaza del v1 (spec padre §15) es "el operador o el cliente se equivocan", no un
+   actor hostil. Un desactivado por error es molesto y recuperable; un borrado no.
+
+**El journal sí se implementa, pero como auditoría, no como permiso.** El skill registra en
+`worklog.md` cada descuento que crea y cada uno que desactiva, con su `ref`. Sirve para detectar
+huérfanos y para reconstruir qué pasó. **No puede bloquear una limpieza** — si el registro fallara,
+la compensación tiene que seguir estando disponible.
 
 ---
 
@@ -594,8 +619,8 @@ Sobre el guard:
   `discountCodeBulkDelete` y `discountCodeRedeemCodeBulkDelete` (§9.2)
 - bloquea `discountAutomaticBasicUpdate` y `discountCodeBasicUpdate` **siempre** (§6.3),
   incluido el caso `endsAt: "2031-01-01"` que estiraría la oferta más allá de `maxDurationDays`
-- permite `discount*Deactivate` solo si el `id` está referenciado por un `worker.deal`;
-  lo bloquea para un id arbitrario
+- **permite `discount*Deactivate` siempre**, incluso para un id que no figura en ningún
+  `worker.deal` — es el caso de los huérfanos y el de la compensación de §7.2 (§9.8)
 - **`metafieldsSet` exige backup fresco**; `discount*Deactivate` **no** (§7.4)
 - **bloquea toda mutación `discount*` fuera de la whitelist** (§9.0): BXGY, free shipping, app,
   redeem-code-bulk-add
