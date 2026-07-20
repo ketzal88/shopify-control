@@ -4,4 +4,5 @@ __pycache__/
 .DS_Store
 *.tmp
 .playwright-mcp/
+.superpowers/
 e2e-storefront-password-gate.png
