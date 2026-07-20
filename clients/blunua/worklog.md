@@ -4,6 +4,42 @@ Append-only. Cada write deja una entrada: `## YYYY-MM-DD [write] producto — ba
 
 <!-- nuevas entradas arriba -->
 
+## 2026-07-20 [milestone] Escalones por cantidad — M1 (guard + política + skill)
+
+**No se escribió nada en la tienda de blunua.** Este milestone es código y documentación: agrega
+la segunda clase de escritura (ofertas) con su guardrail, pero todavía no se usó contra la tienda
+real. La validación empírica contra development store queda para el M2 y es **bloqueante**.
+
+- **Lo que se construyó (7 tareas planificadas):** techo por cliente en `deal-policy.json` + su
+  loader; backup de oferta como tipo propio (discriminado por ruta `backups/deals/` **y** por
+  `kind == "deal"`); whitelist cerrada de descuentos con el techo aplicado; validación del
+  metafield `worker.deal` con el mismo techo que el descuento; el skill `armar-escalones` con sus
+  dos estrategias; y esta actualización de gobernanza.
+- **Seis arreglos de seguridad NO planificados**, todos sobre agujeros que **ya existían en `main`
+  antes de este trabajo** — no los introdujo el milestone, los destapó:
+  1. El guard inspeccionaba solo la **primera** mutación del documento: el resto pasaba sin mirar.
+  2. Un mismo documento podía **mezclar asuntos** (oferta + metafield + edición de producto) y
+     colarse por la rama más permisiva. Ahora es un solo asunto por documento.
+  3. La familia `product*` era blocklist, no whitelist: **21 mutaciones** entraban por no estar
+     enumeradas. Hoy solo pasa `productUpdate`.
+  4. Un query vacío se leía como permitido en vez de **desconocido**; `collection*` no tenía
+     whitelist (ahora no se permite ninguna); y un regex se comía los dígitos del nombre.
+  5. `metafieldsSet` sin `ownerId` se bloqueaba de casualidad, no por diseño.
+  6. El mensaje del payload inline decía algo que no era cierto sobre lo que había revisado.
+- **Tests: 65 → 146.** Todos verdes. Los tres smokes del hook real (proceso + stdin, no solo
+  `evaluate()`) pasan: desactivar oferta permitido, `discountAutomaticBxgyCreate` bloqueado,
+  metafield con namespace ajeno bloqueado.
+- **Lo que NO cambió de política:** `create-discount` sigue **denegado** en `permissions.deny`
+  (verificado por aserción, no por grep). El camino válido es `graphql_mutation` a través de la
+  whitelist, que es el único que puede aplicar el techo. Los borrados siguen bloqueados en sus
+  cinco variantes: una oferta se **desactiva**, nunca se borra.
+- **Techo vigente para blunua** (en `deal-policy.json`, explicado en §11 de `store-standards.md`):
+  30% máximo por escalón, 90 días máximo, 4 escalones máximo, fecha de fin obligatoria, nunca a
+  nivel colección.
+- **Pendiente para el M2:** correr los tres tests empíricos contra development store
+  (**bloqueante** — de su resultado depende la forma del widget), el widget en sí, y la
+  instalación del bloque Custom Liquid en el tema.
+
 ## 2026-07-19 [undo + redo] Collar Amaral — backups: ...-202103.json y ...-202226.json
 
 Prueba del ciclo completo de reversión sobre datos reales, para validar la red de seguridad
