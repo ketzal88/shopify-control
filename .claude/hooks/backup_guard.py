@@ -229,6 +229,36 @@ def _covering_backup(backups_root: Path, product_id: str, now: float):
     return True, None
 
 
+def _covering_deal_backup(backups_root, product_id: str, now: float):
+    """(hay_backup_valido, motivo). Backup de OFERTA, no de descripción.
+
+    Dos condiciones simultáneas separan los tipos (spec §7.4): la ruta
+    (`backups/deals/`) y `kind == "deal"`. Con una sola, un backup de
+    descripción podría habilitar un write de descuento.
+
+    Frescura DOBLE (mtime + ts), igual que `_covering_backup`: cualquier
+    operación de git refresca el mtime de todo el checkout y resucitaría
+    backups viejos.
+    """
+    tail = product_id.split("/")[-1]
+    for p in Path(backups_root).glob(f"**/backups/deals/{tail}-*.json"):
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if data.get("kind") != "deal":
+            continue
+        if data.get("productId") != product_id:
+            continue
+        if now - p.stat().st_mtime > RECENT_WINDOW_SECONDS:
+            continue
+        if not _ts_fresh(data, now):
+            continue
+        return True, None
+    return False, (f"Sin backup de oferta reciente para {product_id}. "
+                   "El skill debe guardar el backup antes de escribir.")
+
+
 def _check_backup(product_id: str, backups_root, now: float):
     if not product_id:
         return "block", "no pude identificar el producto del write"
