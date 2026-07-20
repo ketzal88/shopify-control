@@ -41,6 +41,9 @@ ALLOWED_PRODUCT_INPUT_KEYS = {"id", "descriptionhtml", "seo"}
 # bloquea por no estar acá, no por estar en una lista de prohibidos —el
 # catálogo de Shopify tiene 26 mutaciones `product*` y crece.
 PRODUCT_WRITE_ALLOWED = {"productupdate"}
+# El v1 no escribe colecciones. Vacío a propósito: se bloquea por NO estar acá,
+# no por estar en una lista de prohibidos. La familia crece y la blocklist no.
+COLLECTION_WRITE_ALLOWED = set()
 # Campos que el skill respalda SIEMPRE juntos (contrato con mejorar-descripcion):
 REQUIRED_BACKUP_FIELDS = {"descriptionHtml", "seo_title", "seo_description"}
 RECENT_WINDOW_SECONDS = 900  # 15 min
@@ -288,7 +291,7 @@ def _discount_mutations(text: str) -> list:
     `discountApplications(first:5)`, y eso falla CERRADO (bloquea), que es el
     lado correcto para equivocarse.
     """
-    return [m.lower() for m in re.findall(r"\b(discount[A-Za-z]*)\s*\(", text)]
+    return [m.lower() for m in re.findall(r"\b(discount[A-Za-z0-9]*)\s*\(", text)]
 
 
 def _product_mutations(text: str) -> list:
@@ -304,7 +307,18 @@ def _product_mutations(text: str) -> list:
     llamada— NO cuenta como write de producto. Sin eso, toda oferta legítima
     quedaría clasificada como documento mixto.
     """
-    return [m.lower() for m in re.findall(r"\b(product[A-Za-z]*)\s*\(", text)]
+    return [m.lower() for m in re.findall(r"\b(product[A-Za-z0-9]*)\s*\(", text)]
+
+
+def _collection_mutations(text: str) -> list:
+    """Todas las mutaciones `collection*` del documento, en minúscula.
+
+    Misma historia que `product*`: `FORBIDDEN_MUTATIONS` nombraba solo
+    `collectionCreate` y `collectionUpdate`, así que `collectionDelete`,
+    `collectionDuplicate` y `collectionReorderProducts` pasaban. `permissions.deny`
+    cierra los TOOLS del connector, no el camino GraphQL.
+    """
+    return [m.lower() for m in re.findall(r"\b(collection[A-Za-z0-9]*)\s*\(", text)]
 
 
 def _check_discount(names, tool_input, backups_root, now: float):
@@ -523,6 +537,12 @@ def evaluate(payload: dict, backups_root, now: float):
             return "block", (f"la mutación '{fuera_de_alcance[0]}' está fuera del alcance del v1. "
                              "Lo único que se puede escribir de un producto es su descripción y su SEO.")
 
+        # Colecciones: misma whitelist cerrada, y vacía.
+        col = [m for m in _collection_mutations(text) if m not in COLLECTION_WRITE_ALLOWED]
+        if col:
+            return "block", (f"la mutación '{col[0]}' está fuera del alcance del v1: "
+                             "las colecciones no se tocan desde acá.")
+
         # El gid suelto sigue siendo señal de write de producto: cubre una
         # mutación parametrizada cuyo nombre no reconocemos. Queda acá abajo, y
         # no como asunto, porque las ofertas legítimas traen gids de producto
@@ -530,6 +550,18 @@ def evaluate(payload: dict, backups_root, now: float):
         if "productupdate" not in low and not GID_RE.search(text):
             return "allow", "no es un write de producto vigilado"
         keys = _product_input_keys(text) | _variables_product_keys(tool_input)
+        # VACÍO ES DESCONOCIDO, NO LIMPIO. Un conjunto de keys sin `id` significa
+        # que no pudimos parsear el payload, no que el write venga limpio.
+        # Tratarlo como "no hay nada fuera de alcance" es la raíz de toda esta
+        # clase de agujeros, y seguía viva por otra vía: en
+        # `productUpdate(input:$input)` con un `input` que no trae `id`,
+        # `_variables_product_keys` no cosecha nada (solo mira los dicts que
+        # tienen `id`), `extra` queda vacío, y el write pasaba con `handle` y
+        # `status` adentro. Hoy solo lo salvaba que Shopify exige `input.id`
+        # del lado del servidor — o sea, la validación de la API, no el guard.
+        if "id" not in keys:
+            return "block", ("no pude identificar qué campos toca este write de producto. "
+                             "La mutación tiene que traer el id del producto junto con los campos.")
         extra = keys - ALLOWED_PRODUCT_INPUT_KEYS
         if extra:
             return "block", (f"write fuera de alcance: {sorted(extra)}. "

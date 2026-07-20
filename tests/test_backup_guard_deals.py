@@ -390,3 +390,72 @@ def test_product_update_with_status_still_blocks_on_field_scope(tmp_path):
     d, why = bg.evaluate(p, tmp_path, time.time())
     assert d == "block", f"productUpdate con status pasó: {why}"
     assert "status" in why, f"bloqueó, pero no por el control de campos: {why}"
+
+
+# --- vacio es DESCONOCIDO, no limpio (raiz de la clase de agujeros) ---------
+
+def test_product_update_without_id_in_variables_is_blocked(tmp_path):
+    """`input` sin `id`: _variables_product_keys no cosecha nada, `extra` queda
+    vacio, y el write pasaba con handle y status adentro. Hoy solo lo salvaba
+    que Shopify exige input.id del lado del servidor."""
+    write_description_backup(tmp_path)
+    p = {"tool_name": T_GQL, "tool_input": {
+        "query": "mutation ($input: ProductInput!) { productUpdate(input:$input){product{id}} }",
+        "variables": {"input": {"handle": "x", "status": "DRAFT"},
+                      "ref": "gid://shopify/Product/1"}}}
+    d, why = bg.evaluate(p, tmp_path, time.time())
+    assert d == "block", why
+
+def test_product_update_with_id_still_blocks_on_field_scope(tmp_path):
+    """Control: el MISMO write con `id` presente bloquea, y bloquea por ALCANCE
+    DE CAMPOS. Si el motivo cambiara, el chequeo nuevo estaria tapando al viejo."""
+    write_description_backup(tmp_path)
+    p = {"tool_name": T_GQL, "tool_input": {
+        "query": "mutation ($input: ProductInput!) { productUpdate(input:$input){product{id}} }",
+        "variables": {"input": {"id": "gid://shopify/Product/1",
+                                "handle": "x", "status": "DRAFT"}}}}
+    d, why = bg.evaluate(p, tmp_path, time.time())
+    assert d == "block"
+    assert "status" in why, f"deberia bloquear por alcance de campos, dio: {why}"
+
+def test_legit_description_write_still_passes(tmp_path):
+    """Guardia de regresion: el unico camino legitimo del v1 sigue abierto."""
+    write_description_backup(tmp_path)
+    p = {"tool_name": T_GQL, "tool_input": {
+        "query": 'mutation { productUpdate(product:{id:"gid://shopify/Product/1", descriptionHtml:"<p>x</p>"}){product{id}} }'}}
+    d, why = bg.evaluate(p, tmp_path, time.time())
+    assert d == "allow", why
+
+
+# --- familia collection: whitelist cerrada y vacia --------------------------
+
+def test_collection_mutations_are_blocked(tmp_path):
+    write_description_backup(tmp_path)
+    for m in ['collectionDelete(input:{id:"gid://shopify/Collection/1"}){deletedCollectionId}',
+              'collectionDuplicate(id:"gid://shopify/Collection/1"){newCollection{id}}',
+              'collectionReorderProducts(id:"gid://shopify/Collection/1", moves:[]){job{id}}',
+              'collectionAddProductsV2(id:"gid://shopify/Collection/1", productIds:[]){job{id}}',
+              'collectionRemoveProducts(id:"gid://shopify/Collection/1", productIds:[]){job{id}}']:
+        d, why = bg.evaluate({"tool_name": T_GQL, "tool_input": {"query": "mutation { %s }" % m}},
+                             tmp_path, time.time())
+        assert d == "block", f"{m.split('(')[0]} no bloqueo"
+
+
+def test_detectors_are_not_blind_to_digits_in_mutation_names(tmp_path):
+    """Los tres detectores usaban `[A-Za-z]*`, que se corta en el primer digito.
+
+    `collectionAddProductsV2` no matcheaba: [A-Za-z]* paraba en la V, el `2` no
+    es letra y el `\(` no llegaba. Shopify usa sufijos V2/V3 de forma habitual,
+    asi que la whitelist "cerrada" tenia un agujero con forma de numero. Este
+    test lo fija para las tres familias.
+    """
+    write_description_backup(tmp_path)
+    for q in ['collectionAddProductsV2(id:"gid://shopify/Collection/1", productIds:[]){job{id}}',
+              'productVariantsBulkUpdate2(productId:"gid://shopify/Product/1"){userErrors{field}}',
+              'discountAutomaticBxgyCreate2(x:1){id}']:
+        d, why = bg.evaluate({"tool_name": T_GQL, "tool_input": {"query": "mutation { %s }" % q}},
+                             tmp_path, time.time())
+        assert d == "block", f"{q.split('(')[0]} paso: {why}"
+
+    # Y el detector devuelve el nombre COMPLETO, con digito incluido.
+    assert bg._collection_mutations("collectionAddProductsV2(") == ["collectionaddproductsv2"]
