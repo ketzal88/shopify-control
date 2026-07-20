@@ -1310,3 +1310,49 @@ Ninguno bloquea el milestone. Se documentan para que nadie los "descubra" y los 
 3. **Instalación** del bloque Custom Liquid en el tema de blunua.
 
 **No arrancar el Milestone 2 sin el punto 1.** Si la incógnita C sale mal, el widget cambia de forma y se rehace trabajo.
+
+---
+
+## Resultado real de la ejecución (2026-07-20)
+
+Las predicciones de arriba se dejan **como estaban**: un plan reescrito para coincidir con el
+resultado deja de servir como registro de qué se anticipó y qué no.
+
+| Tarea | Tests previstos | Tests reales | Commits |
+|---|---|---|---|
+| 1 · política + loader | 69 | **69** ✅ | `bcbdea3` |
+| 2 · backup con `kind` | 74 | **74** ✅ | `45030ac` |
+| 3 · whitelist de descuentos | 89 | **89** ✅ → **131** | `7f93576` + 4 fixes |
+| 4 · techo en el metafield | 99 | **145** | `872f2f6` `7e16a56` |
+| 5 · skill | — | **146** | `a19b7cf` `9053426` |
+| 6 · gobernanza | — | 146 | `50fefc2` |
+| 7 · cierre | — | 146 | `7acae5d` |
+
+**Las tres predicciones de conteo intermedio dieron exactas**, incluidas las tablas test-por-test
+de los Step 2 de las tareas 2, 3 y 4 — que fueron justamente las que el review del plan hizo
+corregir tres veces.
+
+### Lo que el plan no anticipó
+
+Siete agujeros de seguridad **preexistentes en `main`**, encontrados al implementar. Ninguno lo
+introdujo este milestone. Detalle en `docs/2026-07-20-hallazgos-de-seguridad-backup-guard.md`.
+
+De 7 tareas planificadas salieron 7 tareas + 6 fixes de seguridad no planificados, y el conteo
+final fue **146 en vez de 99**.
+
+### Qué lo hizo aparecer
+
+Ninguno lo encontró un review del plan —hubo tres, todos exhaustivos—. Los encontró:
+
+1. **Escribir el código.** El bypass multi-root-field apareció al implementar el dispatch, no al
+   revisarlo.
+2. **Enumerar desde el schema real** en vez de desde una lista escrita a mano: 26 mutaciones
+   `product*`, 21 permitidas.
+3. **Escribir el skill que tiene que obedecer al guard.** Leerlo desde el lado de quien lo
+   satisface encontró que mentía en un mensaje de error.
+4. **Un ejemplo elegido sin pensar** que tenía un `2` en el nombre (`collectionAddProductsV2`), y
+   destapó que los tres detectores eran ciegos a los dígitos.
+
+La lección para el próximo plan: **las verificaciones que valen son las que ejecutan código, no las
+que lo leen.** Los tres reviews del plan mejoraron mucho su calidad —19 correcciones— pero cero de
+los siete agujeros salieron de ahí.
