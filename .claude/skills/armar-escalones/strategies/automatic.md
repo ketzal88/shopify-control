@@ -57,7 +57,7 @@ Una llamada a `Shopify:graphql_mutation` **por escalón con descuento**. El esca
 genera descuento: es el precio normal.
 
 ```graphql
-mutation ($d: DiscountAutomaticBasicInput!, $productId: ID!) {
+mutation ($d: DiscountAutomaticBasicInput!) {
   discountAutomaticBasicCreate(automaticBasicDiscount: $d) {
     automaticDiscountNode { id }
     userErrors { field message }
@@ -65,7 +65,9 @@ mutation ($d: DiscountAutomaticBasicInput!, $productId: ID!) {
 }
 ```
 
-Variables (esto va en `variables`, no en el texto de arriba):
+Variables (esto va en `variables`, no en el texto de arriba). **`productId` va acá aunque el query
+NO lo declare** (`$productId: ID!` en la firma hace que Shopify rechace la mutación por "variable
+declarada y no usada"; como variable extra no declarada, Shopify la ignora y el guard la lee):
 
 ```json
 { "productId": "gid://shopify/Product/999",

@@ -2,7 +2,7 @@
 
 - **Fecha:** 2026-07-19
 - **Autor:** Gabriel (Worker) + Claude
-- **Estado:** diseñado, sin implementar. Tres incógnitas empíricas abiertas (§14) que NO bloquean la construcción.
+- **Estado:** Milestone 1 (guard + política + skill) implementado y verificado contra el connector real. Las tres incógnitas de §14 están **resueltas** (2026-07-21) y las tres dieron favorable. Falta el widget (Milestone 2).
 - **Cliente piloto:** blunua
 - **Spec padre:** `2026-07-19-shopify-control-v1-design.md` (este documento extiende §13 "Combos como write")
 - **Revisión:** rev.4 — cerrado tras 3 rondas de review (19 correcciones). Listo para planificar.
@@ -40,7 +40,7 @@ Worker Brain). Este diseño se queda con la decisión y usa el motor nativo de S
 | E7 | Preselección en el widget | **Arranca en 1 unidad**, con el escalón 2 destacado pero no marcado. Ver §4.4. |
 | E8 | Skill | **Skill nuevo `armar-escalones`**, no una extensión de `armar-combo`. Ver §7. |
 | E9 | Semántica de carrito | El widget **fija** las cantidades por variante (`update.js`), no las suma. Ver §4.6. |
-| E10 | Variantes | El escalón cuenta **unidades del producto, con variantes mezclables** — sujeto a la incógnita C. Ver §4.6 y §14. |
+| E10 | Variantes | El escalón cuenta **unidades del producto, con variantes mezclables**. Confirmado por la incógnita C (§14): el umbral es por producto. Ver §4.6. |
 | E11 | Restore de ofertas | **No existe.** El backup es insumo del guard y rastro de auditoría. Ver §7.3. |
 
 ---
@@ -59,9 +59,9 @@ metafield lleva **todo** lo que el widget necesita bajo cualquiera de las dos es
 eso **las incógnitas A y B** de §14 no tocan schema ni widget: solo cambian qué mutaciones usa el
 skill.
 
-**La incógnita C sí toca el widget.** Si el umbral de cantidad resulta ser a nivel carrito, la
-mitigación obliga a exigir N de la misma variante, o sea a sacar los selectores mezclables de §4.6.
-No se puede planificar el widget como independiente de los tests: C es su precondición.
+**La incógnita C tocaba el widget, y se resolvió a favor (§14):** el umbral cuenta unidades del
+producto entitled, no del carrito. El diseño de §4.6 —N selectores de variante mezclables del mismo
+producto— queda confirmado; **no** hizo falta acotar a variante única.
 
 **Nota honesta sobre "estrategia intercambiable":** shopify-control no tiene runtime propio (son
 skills en markdown + hooks de Python que solo hacen de guarda). La intercambiabilidad **no es
@@ -227,7 +227,7 @@ Cada archivo documenta tres operaciones con la misma forma de entrada y salida:
 Un `DiscountAutomaticNode` por escalón con `pct > 0`:
 
 ```graphql
-mutation ($d: DiscountAutomaticBasicInput!, $productId: ID!) {
+mutation ($d: DiscountAutomaticBasicInput!) {
   discountAutomaticBasicCreate(automaticBasicDiscount: $d) {
     automaticDiscountNode { id }
     userErrors { field message }
@@ -238,6 +238,13 @@ mutation ($d: DiscountAutomaticBasicInput!, $productId: ID!) {
 **`productId` es obligatorio** aunque la mutación no lo consuma: es lo que el guard usa para
 encontrar el backup que habilita el write (§9.1). Cuando el scope es por variante, los ids del
 `items` no contienen el gid del producto, así que no hay de dónde derivarlo.
+
+> **NO se declara en la firma** (`$productId: ID!`). Verificado contra el connector real
+> (2026-07-21): Shopify **rechaza** una variable declarada y no usada
+> (*"Variable $productId is declared by anonymous mutation but not used"*). Va como variable
+> **extra no declarada**: Shopify la ignora del lado del servidor y el guard la lee de
+> `tool_input["variables"]`. Es la cara benigna del mismo comportamiento que hacía peligroso el
+> hallazgo #8 (variables sobrantes ignoradas) — acá lo aprovecha el camino legítimo.
 
 ```json
 { "d": {
@@ -676,50 +683,55 @@ puede agregar al carrito, que es justamente lo que hay que probar.
 
 ---
 
-## 14. Las tres incógnitas empíricas
+## 14. Las tres incógnitas empíricas — RESUELTAS (2026-07-21)
 
-Ninguna bloquea la construcción del widget, el metafield, el skill ni el guard. Las tres se
-responden contra development store. A y B determinan qué estrategia de §6 queda activa; C puede
-obligar a acotar el alcance del widget.
+Corridas contra la development store *Testing StandAlone Framework* (paso 0: `get-shop-info`
+confirmó que **no** era blunua producción antes de crear nada). Método: crear los descuentos
+automáticos reales pasando por el guard, y medir la aplicación con `draftOrderCalculate`
+(`acceptAutomaticDiscounts: true`), que computa el precio final sin persistir un pedido. Las tres
+dieron el resultado favorable; el widget y la estrategia `automatic` quedan confirmados.
 
-**A — ¿Shopify permite más de un descuento automático activo a la vez?**
-Eliminatoria para `automatic`: los escalones necesitan uno por tier. Si la respuesta es no, se
-activa `codes`. Gracias al campo `code` de §5 y al techo compartido de §6.2, ese cambio **no toca
-schema, widget, guard ni flujo**.
+**A — ¿Shopify permite más de un descuento automático activo a la vez? → SÍ.**
+Se crearon `min 2 → 10%` y `min 3 → 20%` sobre el mismo producto; los dos quedaron `ACTIVE`
+simultáneamente (más otros dos preexistentes de la tienda: cuatro automáticos activos a la vez).
+**La estrategia `automatic` es viable; no hace falta el fallback `codes`.**
 
-**B — Si dos califican a la vez, ¿cuál aplica?**
-Un comprador que lleva 3 califica para "min 2" y para "min 3". Si Shopify aplica el más favorable,
-los escalones funcionan solos. Si aplica por orden de creación, o exige prioridad manual, se pasa a
-`codes` — **ni el metafield ni los archivos de estrategia tienen dónde registrar una prioridad, y
-deliberadamente no se agrega**: administrar prioridades de descuento es complejidad que el fallback
-evita por completo.
+**B — Si dos califican a la vez, ¿cuál aplica? → el escalón superior (el más favorable).**
+Con 3 unidades, `draftOrderCalculate` aplicó el `min 3 → 20%`, no el `min 2 → 10%`. La escalera
+funciona nativa, sin administrar prioridades.
+> **Matiz honesto:** en este test "más favorable" y "creado último" coinciden, y el skill crea los
+> tiers en orden ascendente de cantidad, así que **las dos reglas posibles dan el mismo resultado
+> correcto** para el modelo de escalones. No se construyó el contraejemplo (un tier bajo con más
+> descuento que uno alto) porque no es una configuración real de escalones.
 
-**C — ¿`minimumRequirement.quantity` cuenta unidades del producto entitled, o de todo el carrito?**
+**C — ¿`minimumRequirement.quantity` cuenta unidades del producto o de todo el carrito? → del
+PRODUCTO. Es el resultado que salva el diseño del widget.**
+- 2 unidades del producto P → aplicó 10% (177.18 sobre 1771.90). ✅
+- **1 unidad de P + 1 de otro producto Q → descuento 0.00.** El carrito tenía 2 ítems, pero P no
+  llegó a su `min 2` **por sí solo**, y no se descontó nada.
 
-`minimumRequirement` y `customerGets.items` son **dos inputs separados** de la API. El segundo dice
-qué se descuenta; el primero dice cuánto hay que llevar — pero la documentación describe el umbral
-sobre "qualifying items in the customer's cart", lo que **no resuelve** si "qualifying" significa
-"los del `items`" o "los del carrito".
+O sea: llevar 1 anillo + 1 collar **no** dispara el escalón "2+" del anillo. El riesgo que §16
+temía no existe. **La mitigación de variante-única (`productVariantsToAdd`) NO hace falta**, y el
+diseño de §4.6 —N selectores de variante mezclables del mismo producto— queda confirmado seguro:
+el umbral cuenta todas las variantes del producto entitled, ni más (otros productos) ni menos.
 
-Rev.2 de este spec afirmaba el scoping a nivel producto como hecho establecido. **No lo está**, y
-la diferencia es grave: si el umbral es a nivel carrito, llevar 1 anillo + 1 collar dispara el
-escalón "2+" del anillo, y el widget anuncia un precio que el carrito no respeta — exactamente el
-riesgo que §16 dice cerrar. **La estrategia `codes` no lo arregla**: §6.2 usa el mismo
-`minimumRequirement`.
+### 14.1 Hallazgos colaterales de la corrida en vivo
 
-Si resulta ser a nivel carrito, la mitigación es que el escalón exija N de la **misma variante**
-(con `productVariantsToAdd` en vez de `productsToAdd`), lo que obliga a sacar las variantes
-mezclables de §4.6.
-
-**Procedimientos:**
-
-| | Test | Qué se mira |
-|---|---|---|
-| **A + B** | dos descuentos automáticos sobre el mismo producto (min 2 → 10%, min 3 → 20%); agregar **3 unidades de ese producto** | ¿coexisten? ¿cuál aplica? |
-| **C** | un solo descuento (min 2 → 10%) sobre el producto A; agregar **1 unidad de A + 1 unidad de B** | si descuenta A, el umbral es a nivel carrito |
-
-El test de C es indispensable por separado: el de A/B usa 3 unidades de un mismo producto y
-**pasaría igual con cualquiera de los dos scopings**, así que no lo detecta.
+1. **`productId` no se declara en la firma de la mutación.** Shopify rechaza una variable declarada
+   y no usada. Va como variable extra no declarada. Corregido en §6.1, §6.2 y los dos archivos de
+   estrategia. Es la cara benigna del hallazgo #8.
+2. **El guard bloquea `draftOrderCalculate`** — una mutación read-only (calcula, no persiste). Es
+   el "errs closed → bloqueos falsos" que el review final anticipó, materializado. **No se cambia
+   para el v1:** ningún skill usa `draftOrderCalculate`, así que el bloqueo es correcto por defecto.
+   Si un futuro milestone necesita previsualizar el efecto de una oferta, habrá que sumar una
+   allowlist de mutaciones de solo-cálculo. Anotado, no arreglado.
+3. **El tool `graphql_query` rechaza mutaciones** ("This tool is read-only"). Importa porque el
+   guard solo inspecciona la rama `graphql_mutation`: una mutación mandada por el tool de query
+   sería ciega al guard. Hoy no es explotable porque el connector la rechaza — **pero la defensa se
+   apoya en esa frontera del connector, no en el guard.** Si cambia, el guard queda ciego a ese
+   camino.
+4. **`Deactivate` verificado contra el connector real:** los dos descuentos de prueba pasaron a
+   `EXPIRED`. Primera prueba end-to-end de la compensación (§9.8) fuera de los tests offline.
 
 ---
 

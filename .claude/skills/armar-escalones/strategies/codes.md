@@ -68,7 +68,7 @@ compra hace click en un botón, no tipea nada.
 Una llamada **por escalón con descuento**:
 
 ```graphql
-mutation ($d: DiscountCodeBasicInput!, $productId: ID!) {
+mutation ($d: DiscountCodeBasicInput!) {
   discountCodeBasicCreate(basicCodeDiscount: $d) {
     codeDiscountNode { id }
     userErrors { field message }
@@ -76,7 +76,9 @@ mutation ($d: DiscountCodeBasicInput!, $productId: ID!) {
 }
 ```
 
-Variables (en `variables`, no en el texto de arriba):
+Variables (en `variables`, no en el texto de arriba). **`productId` va acá aunque el query NO lo
+declare**: Shopify rechaza una variable declarada y no usada; como extra no declarada la ignora y
+el guard la lee.
 
 ```json
 { "productId": "gid://shopify/Product/999",

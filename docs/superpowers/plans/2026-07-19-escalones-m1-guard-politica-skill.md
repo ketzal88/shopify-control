@@ -367,7 +367,7 @@ def create_discount(pct=0.10, ends="2026-10-18T00:00:00Z",
     """
     items = items or {"products": {"productsToAdd": [product_id]}}
     return {"tool_name": T_GQL, "tool_input": {
-        "query": "mutation ($d: DiscountAutomaticBasicInput!, $productId: ID!) { discountAutomaticBasicCreate(automaticBasicDiscount: $d) { automaticDiscountNode { id } } }",
+        "query": "mutation ($d: DiscountAutomaticBasicInput!) { discountAutomaticBasicCreate(automaticBasicDiscount: $d) { automaticDiscountNode { id } } }",
         "variables": {"productId": product_id, "d": {
             "title": "shopify-control - test",
             "startsAt": starts, "endsAt": ends,
@@ -1057,7 +1057,7 @@ guard de la Task 3 la bloquea **en el 100% de las llamadas**, y como esta tarea 
 error recién aparecería contra una tienda real. Usar esta versión:
 
 ```graphql
-mutation ($d: DiscountAutomaticBasicInput!, $productId: ID!) {
+mutation ($d: DiscountAutomaticBasicInput!) {
   discountAutomaticBasicCreate(automaticBasicDiscount: $d) {
     automaticDiscountNode { id }
     userErrors { field message }
