@@ -2,9 +2,11 @@
 
 - **Fecha:** 2026-07-22
 - **Autor:** Gabriel (Worker) + Claude
-- **Estado:** Diseño. **Elegido por Gabriel** como el primer build del programa de widgets. Falta
-  spec-review, plan y implementación. Este spec toma las decisiones técnicas que el catálogo dejó
-  como "mías" (owner, forma del guard, un bloque vs varios).
+- **Estado:** **IMPLEMENTADO (F1+F2+F3), 211 tests verdes.** Elegido por Gabriel como el primer build
+  del programa. Guard: registro `COSMETIC_METAFIELDS` (`81648f2`) + `worker.trust`/owner SHOP
+  (`c607050`). Widgets+skills: FAQ (`c6419d8`), confianza+whatsapp (`3ddddce`). **Pendiente:** E2E
+  contra dev store (operador, connector vivo) — armar una FAQ y badges reales, ver el render y que
+  Google detecte el `FAQPage`.
 - **Cliente piloto:** blunua (joyería, COP)
 - **Spec padre:** `2026-07-22-catalogo-widgets-design.md` (§6 familia Confianza + Vitrina + FAQ; §7 el
   registro cosmético). Este doc **implementa la 1ª familia cosmética** del programa.

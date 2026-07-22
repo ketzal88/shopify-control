@@ -54,9 +54,24 @@ Seis de los siete son la misma clase: **un parseo vacío tratado como "limpio" e
 Detalle completo, con severidad y commit por hallazgo:
 `docs/2026-07-20-hallazgos-de-seguridad-backup-guard.md`
 
-## 🟡 A REVISAR CON GABRIEL — Catálogo de widgets (2026-07-22, DRAFT autónomo)
-Sesión nocturna: Gabriel pidió sumar los catálogos de **wigy** (45 widgets) y **crecenube** (8 apps +
-6 calculadoras) al plan de widgets. Escrito sin brainstorm (dormía) → es DRAFT, **no aprobado**.
+## ✅ CONSTRUIDO — Pack LatAm (widgets de confianza), 2026-07-22
+Primer build del programa de widgets, elegido por Gabriel. **F1+F2+F3, 211 tests verdes, TDD.**
+- **Guard:** nació el registro `COSMETIC_METAFIELDS` en `backup_guard.py` (`_check_cosmetic`/
+  `_covering_cosmetic_backup` genéricos; `worker.style` migrado adentro sin regresión). Familias:
+  `style`, `faq`, `trust`. Owner `/Shop/` abierto **por key** (`COSMETIC_SHOP_OK={"trust"}`).
+  Commits `81648f2` (faq/registro) + `c607050` (trust/shop).
+- **Widgets+skills:** `worker-faq.liquid` (+ schema FAQPage) + skill `armar-faq` (`c6419d8`);
+  `worker-trust.liquid` (badges/mensajes, fallback producto→shop) + `worker-whatsapp.liquid` (botón
+  flotante) + skill `poner-confianza` (`3ddddce`). Runbooks de instalación incluidos.
+- **Decisiones de Gabriel:** honestidad → construir los de urgencia (no rechazarlos); foco wigy;
+  Pack LatAm primero. (Detalle en `catalogo-widgets-design.md` §8/§12.)
+- **PENDIENTE (operador, connector vivo):** E2E contra dev store — armar FAQ + badges reales, ver el
+  render, verificar el rich-result `FAQPage`. Es lo único que falta de Pack LatAm.
+- **Próximas familias del catálogo:** Contenido (W2, decidir corte descripción-vs-bloque), Urgencia
+  honesta (W3), Ofertas BxGy (carril propio, spec `regalo-gratis-bxgy`).
+
+## Catálogo de widgets (2026-07-22) — el mapa del programa
+Gabriel pidió sumar los catálogos de **wigy** (45 widgets) y **crecenube** (8 apps + 6 calculadoras).
 - **Doc:** `docs/superpowers/specs/2026-07-22-catalogo-widgets-design.md`.
 - **Qué dice:** generaliza el escalones a una "receta" de 6 piezas; deduplica (crecenube ⊂ wigy en
   vitrina; su aporte único son las calculadoras de operador); clasifica los 45 por guardrail
@@ -68,9 +83,9 @@ Sesión nocturna: Gabriel pidió sumar los catálogos de **wigy** (45 widgets) y
   BxGy (`8c881a0`). El catálogo ubica los tres como piezas del mismo programa. `_check_style` ya está en
   `main` → el registro `COSMETIC_METAFIELDS` es un **refactor para la 2ª familia cosmética**, no urgente
   (§7, D1). **No toqué `backup_guard.py`** (lo tenía el otro stream).
-- **Necesita tu call:** las 6 incógnitas de §12 (cuándo refactorizar a registro, corte descripción/
-  bloque, owner SHOP, "Confianza" un bloque o varios, honestidad como regla dura, y confirmar cuál fue
-  "la app que me pasaste" — sospecho que wigy, superconjunto de todo lo de vitrina).
+- **Incógnitas de §12: casi todas resueltas** al decidir Pack LatAm y construirlo (registro hecho,
+  owner SHOP hecho, "Confianza" = un bloque, honestidad = construir, app = wigy). **Queda abierta solo
+  D2:** el corte descripción-vs-bloque para la familia Contenido (W2), a decidir cuando se encare.
 
 ## PENDIENTE #2 — blunua real
 Cargar los ⚠️ de `clients/blunua/store-standards.md` (vocabulario prohibido, keywords por categoría, taxonomía) + conectar el Shopify real de blunua (hoy conectada la dev store).
