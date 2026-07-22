@@ -76,6 +76,13 @@ TRUST_MSG_MAXLEN = 80
 TRUST_WA_TEXT_MAXLEN = 120
 PHONE_RE = re.compile(r"^\d{8,15}$")
 
+# worker.countdown (cuenta regresiva): fecha de fin REAL + textos. worker.freeship
+# (barra de envío gratis): monto umbral en centavos + textos.
+COUNTDOWN_KEYS = {"version", "endsAt", "label", "expiredText"}
+COUNTDOWN_TEXT_MAXLEN = 60
+FREESHIP_KEYS = {"version", "threshold", "label", "successText"}
+FREESHIP_TEXT_MAXLEN = 80
+
 # Tools de escritura del connector prohibidos en el v1 (alcance: descripción + SEO).
 FORBIDDEN_ACTIONS = {
     "set-inventory",
@@ -1063,6 +1070,51 @@ def _trust_body(data):
     return None
 
 
+def _parse_iso(x):
+    """datetime desde un ISO (acepta sufijo 'Z' y fecha sola). None si no parsea."""
+    if not isinstance(x, str) or not x.strip():
+        return None
+    s = x.strip().replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(s)
+    except ValueError:
+        try:
+            return datetime.fromisoformat(s[:10])
+        except ValueError:
+            return None
+
+
+def _countdown_body(data):
+    """worker.countdown: fecha de fin REAL (honesto — el widget cuenta hasta esa
+    fecha y NO resetea) + textos acotados. `items` no aplica; es un objeto plano."""
+    extra = set(data.keys()) - COUNTDOWN_KEYS
+    if extra:
+        return f"clave de cuenta regresiva desconocida: {sorted(extra)[0]}."
+    if _parse_iso(data.get("endsAt")) is None:
+        return "la cuenta regresiva necesita una fecha de fin válida."
+    for k in ("label", "expiredText"):
+        v = data.get(k)
+        if v is not None and not _ok_text(v, COUNTDOWN_TEXT_MAXLEN):
+            return f"el texto de la cuenta regresiva ({k}) tiene que ser hasta {COUNTDOWN_TEXT_MAXLEN} sin < ni >."
+    return None
+
+
+def _freeship_body(data):
+    """worker.freeship: monto umbral en CENTAVOS (entero > 0) + textos acotados.
+    El widget lee el total del carrito y calcula lo que falta — el umbral es dato."""
+    extra = set(data.keys()) - FREESHIP_KEYS
+    if extra:
+        return f"clave de envío gratis desconocida: {sorted(extra)[0]}."
+    th = data.get("threshold")
+    if not (isinstance(th, int) and not isinstance(th, bool) and th > 0):
+        return "el envío gratis necesita un monto (en centavos) mayor a cero."
+    for k in ("label", "successText"):
+        v = data.get(k)
+        if v is not None and not _ok_text(v, FREESHIP_TEXT_MAXLEN):
+            return f"el texto de envío gratis ({k}) tiene que ser hasta {FREESHIP_TEXT_MAXLEN} sin < ni >."
+    return None
+
+
 # Registro de familias cosméticas: key -> validador de cuerpo. Agregar un widget
 # cosmético es agregar UNA entrada, no una función de guard nueva (catálogo §7).
 # Cada familia tiene su backup propio `kind == key` — aislamiento por ruta+kind:
@@ -1073,11 +1125,13 @@ COSMETIC_METAFIELDS = {
     "style": _style_body,
     "faq": _faq_body,
     "trust": _trust_body,
+    "countdown": _countdown_body,
+    "freeship": _freeship_body,
 }
 
 # Familias cosméticas que además pueden vivir en el SHOP (no solo por producto).
-# style/faq son product-only; trust puede ser de toda la tienda (badges, whatsapp).
-COSMETIC_SHOP_OK = {"trust"}
+# style/faq son product-only; trust/countdown/freeship pueden ser de toda la tienda.
+COSMETIC_SHOP_OK = {"trust", "countdown", "freeship"}
 
 
 def _check_cosmetic(key, tool_input, backups_root, now: float):
