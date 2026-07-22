@@ -83,6 +83,12 @@ COUNTDOWN_TEXT_MAXLEN = 60
 FREESHIP_KEYS = {"version", "threshold", "label", "successText"}
 FREESHIP_TEXT_MAXLEN = 80
 
+# Familias de "contenido" (uno por uno, estilo wigy). Las que llevan URL usan
+# `_ok_url` (solo https, sin caracteres que permitan inyección).
+CONTENT_MAX_ROWS = 12
+CONTENT_MAX_ITEMS = 8
+URL_RE = re.compile(r'^https://[^\s<>"\']{1,300}$')
+
 # Tools de escritura del connector prohibidos en el v1 (alcance: descripción + SEO).
 FORBIDDEN_ACTIONS = {
     "set-inventory",
@@ -1115,6 +1121,126 @@ def _freeship_body(data):
     return None
 
 
+def _ok_url(v):
+    """URL de cliente aceptable: solo https, sin espacios ni `<>\"'` (va a un `src`
+    o `href`, así que un `javascript:` o comillas rompen la barrera)."""
+    return isinstance(v, str) and bool(URL_RE.match(v))
+
+
+def _rows_ok(rows, ncols, cell_max):
+    """Filas de una tabla: lista no vacía (≤CONTENT_MAX_ROWS) de listas de exactamente
+    ncols celdas, cada una texto aceptable ≤cell_max."""
+    if not isinstance(rows, list) or not rows or len(rows) > CONTENT_MAX_ROWS:
+        return False
+    return all(isinstance(r, list) and len(r) == ncols and all(_ok_text(c, cell_max) for c in r)
+               for r in rows)
+
+
+def _sizechart_body(data):
+    extra = set(data.keys()) - {"version", "title", "rows"}
+    if extra:
+        return f"clave de tabla de talles desconocida: {sorted(extra)[0]}."
+    t = data.get("title")
+    if t is not None and not _ok_text(t, 60):
+        return "el título de la tabla tiene que ser texto ≤60 sin < ni >."
+    if not _rows_ok(data.get("rows"), 2, 40):
+        return "la tabla necesita filas de 2 columnas (talle y medida), texto ≤40."
+    return None
+
+
+def _announce_body(data):
+    extra = set(data.keys()) - {"version", "text", "link"}
+    if extra:
+        return f"clave de barra de anuncios desconocida: {sorted(extra)[0]}."
+    if not _ok_text(data.get("text"), 120):
+        return "el anuncio tiene que ser texto ≤120 sin < ni >."
+    link = data.get("link")
+    if link is not None and not _ok_url(link):
+        return "el link del anuncio tiene que ser una URL https."
+    return None
+
+
+def _lowstock_body(data):
+    extra = set(data.keys()) - {"version", "threshold", "text"}
+    if extra:
+        return f"clave de 'quedan pocas' desconocida: {sorted(extra)[0]}."
+    th = data.get("threshold")
+    if not (isinstance(th, int) and not isinstance(th, bool) and 1 <= th <= 999):
+        return "el umbral de 'quedan pocas' tiene que ser un entero entre 1 y 999."
+    t = data.get("text")
+    if t is not None and not _ok_text(t, 60):
+        return "el texto de 'quedan pocas' tiene que ser ≤60 sin < ni >."
+    return None
+
+
+def _beforeafter_body(data):
+    extra = set(data.keys()) - {"version", "before", "after", "beforeLabel", "afterLabel"}
+    if extra:
+        return f"clave de antes/después desconocida: {sorted(extra)[0]}."
+    if not _ok_url(data.get("before")) or not _ok_url(data.get("after")):
+        return "antes/después necesita dos imágenes con URL https."
+    for k in ("beforeLabel", "afterLabel"):
+        v = data.get(k)
+        if v is not None and not _ok_text(v, 30):
+            return f"el texto '{k}' tiene que ser ≤30 sin < ni >."
+    return None
+
+
+def _gallery_body(data):
+    extra = set(data.keys()) - {"version", "images"}
+    if extra:
+        return f"clave de galería desconocida: {sorted(extra)[0]}."
+    imgs = data.get("images")
+    if not (isinstance(imgs, list) and 1 <= len(imgs) <= CONTENT_MAX_ROWS and all(_ok_url(x) for x in imgs)):
+        return "la galería necesita entre 1 y 12 imágenes con URL https."
+    return None
+
+
+def _video_body(data):
+    extra = set(data.keys()) - {"version", "url", "label"}
+    if extra:
+        return f"clave de video desconocida: {sorted(extra)[0]}."
+    if not _ok_url(data.get("url")):
+        return "el video necesita una URL https."
+    lb = data.get("label")
+    if lb is not None and not _ok_text(lb, 60):
+        return "el texto del video tiene que ser ≤60 sin < ni >."
+    return None
+
+
+def _compare_body(data):
+    extra = set(data.keys()) - {"version", "usLabel", "themLabel", "rows"}
+    if extra:
+        return f"clave de comparación desconocida: {sorted(extra)[0]}."
+    for k in ("usLabel", "themLabel"):
+        v = data.get(k)
+        if v is not None and not _ok_text(v, 30):
+            return f"el texto '{k}' tiene que ser ≤30 sin < ni >."
+    if not _rows_ok(data.get("rows"), 3, 40):
+        return "la comparación necesita filas de 3 columnas (ítem, vos, otros), texto ≤40."
+    return None
+
+
+def _steps_body(data):
+    extra = set(data.keys()) - {"version", "items"}
+    if extra:
+        return f"clave de pasos desconocida: {sorted(extra)[0]}."
+    items = data.get("items")
+    if not (isinstance(items, list) and 1 <= len(items) <= CONTENT_MAX_ITEMS and all(_ok_text(x, 200) for x in items)):
+        return "los pasos tienen que ser entre 1 y 8 textos ≤200 sin < ni >."
+    return None
+
+
+def _benefits_body(data):
+    extra = set(data.keys()) - {"version", "items"}
+    if extra:
+        return f"clave de beneficios desconocida: {sorted(extra)[0]}."
+    items = data.get("items")
+    if not (isinstance(items, list) and 1 <= len(items) <= CONTENT_MAX_ITEMS and all(_ok_text(x, 60) for x in items)):
+        return "los beneficios tienen que ser entre 1 y 8 textos ≤60 sin < ni >."
+    return None
+
+
 # Registro de familias cosméticas: key -> validador de cuerpo. Agregar un widget
 # cosmético es agregar UNA entrada, no una función de guard nueva (catálogo §7).
 # Cada familia tiene su backup propio `kind == key` — aislamiento por ruta+kind:
@@ -1127,11 +1253,20 @@ COSMETIC_METAFIELDS = {
     "trust": _trust_body,
     "countdown": _countdown_body,
     "freeship": _freeship_body,
+    "sizechart": _sizechart_body,
+    "announce": _announce_body,
+    "lowstock": _lowstock_body,
+    "beforeafter": _beforeafter_body,
+    "gallery": _gallery_body,
+    "video": _video_body,
+    "compare": _compare_body,
+    "steps": _steps_body,
+    "benefits": _benefits_body,
 }
 
 # Familias cosméticas que además pueden vivir en el SHOP (no solo por producto).
-# style/faq son product-only; trust/countdown/freeship pueden ser de toda la tienda.
-COSMETIC_SHOP_OK = {"trust", "countdown", "freeship"}
+# style/faq son product-only; el resto de vitrina/tienda pueden ser de toda la tienda.
+COSMETIC_SHOP_OK = {"trust", "countdown", "freeship", "announce", "video"}
 
 
 def _check_cosmetic(key, tool_input, backups_root, now: float):
