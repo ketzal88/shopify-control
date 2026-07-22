@@ -62,6 +62,10 @@ por el camino guardado → el widget ya instalado toma la data nueva.
 
 ## 4. El builder (`escalones-builder`, HTML autocontenido)
 
+> **Prerequisito:** M2 dejó un **archivo canónico en el repo**, `widget/worker-escalones.liquid`, del
+> que salen tanto el bloque que se pega en el tema como el CSS/JS que el builder hornea para su
+> preview. §8 lo mantiene como fuente única. Sin ese archivo el preview WYSIWYG no es posible.
+
 - **Lo genera Claude por sesión**, horneando adentro: la lista de productos del cliente (id, título,
   precio unitario en centavos, imagen) leída del connector, y los límites de `deal-policy.json`. Por
   eso el preview usa **precios reales** y el cliente elige de una lista, no tipea a ciegas.
@@ -74,8 +78,9 @@ por el camino guardado → el widget ya instalado toma la data nueva.
      escalón en 0%. El cliente **no puede construir** una oferta inválida.
   3. **Look** — pickers de color (las CSS vars: ink/sage/taupe/cream) y campos de texto acotados
      (el rótulo "Llevá más y ahorrá", el badge). Sin editor CSS libre.
-  4. **Preview en vivo** — renderiza el widget con el **mismo CSS/JS que producción** (importado del
-     `.liquid`, no una maqueta), con el precio real. WYSIWYG, incluido el redondeo por unidad.
+  4. **Preview en vivo** — renderiza el widget con el **mismo CSS/JS que producción**, horneado desde
+     `widget/worker-escalones.liquid` (el archivo canónico del prerequisito), no una maqueta. Con el
+     precio real. WYSIWYG, incluido el redondeo por unidad.
   5. **Salida** — un bloque "copiá esto y pegáselo a Claude" (ver §6).
 
 ## 5. Frontera de confianza: el techo en tres lugares
@@ -102,11 +107,15 @@ Un bloque reconocible con un marcador + un JSON compacto:
   "product": { "id": "gid://shopify/Product/999", "title": "Anillo NEXO" },
   "tiers": [ { "qty": 1, "pct": 0 }, { "qty": 2, "pct": 10, "highlight": true }, { "qty": 3, "pct": 18 } ],
   "style": { "ink": "#4B4B4B", "sage": "#9CB0B1", "taupe": "#CEC4BA", "cream": "#E9E6DD",
-             "label": "Llevá más y ahorrá" } }
+             "label": "Llevá más y ahorrá", "badge": "MÁS ELEGIDO" } }
 ```
 
 - El marcador `🧩 escalones-config` es lo que le dice a Claude "esto es una oferta armada en el
   builder", para no confundirlo con texto libre.
+- **Mapeo a metafields:** el skill toma `product` + `tiers` → `worker.deal` (sumándole `strategy`,
+  `startsAt`/`endsAt` y los `ref` de los descuentos que crea) y `style` → `worker.style`. El `v` de
+  la config es la versión del **formato del builder**, distinto del `version` del metafield; la config
+  **no trae fechas ni refs** (los pone el skill al escribir).
 - Es **una request, no una orden**: no saltea el gate. `armar-escalones` corre igual su
   preview → "¿la activo?" → backup → write. El cliente ya vio el preview visual; el gate de texto es
   la confirmación de plata, y no se elimina (regla dura del proyecto: nada se escribe sin gate +
@@ -117,7 +126,12 @@ Un bloque reconocible con un marcador + un JSON compacto:
 `armar-escalones` aprende a **ingerir la config del builder** como entrada estructurada (es la versión
 tipada de lo que el cliente diría hablando). Corre su flujo normal (paso 0, contexto, techo, preview,
 gate, backup, write de oferta) y **suma un write de estilo** a `worker.style`. La oferta y el estilo
-son **dos asuntos separados** (regla del guard: un asunto por documento) → dos writes.
+son **dos asuntos separados** (regla del guard: un asunto por documento) → dos writes, cada uno con su
+propio backup (ver §9).
+
+El **preview de texto del gate usa el mismo redondeo por unidad** que el builder y el widget (§10.3),
+así el total que el cliente aprobó en el builder es idéntico al que ve al confirmar. Es la única fuente
+de verdad de los montos, y no puede divergir por método de redondeo.
 
 ## 8. Upgrade del widget (obligatorio para el look)
 
@@ -134,11 +148,37 @@ Hoy el widget tiene colores y textos hardcodeados. Cambio retrocompatible:
 - Contenido: colores (hex) + textos de copy acotados. **No mueve plata → sin techo.**
 - **Pero el guard lo valida igual, como cosmético:** hoy `_check_metafield` bloquea todo lo que no
   sea `worker.deal`. Se extiende para **también** aceptar `worker.style`, con validación propia:
-  - colores: deben matchear `^#[0-9A-Fa-f]{6}$` (evita inyección de CSS por el valor de una var).
-  - textos: largo acotado, sin `<`/`>` (el widget usa `textContent`, pero validar en el borde es
-    barato y correcto).
-  - keys permitidas: un set cerrado (ink/sage/taupe/cream/label/...); cualquier otra bloquea.
-  - Sigue exigiendo `ownerId` con `/Product/` y un backup fresco de estilo (mismo contrato `kind`).
+  - **keys: set cerrado exacto** `{ink, sage, taupe, cream, label, badge}`. Cualquier otra key
+    bloquea. (`ink/sage/taupe/cream` son colores; `label` es el rótulo "Llevá más y ahorrá"; `badge`
+    es el texto del destacado, hoy "MÁS ELEGIDO".)
+  - **colores** (`ink/sage/taupe/cream`): deben matchear `^#[0-9A-Fa-f]{6}$` — evita inyección de CSS
+    por el valor de una var.
+  - **textos** (`label/badge`): **máx. 40 caracteres**, sin `<` ni `>` (el widget usa `textContent`,
+    pero validar en el borde es barato y correcto).
+  - Sigue exigiendo `ownerId` con `/Product/`.
+
+### 9.1 El backup de estilo tiene `kind` y ruta PROPIOS (invariante de §7.4)
+
+El backup de estilo **NO** puede reusar el contrato del de oferta. Si un cambio cosmético minteara un
+backup `kind:"deal"` en `backups/deals/`, ese backup —fresco, dentro de la ventana de 15 min—
+satisfaría la verificación de un write de **plata** no relacionado (`worker.deal` o `discount*Create`),
+con un `previous` que describe el *estilo*, no la oferta. Es exactamente "un backup de descripción
+habilita un write de descuento" que §7.4 del spec padre existe para prevenir.
+
+Por eso el estilo lleva **su propio discriminador**:
+
+- `kind: "style"` (obligatorio) · ruta `clients/{slug}/backups/style/{productIdTail}-{ts}.json` ·
+  `previous` = el `worker.style` anterior (o `null`).
+- El guard gana una función de cobertura **distinta**, `_covering_style_backup`, que exige
+  `kind == "style"` **y** ruta `backups/style/` (las dos, igual que `_covering_deal_backup`). Un
+  backup de estilo **no** habilita un write de oferta, y uno de oferta **no** habilita un write de
+  estilo. Frescura doble (mtime + `ts`), idéntico a los otros dos.
+
+### 9.2 Quitar el look
+
+Sacar el estilo es escribir `worker.style` vacío (o borrar el metafield): el widget cae a los defaults
+del `.liquid` (§8). Es un write como cualquiera → backup de estilo + gate. No hay "restore" de estilos
+anteriores, igual que con las ofertas (E11).
 
 ## 10. Testing
 
@@ -146,10 +186,13 @@ Hoy el widget tiene colores y textos hardcodeados. Cambio retrocompatible:
    primer escalón 0).
 2. **Round-trip:** lo que emite el builder, Claude lo reconstruye idéntico (mismo producto, mismos
    tiers, mismo estilo).
-3. **Preview == widget == carrito:** los totales del builder coinciden al centavo con el widget y con
-   el carrito real (extiende el test de Node de la lección del centavo).
+3. **Preview builder == preview del chat == widget == carrito:** los cuatro coinciden al centavo,
+   todos con **redondeo por unidad** como única fuente de verdad (extiende el test de Node de la
+   lección del centavo). El del chat importa porque es el número que el cliente confirma en el gate.
 4. **Guard `worker.style`:** acepta estilo válido; bloquea color no-hex, key desconocida, texto con
-   `<`, y falta de backup. (extiende `tests/test_backup_guard_deals.py`.)
+   `<` o de más de 40 chars, y falta de backup de estilo. **Cruce de discriminador (crítico):** un
+   backup `kind:"style"` NO habilita un write de `worker.deal`/`discount*Create`, y un `kind:"deal"`
+   NO habilita un write de `worker.style` (§9.1). (extiende `tests/test_backup_guard_deals.py`.)
 5. **Widget con y sin `worker.style`:** aplica el estilo si viene; cae a defaults si no.
 
 ## 11. Fuera de alcance (YAGNI)
