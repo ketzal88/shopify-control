@@ -63,6 +63,14 @@ FAQ_MAX_ITEMS = 12
 FAQ_Q_MAXLEN = 120
 FAQ_A_MAXLEN = 600
 
+# worker.trust (Pack LatAm F2/F3): ítems tipados de confianza (badge/message/whatsapp).
+TRUST_MAX_ITEMS = 8
+TRUST_BADGE_ICONS = {"cuotas", "transferencia", "envio", "garantia", "seguridad"}
+TRUST_BADGE_MAXLEN = 40
+TRUST_MSG_MAXLEN = 80
+TRUST_WA_TEXT_MAXLEN = 120
+PHONE_RE = re.compile(r"^\d{8,15}$")
+
 # Tools de escritura del connector prohibidos en el v1 (alcance: descripción + SEO).
 FORBIDDEN_ACTIONS = {
     "set-inventory",
@@ -700,6 +708,12 @@ def _check_metafield(tool_input, backups_root, now: float):
     return ("allow", "ok") if ok else ("block", why)
 
 
+def _ok_text(v, maxlen):
+    """Texto de cliente aceptable: str no vacío, ≤maxlen, sin `<` ni `>` (el widget
+    usa textContent, pero validar en el borde es barato y correcto)."""
+    return isinstance(v, str) and bool(v.strip()) and len(v) <= maxlen and "<" not in v and ">" not in v
+
+
 def _style_body(data):
     """Valida el cuerpo de `worker.style`: set cerrado de keys, colores hex (para
     que un valor no inyecte CSS por la var), textos acotados sin `<`/`>`. Devuelve
@@ -741,16 +755,62 @@ def _faq_body(data):
     return None
 
 
+def _trust_body(data):
+    """Valida `worker.trust`: {version, items[...]} con ítems tipados. Cada tipo
+    tiene su set cerrado de claves (badge: icono de un set cerrado + texto;
+    message: texto; whatsapp: teléfono de solo dígitos + texto). `items: []` es
+    válido: es "sacar la confianza" (el bloque deja de mostrarse)."""
+    extra = set(data.keys()) - {"version", "items"}
+    if extra:
+        return f"clave de confianza desconocida: {sorted(extra)[0]}."
+    items = data.get("items", [])
+    if not isinstance(items, list):
+        return "los ítems de confianza tienen que venir en una lista."
+    if len(items) > TRUST_MAX_ITEMS:
+        return f"la confianza tiene {len(items)} ítems y el máximo es {TRUST_MAX_ITEMS}."
+    for it in items:
+        if not isinstance(it, dict):
+            return "cada ítem de confianza tiene que ser un objeto."
+        t = it.get("type")
+        if t == "badge":
+            if set(it.keys()) != {"type", "icon", "text"}:
+                return "un badge tiene que traer tipo, ícono y texto, nada más."
+            if it.get("icon") not in TRUST_BADGE_ICONS:
+                return f"ícono de badge desconocido: {it.get('icon')}."
+            if not _ok_text(it.get("text"), TRUST_BADGE_MAXLEN):
+                return f"el texto del badge tiene que ser hasta {TRUST_BADGE_MAXLEN} sin < ni >."
+        elif t == "message":
+            if set(it.keys()) != {"type", "text"}:
+                return "un mensaje tiene que traer tipo y texto, nada más."
+            if not _ok_text(it.get("text"), TRUST_MSG_MAXLEN):
+                return f"el mensaje tiene que ser hasta {TRUST_MSG_MAXLEN} sin < ni >."
+        elif t == "whatsapp":
+            if set(it.keys()) != {"type", "phone", "text"}:
+                return "el whatsapp tiene que traer tipo, teléfono y texto, nada más."
+            if not (isinstance(it.get("phone"), str) and PHONE_RE.match(it.get("phone"))):
+                return "el teléfono de whatsapp tiene que ser solo dígitos (8 a 15)."
+            if not _ok_text(it.get("text"), TRUST_WA_TEXT_MAXLEN):
+                return f"el texto del whatsapp tiene que ser hasta {TRUST_WA_TEXT_MAXLEN} sin < ni >."
+        else:
+            return f"tipo de ítem de confianza desconocido: {t}."
+    return None
+
+
 # Registro de familias cosméticas: key -> validador de cuerpo. Agregar un widget
-# cosmético (trust, etc.) es agregar UNA entrada, no una función de guard nueva
-# (catálogo §7). Cada familia tiene su backup propio `kind == key` — aislamiento
-# por ruta+kind: un backup cosmético no habilita un write de plata ni de otra
-# familia (`_covering_cosmetic_backup`). worker.deal (plata, con techo) NO está
-# acá: sigue su rama propia en `_check_metafield`.
+# cosmético es agregar UNA entrada, no una función de guard nueva (catálogo §7).
+# Cada familia tiene su backup propio `kind == key` — aislamiento por ruta+kind:
+# un backup cosmético no habilita un write de plata ni de otra familia
+# (`_covering_cosmetic_backup`). worker.deal (plata, con techo) NO está acá:
+# sigue su rama propia en `_check_metafield`.
 COSMETIC_METAFIELDS = {
     "style": _style_body,
     "faq": _faq_body,
+    "trust": _trust_body,
 }
+
+# Familias cosméticas que además pueden vivir en el SHOP (no solo por producto).
+# style/faq son product-only; trust puede ser de toda la tienda (badges, whatsapp).
+COSMETIC_SHOP_OK = {"trust"}
 
 
 def _check_cosmetic(key, tool_input, backups_root, now: float):
@@ -772,7 +832,10 @@ def _check_cosmetic(key, tool_input, backups_root, now: float):
     if e.get("namespace") != "worker" or e.get("key") != key:
         return "block", f"solo worker.{key}, no {e.get('namespace')}.{e.get('key')}."
     owner = e.get("ownerId") or ""
-    if "/Product/" not in owner:
+    owner_ok = ("/Product/" in owner) or (key in COSMETIC_SHOP_OK and "/Shop/" in owner)
+    if not owner_ok:
+        if key in COSMETIC_SHOP_OK:
+            return "block", f"el {key} tiene que traer el id del producto o de la tienda."
         return "block", f"el {key} tiene que traer el id del producto."
     try:
         data = json.loads(e.get("value") or "{}")
