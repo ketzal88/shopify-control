@@ -1,0 +1,301 @@
+<!--
+  ============================================================================
+  Vitrina de mejoras · shopify-control
+  ============================================================================
+  Menú VISUAL para el cliente no técnico: ve cada mejora con un mini-preview,
+  elige la que quiere y copia la frase para pedírsela a Claude. La página NO
+  escribe nada en la tienda (misma frontera que el builder de escalones): solo
+  propone; el cambio lo aplica Claude por el camino con backup + confirmación.
+
+  Es autocontenida (sin dependencias, sin red). Se abre en el navegador.
+  v1 estática/genérica; después se puede generar por cliente (con sus productos
+  y marcando lo que ya tiene activo).
+
+  Diseño del programa: docs/superpowers/specs/2026-07-22-catalogo-widgets-design.md
+  ============================================================================
+-->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mejoras para tu tienda</title>
+
+<style>
+  :root{
+    /* Paleta de la tienda — CONSTANTE en los dos temas: los previews son
+       mini-capturas de la tienda (que es clara), no cambian con el tema del visor. */
+    --ink:#4B4B4B; --sage:#9CB0B1; --taupe:#CEC4BA; --cream:#E9E6DD;
+    --pv-line:rgba(75,75,75,.16); --pv-card:#fff;
+    /* Cromo de la página — según el tema (neutros con leve sesgo hacia el sage/taupe). */
+    --page:#F4F2EC; --fg:#3d3d3b; --muted:#75726c;
+    --card:#fff; --line:rgba(75,75,75,.13);
+    --btn:#4B4B4B; --btn-fg:#fff;
+    --code-bg:#faf9f5; --code-fg:#4B4B4B;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --page:#191b1a; --fg:#e9e7e1; --muted:#a5a29b;
+      --card:#242624; --line:rgba(255,255,255,.11);
+      --btn:#9CB0B1; --btn-fg:#16211f;
+      --code-bg:#1e201e; --code-fg:#d9d7d1;
+    }
+  }
+  :root[data-theme="light"]{
+    --page:#F4F2EC; --fg:#3d3d3b; --muted:#75726c;
+    --card:#fff; --line:rgba(75,75,75,.13);
+    --btn:#4B4B4B; --btn-fg:#fff; --code-bg:#faf9f5; --code-fg:#4B4B4B;
+  }
+  :root[data-theme="dark"]{
+    --page:#191b1a; --fg:#e9e7e1; --muted:#a5a29b;
+    --card:#242624; --line:rgba(255,255,255,.11);
+    --btn:#9CB0B1; --btn-fg:#16211f; --code-bg:#1e201e; --code-fg:#d9d7d1;
+  }
+  *{ box-sizing:border-box; }
+  body{
+    margin:0; background:var(--page); color:var(--fg);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.5; -webkit-font-smoothing:antialiased;
+  }
+  .wrap{ max-width:1080px; margin:0 auto; padding:40px 22px 64px; }
+
+  /* --- header --- */
+  header{ text-align:center; margin-bottom:34px; }
+  header h1{ font-size:30px; margin:0 0 8px; font-weight:700; letter-spacing:-.01em; }
+  header p{ margin:0 auto; max-width:560px; color:var(--muted); font-size:15px; }
+  .how{
+    display:flex; gap:10px; justify-content:center; flex-wrap:wrap;
+    margin:22px auto 0; max-width:720px;
+  }
+  .how .step{
+    flex:1 1 150px; background:var(--card); border:1px solid var(--line);
+    border-radius:12px; padding:12px 14px; font-size:12.5px; text-align:left;
+  }
+  .how .step b{ display:block; font-size:11px; letter-spacing:.1em; text-transform:uppercase;
+    color:var(--sage); margin-bottom:3px; }
+
+  /* --- grid --- */
+  .grid{ display:grid; gap:18px; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); }
+  .card{
+    background:var(--card); border:1px solid var(--line); border-radius:16px;
+    padding:16px; display:flex; flex-direction:column;
+    transition:box-shadow .18s ease, transform .18s ease;
+  }
+  .card:hover{ box-shadow:0 8px 26px rgba(75,75,75,.10); transform:translateY(-2px); }
+
+  /* preview box */
+  .pv{
+    height:132px; border-radius:11px; background:linear-gradient(180deg,#fbfaf7,var(--cream));
+    border:1px solid var(--pv-line); color:var(--ink); padding:14px; margin-bottom:14px;
+    display:flex; flex-direction:column; justify-content:center; overflow:hidden; position:relative;
+  }
+  .card h3{ font-size:15.5px; margin:0 0 4px; font-weight:700; color:var(--fg); }
+  .card .desc{ font-size:13px; color:var(--muted); margin:0 0 14px; flex:1; }
+
+  /* "pedir esto" */
+  .ask{ display:flex; align-items:stretch; gap:8px; }
+  .ask code{
+    flex:1; background:var(--code-bg); border:1px solid var(--line); border-radius:9px;
+    padding:9px 11px; font-size:12px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+    color:var(--code-fg); white-space:normal; word-break:break-word;
+  }
+  .ask button{
+    flex:0 0 auto; border:0; border-radius:9px; background:var(--btn); color:var(--btn-fg);
+    padding:0 13px; font-size:12px; font-weight:600; cursor:pointer; transition:opacity .15s;
+  }
+  .ask button:hover{ opacity:.86; }
+  .ask button:focus-visible{ outline:2px solid var(--sage); outline-offset:2px; }
+  .ask button.ok{ background:var(--sage); color:#fff; }
+
+  footer{ text-align:center; margin-top:38px; font-size:12.5px; opacity:.6; }
+
+  /* ===== mini-previews (misma estética que los widgets reales) ===== */
+  .pv-esc-row{ display:flex; align-items:center; gap:8px; background:#fff; border:1.5px solid var(--pv-line);
+    border-radius:9px; padding:7px 9px; margin-bottom:6px; font-size:12px; }
+  .pv-esc-row.on{ border-color:var(--ink); border-width:2px; }
+  .pv-radio{ width:12px; height:12px; border-radius:50%; border:2px solid rgba(75,75,75,.3); flex:0 0 12px; }
+  .pv-esc-row.on .pv-radio{ border-color:var(--ink); border-width:4px; }
+  .pv-esc-row .mid{ flex:1; }
+  .pv-save{ font-style:normal; font-size:9px; font-weight:700; background:var(--sage); color:#fff;
+    padding:1px 6px; border-radius:20px; margin-left:5px; }
+  .pv-esc-row b{ font-size:12px; }
+
+  .pv-gift{ display:flex; align-items:center; gap:9px; font-size:13px; font-weight:600;
+    background:#fff; border:1.5px solid var(--ink); border-radius:10px; padding:12px; }
+  .pv-gift .g{ font-size:9px; font-weight:800; letter-spacing:.08em; background:var(--ink); color:#fff;
+    padding:3px 8px; border-radius:20px; }
+
+  .pv-faq-q{ display:flex; justify-content:space-between; align-items:center; font-size:12.5px;
+    font-weight:600; border-bottom:1.5px solid var(--pv-line); padding:8px 2px; }
+  .pv-faq-q span{ opacity:.5; }
+  .pv-faq-a{ font-size:11.5px; opacity:.7; padding:6px 2px 8px; border-bottom:1.5px solid var(--pv-line); }
+
+  .pv-badges{ display:flex; flex-wrap:wrap; gap:7px; }
+  .pv-badge{ display:inline-flex; align-items:center; gap:5px; font-size:11px; font-weight:600;
+    border:1.5px solid var(--pv-line); border-radius:20px; padding:5px 10px; background:#fff; }
+  .pv-badge svg{ color:var(--sage); }
+
+  .pv-wa{ position:absolute; right:16px; bottom:16px; width:46px; height:46px; border-radius:50%;
+    background:#25D366; color:#fff; display:flex; align-items:center; justify-content:center;
+    box-shadow:0 4px 12px rgba(0,0,0,.2); }
+  .pv-wa-hint{ font-size:12px; opacity:.6; }
+
+  .pv-desc-line{ height:9px; border-radius:5px; background:rgba(75,75,75,.14); margin-bottom:8px; }
+  .pv-desc-line.s{ width:60%; } .pv-desc-line.m{ width:85%; }
+  .pv-desc-badge{ font-size:9px; font-weight:700; letter-spacing:.08em; color:var(--sage);
+    text-transform:uppercase; margin-bottom:9px; }
+
+  .pv-combo{ display:flex; gap:8px; align-items:center; }
+  .pv-combo .sq{ width:34px; height:34px; border-radius:8px;
+    background:linear-gradient(135deg,var(--cream),var(--taupe)); flex:0 0 34px; }
+  .pv-combo .plus{ font-weight:700; opacity:.5; }
+  .pv-combo .lbl{ font-size:12px; font-weight:600; }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Mejoras para tu tienda</h1>
+    <p>Elegí lo que quieras sumar. Cada mejora se la pedís a Claude con una frase — él te muestra
+       cómo queda y la aplica solo si le decís que sí.</p>
+    <div class="how">
+      <div class="step"><b>1 · Elegí</b>Mirá las mejoras de abajo y elegí una.</div>
+      <div class="step"><b>2 · Copiá</b>Tocá “Copiar” en la frase de esa mejora.</div>
+      <div class="step"><b>3 · Pegásela a Claude</b>Él te muestra el antes/después y la aplica si le decís que sí.</div>
+    </div>
+  </header>
+
+  <div class="grid">
+
+    <!-- Preguntas frecuentes -->
+    <div class="card">
+      <div class="pv">
+        <div class="pv-faq-q">¿Sirve para principiantes? <span>−</span></div>
+        <div class="pv-faq-a">Sí, es cómodo para quien recién arranca.</div>
+        <div class="pv-faq-q">¿Incluye envío gratis? <span>+</span></div>
+      </div>
+      <h3>Preguntas frecuentes</h3>
+      <p class="desc">Respondé las dudas típicas en la página del producto. Ayuda a vender y a que
+        Google muestre tus respuestas.</p>
+      <div class="ask">
+        <code>Agregá preguntas frecuentes al [producto].</code>
+        <button>Copiar</button>
+      </div>
+    </div>
+
+    <!-- Sellos de confianza -->
+    <div class="card">
+      <div class="pv">
+        <div class="pv-badges">
+          <span class="pv-badge"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg> 3 cuotas sin interés</span>
+          <span class="pv-badge"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h15l-3-3M20 17H5l3 3"/></svg> 10% por transferencia</span>
+          <span class="pv-badge">Envío gratis desde $80.000</span>
+        </div>
+      </div>
+      <h3>Sellos de confianza</h3>
+      <p class="desc">Mostrá cuotas, descuento por transferencia o envío gratis cerca del precio.
+        Solo lo que de verdad ofrecés.</p>
+      <div class="ask">
+        <code>Mostrá “3 cuotas sin interés” y “10% por transferencia” en mi tienda.</code>
+        <button>Copiar</button>
+      </div>
+    </div>
+
+    <!-- Botón de WhatsApp -->
+    <div class="card">
+      <div class="pv">
+        <span class="pv-wa-hint">Un botón flotante en toda la tienda</span>
+        <span class="pv-wa"><svg viewBox="0 0 32 32" width="26" height="26" fill="currentColor"><path d="M16 3C9 3 3.5 8.5 3.5 15.5c0 2.5.7 4.8 1.9 6.8L4 29l6.9-1.8c1.9 1 4.1 1.6 6.4 1.6 6.9 0 12.5-5.6 12.5-12.5S22.9 3 16 3zm5.6 15.2c-.3-.2-1.8-.9-2.1-1-.3-.1-.5-.2-.7.2-.2.3-.8 1-.9 1.2-.2.2-.3.2-.6.1-1.2-.5-2.5-1.5-3.4-2.9-.2-.3 0-.5.1-.6l.5-.6c.1-.2 0-.4 0-.5l-.9-2.2c-.2-.6-.5-.5-.7-.5-.6 0-1 .1-1.3.4-1 1-1 2.4-.2 3.9 1.6 2.8 3.9 4.1 5.3 4.7 1.6.6 2.3.6 3.2.5.5-.1 1.4-.6 1.6-1.1.2-.5.2-1 .1-1.1l-.6-.3z"/></svg></span>
+      </div>
+      <h3>Botón de WhatsApp</h3>
+      <p class="desc">Un botón verde flotante para que te escriban directo. Abre el chat con un
+        mensaje ya escrito.</p>
+      <div class="ask">
+        <code>Poné un botón de WhatsApp con el número [tu número].</code>
+        <button>Copiar</button>
+      </div>
+    </div>
+
+    <!-- Llevá más y ahorrá -->
+    <div class="card">
+      <div class="pv">
+        <div class="pv-esc-row on"><span class="pv-radio"></span><span class="mid">2 unidades <em class="pv-save">-10%</em></span><b>$1.133</b></div>
+        <div class="pv-esc-row"><span class="pv-radio"></span><span class="mid">3 unidades <em class="pv-save">-18%</em></span><b>$1.511</b></div>
+      </div>
+      <h3>Llevá más y ahorrá</h3>
+      <p class="desc">Descuentos por cantidad para que se lleven de a varios. Con un tope de
+        seguridad para no descontar de más.</p>
+      <div class="ask">
+        <code>Poné una oferta de llevá más y ahorrá en el [producto].</code>
+        <button>Copiar</button>
+      </div>
+    </div>
+
+    <!-- Regalo -->
+    <div class="card">
+      <div class="pv">
+        <div class="pv-gift"><span class="g">GRATIS</span> Comprá 2, el 3º es de regalo</div>
+      </div>
+      <h3>Regalo por compra</h3>
+      <p class="desc">“Comprá 2 y el 3º gratis”, un 2x1, o llevate otro producto de regalo. También
+        con tope de seguridad.</p>
+      <div class="ask">
+        <code>Poné “comprá 2 y el 3º gratis” en el [producto].</code>
+        <button>Copiar</button>
+      </div>
+    </div>
+
+    <!-- Mejorar descripción -->
+    <div class="card">
+      <div class="pv">
+        <span class="pv-desc-badge">Antes → Después</span>
+        <div class="pv-desc-line m"></div>
+        <div class="pv-desc-line"></div>
+        <div class="pv-desc-line s"></div>
+      </div>
+      <h3>Mejorar una descripción</h3>
+      <p class="desc">Reescribe el texto de un producto con mejor redacción y pensado para Google,
+        sin cambiar de qué se trata.</p>
+      <div class="ask">
+        <code>Mejorá la descripción del [producto].</code>
+        <button>Copiar</button>
+      </div>
+    </div>
+
+    <!-- Combos -->
+    <div class="card">
+      <div class="pv">
+        <div class="pv-combo"><span class="sq"></span><span class="plus">+</span><span class="sq"></span><span class="lbl">Se venden bien juntos</span></div>
+      </div>
+      <h3>Ideas de combos</h3>
+      <p class="desc">Claude te propone qué productos conviene ofrecer juntos, mirando lo que la
+        gente ya compra en pareja.</p>
+      <div class="ask">
+        <code>Dame ideas de combos para la colección [nombre].</code>
+        <button>Copiar</button>
+      </div>
+    </div>
+
+  </div>
+
+  <footer>
+    Esta pantalla no cambia nada por su cuenta: solo te da la frase. El cambio siempre lo hace Claude,
+    mostrándote cómo queda y con tu confirmación. · <b>shopify-control</b>
+  </footer>
+</div>
+
+<script>
+  // Copiar la frase de cada tarjeta al portapapeles (sin red, todo local).
+  document.querySelectorAll('.ask button').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var code = btn.parentNode.querySelector('code').textContent.trim();
+      var done = function () {
+        var old = btn.textContent;
+        btn.textContent = '¡Copiado!'; btn.classList.add('ok');
+        setTimeout(function () { btn.textContent = old; btn.classList.remove('ok'); }, 1400);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(code).then(done, done);
+      } else {
+        var t = document.createElement('textarea'); t.value = code; document.body.appendChild(t);
+        t.select(); try { document.execCommand('copy'); } catch (e) {} document.body.removeChild(t); done();
+      }
+    });
+  });
+</script>

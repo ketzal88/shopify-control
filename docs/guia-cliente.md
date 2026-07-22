@@ -26,7 +26,8 @@ avísale a tu contacto en Worker.
 ---
 
 ## Qué le puedes pedir
-Ya con la tienda confirmada, escríbele lo que necesitas. Estos son ejemplos:
+Ya con la tienda confirmada, escríbele lo que necesitas. **En todo lo que cambia algo, Claude
+primero te muestra cómo quedaría y te pregunta; solo aplica si le dices que sí.**
 
 ### 📊 Para saber cómo va tu tienda
 - "¿Cómo se vendieron los anillos esta semana?"
@@ -36,22 +37,51 @@ Ya con la tienda confirmada, escríbele lo que necesitas. Estos son ejemplos:
 ### ✍️ Para mejorar una descripción
 - "Mejora la descripción del anillo NEXO plateado."
 
-Claude te va a mostrar **cómo está ahora** y **cómo quedaría**, con lo que cambió
-explicado en palabras simples. Solo si te gusta, respondes **sí** y lo aplica a tu
-tienda. Si no te gusta, respondes **no** y no cambia nada.
+Claude te muestra **cómo está ahora** y **cómo quedaría**, con lo que cambió explicado en
+palabras simples. Si te gusta, respondes **sí**; si no, **no** y no cambia nada.
 
-### ↩️ Si te arrepientes
-Después de un cambio, di **"vuelve a la anterior"** y lo deja como estaba.
+### ❓ Para agregar preguntas frecuentes a un producto
+- "Agrega preguntas frecuentes al anillo NEXO."
+
+Aparecen en la página del producto y ayudan a que Google muestre tus respuestas. Claude te
+propone preguntas, pero **las respuestas las confirmas tú** (nunca inventa datos de tu negocio).
+
+### 🏷️ Para mostrar cuotas, transferencia o envío gratis
+- "Muestra '3 cuotas sin interés' en mi tienda."
+- "Pon un sello de 10% off por transferencia."
+- "Avisa que hay envío gratis desde $80.000."
+
+Son sellos que aparecen cerca del precio. Solo se ponen si de verdad lo ofreces.
+
+### 💬 Para poner un botón de WhatsApp
+- "Pon un botón de WhatsApp con el número +54 9 11 2233 4455."
+
+Aparece flotando en toda la tienda; al tocarlo abre el chat contigo.
+
+### 🎯 Para poner ofertas
+- "Pon una oferta de llevá más y ahorrá en el anillo NEXO." (descuentos por cantidad)
+- "Pon un 2x1" / "comprá 2 y el 3º gratis" en un producto. (regalo)
+
+Aparecen en la página del producto. Tienen un **tope de seguridad** por cliente, así que no
+se puede regalar de más por error. Para armar la de "llevá más y ahorrá" con colores y todo,
+también hay una **pantalla visual** que tu contacto de Worker te puede abrir.
 
 ### 🎁 Para ideas de combos
 - "Dame ideas de combos para la colección NEXO."
 
+### ↩️ Si te arrepientes
+Después de cualquier cambio, di **"vuelve a la anterior"** o **"sácalo"** y lo deja como estaba.
+
 ---
 
-## Lo que Claude NO hace
-No cambia precios, no cambia el stock y no publica ni despublica productos. Lo único que
-edita son los **textos** de tus productos (la descripción y el texto que se ve en Google), y
-**siempre te pregunta antes** de aplicar cualquier cambio.
+## Lo que Claude SÍ y NO hace
+
+**Sí:** mejora los **textos** (descripción y lo que se ve en Google), agrega **secciones** a tus
+productos (preguntas frecuentes, sellos de confianza, botón de WhatsApp) y arma **ofertas**
+(descuentos por cantidad, regalos) — siempre preguntándote antes y pudiendo deshacerse.
+
+**No:** no cambia **precios**, no cambia el **stock**, no **publica ni despublica** productos, no
+cambia el **título** ni el **link**. Eso no lo puede tocar, por diseño, para que tu tienda esté segura.
 
 ## Si tienes dudas
 Escríbele a tu contacto en Worker.
