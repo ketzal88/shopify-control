@@ -21,7 +21,7 @@
 | `widget/worker-escalones.liquid` | Preámbulo que vuelca `worker.style`; render re-ejecutable; aplicación por-key del look | Modificar |
 | `widget/render/worker-render.js` | El render del widget extraído como fuente única (lo inlinea el `.liquid` y lo hornea el builder) | Crear |
 | `widget/render/worker-render.test.js` | Tests Node: redondeo por unidad + aplicación de estilo por-key | Crear |
-| `widget/escalones-builder.template.html` | El builder: UI (producto / escalones con techo / look / preview / salida). Con slots `__PRODUCTS__`, `__CEILING__`, `__RENDER_JS__`, `__RENDER_CSS__` | Crear |
+| `widget/escalones-builder.template.html` | El builder: UI (producto / escalones con techo / look / preview / salida). Con slots `__PRODUCTS_JSON__`, `__CEILING_JSON__`, `__RENDER_JS__`, `__RENDER_CSS__`, `__BUILDER_LOGIC__` | Crear |
 | `widget/escalones-builder.logic.js` | Lógica pura del builder (techo, cálculo, emit/parse de config) — la inlinea el template y la testea Node | Crear |
 | `widget/escalones-builder.test.js` | Tests Node: el techo no deja construir inválido; round-trip config | Crear |
 | `.claude/skills/armar-escalones/SKILL.md` | Reconocer `🧩 escalones-config`, ingerirla, y sumar el write de estilo | Modificar |
@@ -224,6 +224,8 @@ def _check_style(tool_input, backups_root, now: float):
     # resto: worker.deal como hoy
 ```
 
+- [ ] **Step 10b: Test de integración a nivel `evaluate()` (recomendado por el review)** — no solo `_check_style` directo: mandar un payload completo `{"tool_name":"mcp__claude_ai_Shopify__graphql_mutation","tool_input":{"query":"mutation($m:[MetafieldsSetInput!]!){metafieldsSet(metafields:$m){metafields{id}}}","variables":{"m":[{...worker.style...}]}}}` por `guard.evaluate(payload, root, now)` y verificar (a) happy-path → `allow` con backup de estilo, y (b) cruce → un `worker.deal`/`discount*Create` con SOLO backup de estilo presente → `block`. Atrapa una regresión futura de routing que los unit tests no verían.
+
 - [ ] **Step 11: Correr toda la suite de estilo + la de deals (no debe romper nada)**
 
 Run: `python -m pytest tests/test_backup_guard_style.py tests/test_backup_guard_deals.py -q`
@@ -275,12 +277,16 @@ Expected: FAIL (`Cannot find module './worker-render.js'`)
 
 - [ ] **Step 3: Crear `worker-render.js`** con: `DEFAULT_STYLE`, `resolveStyle(style)` (fallback por-key), `computeTierUnitCents`/`computeTierTotalCents` (redondeo por unidad), `formatMoney`, y `render(root, data)` que construye el DOM (mover acá la lógica de `buildRows`/`paintNudge`/`paintCta`/`select` del `.liquid`, sin `innerHTML`). Exponer por `module.exports` (Node) y por `window.WorkerEscalones` (browser). Aplicar el estilo resuelto como CSS vars sobre `root.style.setProperty('--we-ink', s.ink)` etc., y `label`/`badge` como textos.
 
+  > **FRONTERA CRÍTICA (issue del review):** `render()` es **puro y builder-safe** — solo construye/estila el DOM. Las funciones **interactivas y de storefront** —`onBuy` (→`/cart/update.js`), `preselectFromCart` (fetch del carrito), `setupCollapse` (mobile §4.5) y el listener de click del CTA— **NO van en `render()`**. Se quedan en el init del `.liquid` (Step 5), alrededor de la llamada a `render()`. Motivo: el builder reusa `render()` y tiene que quedar **inerte** (spec §4: sin acceso a la tienda, no escribe nada); si `render()` hiciera fetch/write del carrito, el builder tocaría el carrito real.
+  >
+  > **Sincronía de defaults:** `DEFAULT_STYLE` (colores + `label`/`badge`) tiene que quedar **idéntico** a los defaults del `<style>` del `.liquid` y a los textos hardcodeados, o "sin `worker.style` = se ve como hoy" deja de valer. Anotar la dependencia en ambos archivos.
+
 - [ ] **Step 4: Correr y verificar que pasa**
 
 Run: `node widget/render/worker-render.test.js`
 Expected: `OK worker-render`
 
-- [ ] **Step 5: Modificar `worker-escalones.liquid`** — (a) el preámbulo vuelca `product.metafields.worker.style` como `<script type="application/json" data-worker-style>{{ product.metafields.worker.style.value | json }}</script>` (o `{}` si no hay); (b) reemplazar el IIFE por: inline de `worker-render.js` (dentro de `{% raw %}`) + una llamada `WorkerEscalones.render(root, { deal, variants, cfg, style })`. Verificar que sin `worker.style` el render usa `DEFAULT_STYLE` (se ve como hoy).
+- [ ] **Step 5: Modificar `worker-escalones.liquid`** — (a) el preámbulo vuelca `product.metafields.worker.style` como `<script type="application/json" data-worker-style>{{ product.metafields.worker.style.value | json }}</script>` (o `{}` si no hay); (b) reemplazar el **cuerpo** del IIFE (dentro de `{% raw %}`) por: inline de `worker-render.js` + un **init de storefront** que (i) lee los JSON del DOM, (ii) llama `WorkerEscalones.render(root, { deal, variants, cfg, style })`, y (iii) **conserva** las funciones de storefront —`preselectFromCart`, `onBuy` con su listener de CTA, `setupCollapse`— alrededor del `render()`. **Esas funciones NO se mueven a `worker-render.js`** (ver la frontera crítica del Step 3): son solo del widget vivo, no del builder. Verificar que sin `worker.style` el render usa `DEFAULT_STYLE` (se ve como hoy) y que el botón de compra + preselect + colapso mobile **siguen funcionando** en el storefront.
 
 - [ ] **Step 6: Sanity manual del `.liquid`** (no se puede correr Liquid local): revisar que el bloque `{% raw %}...{% endraw %}` envuelve todo el JS con `{{`, y que el JSON de estilo cae a `{}` cuando el metafield no existe.
 
@@ -384,7 +390,7 @@ git commit -m "feat(builder): template + logica con techo enforced y round-trip 
 
 - [ ] **Step 2: `docs/runbooks/usar-builder-escalones.md`** — para el operador: cómo se dispara la generación, cómo el cliente abre el archivo, arma su oferta+look, copia el texto y lo pega en el chat; y qué hace Claude al recibirlo (revalida + preview + gate + backup + write). Checklist de verificación E2E.
 
-- [ ] **Step 3: Verificación end-to-end (manual, contra dev store)** — con el connector en la dev store: generar el builder, abrirlo, armar 2u@10%/3u@20% + cambiar un color, copiar el texto, pegarlo, confirmar que: (a) el preview del builder == el preview del chat == el widget == el carrito, al centavo; (b) el color viaja a `worker.style` y el widget lo aplica; (c) un intento de pegar 40% lo rechaza el techo; (d) los dos backups (`deals/` y `style/`) se crean con su `kind` correcto. Registrar en el worklog. Limpiar (desactivar descuentos, `worker.style` a `{}`, borrar backups de prueba).
+- [ ] **Step 3: Verificación end-to-end (manual, contra dev store)** — **PRERREQUISITO (issue del review):** re-pegar el `.liquid` actualizado de Task 2 en el bloque Custom Liquid del tema de la dev store — el widget viejo ya pegado **ignora `worker.style`**, así que sin re-pegar, el chequeo del color falla en silencio. Después: con el connector en la dev store, generar el builder, abrirlo, armar 2u@10%/3u@20% + cambiar un color, copiar el texto, pegarlo, confirmar que: (a) el preview del builder == el preview del chat == el widget == el carrito, al centavo; (b) el color viaja a `worker.style` y el widget lo aplica; (c) un intento de pegar 40% lo rechaza el techo; (d) los dos backups (`deals/` y `style/`) se crean con su `kind` correcto. Registrar en el worklog. Limpiar (desactivar descuentos, `worker.style` a `{}`, borrar backups de prueba).
 
 - [ ] **Step 4: Correr toda la suite**
 
