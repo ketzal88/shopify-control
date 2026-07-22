@@ -54,6 +54,21 @@ Seis de los siete son la misma clase: **un parseo vacío tratado como "limpio" e
 Detalle completo, con severidad y commit por hallazgo:
 `docs/2026-07-20-hallazgos-de-seguridad-backup-guard.md`
 
+## 🟡 A REVISAR CON GABRIEL — Catálogo de widgets (2026-07-22, DRAFT autónomo)
+Sesión nocturna: Gabriel pidió sumar los catálogos de **wigy** (45 widgets) y **crecenube** (8 apps +
+6 calculadoras) al plan de widgets. Escrito sin brainstorm (dormía) → es DRAFT, **no aprobado**.
+- **Doc:** `docs/superpowers/specs/2026-07-22-catalogo-widgets-design.md`.
+- **Qué dice:** generaliza el escalones a una "receta" de 6 piezas; deduplica (crecenube ⊂ wigy en
+  vitrina; su aporte único son las calculadoras de operador); clasifica los 45 por guardrail
+  (~26 adopta, ~7 adopta-con-matiz de plata, ~10 fuera por necesitar backend/PII/ML); consolida en
+  **7 familias** en vez de 45 one-offs; propone un guardrail nuevo de **honestidad** (no fabricar
+  urgencia/prueba social falsa); y prioriza para blunua (W1 quick wins de confianza → W4 ofertas BxGy).
+- **Decisión clave que reencuadra el builder de escalones:** el `_check_style` bespoke del plan del
+  builder debería nacer como la 1ª entrada de un **registro** `COSMETIC_METAFIELDS` en el guard (§7,
+  D1). Por eso **no toqué `backup_guard.py`** esta noche.
+- **Necesita tu call:** las 6 incógnitas de §12 (forma del guard, corte descripción/bloque, owner SHOP,
+  honestidad como regla dura, y confirmar cuál fue "la app que me pasaste" — sospecho que wigy).
+
 ## PENDIENTE #2 — blunua real
 Cargar los ⚠️ de `clients/blunua/store-standards.md` (vocabulario prohibido, keywords por categoría, taxonomía) + conectar el Shopify real de blunua (hoy conectada la dev store).
 
