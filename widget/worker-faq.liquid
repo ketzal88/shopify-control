@@ -50,7 +50,10 @@
 <style>
   #worker-faq.wf{
     --wf-ink:#4B4B4B; --wf-sage:#9CB0B1; --wf-line:rgba(75,75,75,.16);
-    font-family:inherit; color:var(--wf-ink); margin:24px 0; max-width:640px;
+    font-family:inherit; color:var(--wf-ink);
+    /* margin:auto centra el bloque quede donde quede (sección full-width o dentro
+       de la columna del producto); el padding le da aire en los bordes/mobile. */
+    margin:24px auto; max-width:640px; padding:0 20px; box-sizing:border-box;
   }
   #worker-faq .wf-title{
     font-size:13px; letter-spacing:.14em; text-transform:uppercase; opacity:.6;
