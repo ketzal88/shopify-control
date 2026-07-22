@@ -1,0 +1,104 @@
+{%- comment -%}
+  ============================================================================
+  worker-freeship · widget "Barra de envío gratis"  (shopify-control)
+  ============================================================================
+  Bloque Custom Liquid. Se pega UNA vez (arriba de la tienda, o en el carrito).
+  Es de TODA la tienda: lee shop.metafields.worker.freeship. NO edita el tema.
+
+  Muestra cuánto falta para el envío gratis leyendo el total REAL del carrito
+  (/cart.js). Al llegar al umbral, muestra el mensaje de logrado. El monto umbral
+  viene en CENTAVOS en el metafield. Sin metafield, no renderiza nada.
+
+  Guard: worker.freeship validado por COSMETIC_METAFIELDS en backup_guard.py
+  ============================================================================
+{%- endcomment -%}
+
+{%- assign fs = shop.metafields.worker.freeship.value -%}
+{%- if fs and fs.threshold -%}
+
+<div id="worker-freeship" class="wfs" data-worker-freeship hidden
+     data-cart-url="{{ routes.cart_url }}"
+     data-money="{{ shop.money_format | escape }}">
+  <script type="application/json" data-wfs>{{ fs | json }}</script>
+  <p class="wfs-txt" data-wfs-txt></p>
+  <div class="wfs-bar"><div class="wfs-fill" data-wfs-fill></div></div>
+</div>
+
+<style>
+  #worker-freeship.wfs{
+    --wfs-ink:#4B4B4B; --wfs-sage:#9CB0B1;
+    font-family:inherit; color:var(--wfs-ink); margin:12px auto; max-width:460px; text-align:center;
+  }
+  #worker-freeship .wfs-txt{ font-size:12.5px; margin:0 0 8px; }
+  #worker-freeship .wfs-txt b{ font-weight:700; }
+  #worker-freeship .wfs-bar{ height:8px; border-radius:20px; background:rgba(75,75,75,.14); overflow:hidden; }
+  #worker-freeship .wfs-fill{ height:100%; width:0; border-radius:20px;
+    background:linear-gradient(90deg,var(--wfs-sage),var(--wfs-ink)); transition:width .3s ease; }
+  #worker-freeship.is-done .wfs-fill{ background:var(--wfs-sage); }
+</style>
+
+<script>{% raw %}
+(function () {
+  var root = document.getElementById('worker-freeship');
+  if (!root || root.dataset.wfsReady) return;
+  var cfg;
+  try { cfg = JSON.parse(root.querySelector('[data-wfs]').textContent); } catch (e) { return; }
+  if (!cfg || typeof cfg.threshold !== 'number' || cfg.threshold <= 0) return;
+
+  var cartUrl = root.getAttribute('data-cart-url') || '/cart';
+  var fmt = root.getAttribute('data-money') || '${{amount}}';
+  var txtEl = root.querySelector('[data-wfs-txt]');
+  var fillEl = root.querySelector('[data-wfs-fill]');
+
+  // Formateador clásico de Shopify (respeta shop.money_format; USD y COP por igual).
+  function formatMoney(cents) {
+    var m = fmt.match(/\{\{\s*(\w+)\s*\}\}/);
+    if (!m) return fmt;
+    function delim(number, precision, thousands, decimal) {
+      thousands = thousands == null ? ',' : thousands;
+      decimal = decimal == null ? '.' : decimal;
+      if (isNaN(number) || number == null) number = 0;
+      number = (number / 100.0).toFixed(precision);
+      var parts = number.split('.');
+      var whole = parts[0].replace(/(\d)(?=(\d\d\d)+(?!\d))/g, '$1' + thousands);
+      return whole + (parts[1] ? decimal + parts[1] : '');
+    }
+    var value;
+    switch (m[1]) {
+      case 'amount': value = delim(cents, 2); break;
+      case 'amount_no_decimals': value = delim(cents, 0); break;
+      case 'amount_with_comma_separator': value = delim(cents, 2, '.', ','); break;
+      case 'amount_no_decimals_with_comma_separator': value = delim(cents, 0, '.', ','); break;
+      case 'amount_with_apostrophe_separator': value = delim(cents, 2, "'", '.'); break;
+      case 'amount_no_decimals_with_space_separator': value = delim(cents, 0, ' ', ''); break;
+      case 'amount_with_space_separator': value = delim(cents, 2, ' ', ','); break;
+      default: value = delim(cents, 2);
+    }
+    return fmt.replace(/\{\{\s*\w+\s*\}\}/, value);
+  }
+
+  function paint(total) {
+    var th = cfg.threshold;
+    var remaining = th - total;
+    if (remaining <= 0) {
+      root.classList.add('is-done');
+      txtEl.textContent = cfg.successText || '✓ ¡Tenés envío gratis!';
+      fillEl.style.width = '100%';
+    } else {
+      root.classList.remove('is-done');
+      var label = cfg.label || 'Te faltan {falta} para el envío gratis';
+      txtEl.textContent = label.replace('{falta}', formatMoney(remaining));
+      fillEl.style.width = Math.max(4, Math.round(total / th * 100)) + '%';
+    }
+    root.hidden = false;
+  }
+
+  fetch(cartUrl + '.js', { headers: { 'Accept': 'application/json' } })
+    .then(function (r) { return r.json(); })
+    .then(function (cart) { paint(cart.total_price || 0); })
+    .catch(function () { paint(0); });
+
+  root.dataset.wfsReady = '1';
+})();
+{% endraw %}</script>
+{%- endif -%}

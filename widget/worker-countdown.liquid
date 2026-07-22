@@ -1,0 +1,90 @@
+{%- comment -%}
+  ============================================================================
+  worker-countdown · widget "Cuenta regresiva"  (shopify-control)
+  ============================================================================
+  Bloque Custom Liquid. Se pega UNA vez en la ficha de producto (cerca del
+  precio o de la oferta). NO edita el tema.
+
+  Lee product.metafields.worker.countdown y, si no hay, cae al del shop. Cuenta
+  hasta la fecha REAL `endsAt`; cuando llega, muestra `expiredText` (o se oculta
+  si no hay). NO resetea por sesión — la urgencia es honesta.
+
+  Guard: worker.countdown validado por COSMETIC_METAFIELDS en backup_guard.py
+  ============================================================================
+{%- endcomment -%}
+
+{%- assign cd = product.metafields.worker.countdown.value | default: shop.metafields.worker.countdown.value -%}
+{%- if cd and cd.endsAt -%}
+
+<div id="worker-countdown" class="wc" data-worker-countdown hidden>
+  <script type="application/json" data-wc>{{ cd | json }}</script>
+  <p class="wc-label" data-wc-label></p>
+  <div class="wc-clock" data-wc-clock></div>
+</div>
+
+<style>
+  #worker-countdown.wc{
+    --wc-ink:#4B4B4B; --wc-sage:#9CB0B1; --wc-cream:#E9E6DD;
+    font-family:inherit; color:var(--wc-ink); margin:16px auto; max-width:420px; text-align:center;
+  }
+  #worker-countdown .wc-label{
+    font-size:11px; letter-spacing:.12em; text-transform:uppercase; opacity:.65; margin:0 0 9px; font-weight:600;
+  }
+  #worker-countdown .wc-clock{ display:flex; gap:8px; justify-content:center; }
+  #worker-countdown .wc-cell{
+    background:var(--wc-cream); border-radius:9px; padding:8px 4px; min-width:48px;
+    display:flex; flex-direction:column; align-items:center;
+  }
+  #worker-countdown .wc-cell b{ font-size:20px; font-weight:700; font-variant-numeric:tabular-nums; line-height:1; }
+  #worker-countdown .wc-cell i{ font-style:normal; font-size:9.5px; text-transform:uppercase;
+    letter-spacing:.06em; opacity:.6; margin-top:4px; }
+</style>
+
+<script>{% raw %}
+(function () {
+  var root = document.getElementById('worker-countdown');
+  if (!root || root.dataset.wcReady) return;
+  var cfg;
+  try { cfg = JSON.parse(root.querySelector('[data-wc]').textContent); } catch (e) { return; }
+  var end = new Date(String(cfg.endsAt || '').replace(' ', 'T')).getTime();
+  if (!end || isNaN(end)) return;
+
+  var labelEl = root.querySelector('[data-wc-label]');
+  var clockEl = root.querySelector('[data-wc-clock]');
+  if (cfg.label) { labelEl.textContent = cfg.label; } else { labelEl.hidden = true; }
+
+  function cell(v, u) {
+    var c = document.createElement('span'); c.className = 'wc-cell';
+    var n = document.createElement('b'); n.textContent = (v < 10 ? '0' : '') + v;
+    var s = document.createElement('i'); s.textContent = u;
+    c.appendChild(n); c.appendChild(s); return c;
+  }
+
+  var timer;
+  function tick() {
+    var diff = end - Date.now();
+    if (diff <= 0) {
+      if (timer) clearInterval(timer);
+      clockEl.textContent = '';
+      if (cfg.expiredText) { labelEl.hidden = false; labelEl.textContent = cfg.expiredText; clockEl.hidden = true; }
+      else { root.hidden = true; }
+      return;
+    }
+    var s = Math.floor(diff / 1000);
+    var d = Math.floor(s / 86400); s -= d * 86400;
+    var h = Math.floor(s / 3600); s -= h * 3600;
+    var m = Math.floor(s / 60); s -= m * 60;
+    clockEl.textContent = '';
+    if (d > 0) clockEl.appendChild(cell(d, 'días'));
+    clockEl.appendChild(cell(h, 'hs'));
+    clockEl.appendChild(cell(m, 'min'));
+    clockEl.appendChild(cell(s, 'seg'));
+  }
+
+  tick();
+  timer = setInterval(tick, 1000);
+  root.dataset.wcReady = '1';
+  root.hidden = false;
+})();
+{% endraw %}</script>
+{%- endif -%}
