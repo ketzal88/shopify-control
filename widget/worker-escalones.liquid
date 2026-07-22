@@ -37,6 +37,7 @@
     "moneyFormat": {{ shop.money_format | json }},
     "cartUrl": {{ routes.cart_url | json }}
   }</script>
+  <script type="application/json" data-worker-style>{%- if product.metafields.worker.style -%}{{ product.metafields.worker.style.value | json }}{%- else -%}{}{%- endif -%}</script>
 
   <div class="we-wrap">
     <p class="we-label">Llevá más y ahorrá</p>
@@ -127,6 +128,22 @@
   var cfg = readJSON('[data-worker-config]') || {};
   if (!deal || !deal.tiers || !deal.tiers.length) return;
 
+  // --- Estilo (worker.style) con fallback POR-KEY. DEFAULT_STYLE tiene que
+  //     quedar SINCRONIZADO con widget/render/worker-render.js y el <style> de
+  //     arriba: cada clave ausente/vacía cae al default, así {} resetea todo.
+  var style = readJSON('[data-worker-style]') || {};
+  var DEFAULT_STYLE = { ink: '#4B4B4B', sage: '#9CB0B1', taupe: '#CEC4BA', cream: '#E9E6DD',
+                        label: 'Llevá más y ahorrá', badge: 'MÁS ELEGIDO' };
+  var STYLE = {};
+  Object.keys(DEFAULT_STYLE).forEach(function (k) {
+    var v = style[k]; STYLE[k] = (typeof v === 'string' && v.length) ? v : DEFAULT_STYLE[k];
+  });
+  root.style.setProperty('--we-ink', STYLE.ink);
+  root.style.setProperty('--we-sage', STYLE.sage);
+  root.style.setProperty('--we-taupe', STYLE.taupe);
+  root.style.setProperty('--we-cream', STYLE.cream);
+  var _lbl = root.querySelector('.we-label'); if (_lbl) _lbl.textContent = STYLE.label;
+
   // Escalones ordenados por cantidad, por las dudas (el guard ya lo garantiza).
   var tiers = deal.tiers.slice().sort(function (a, b) { return a.qty - b.qty; });
   var unit = cfg.unitPriceCents;               // precio unitario en centavos
@@ -190,7 +207,7 @@
       var row = el('button', 'we-row' + (i === selectedIdx ? ' on' : ''));
       row.type = 'button';
       row.setAttribute('data-we-idx', i);
-      if (t.highlight) row.appendChild(el('span', 'we-pop', 'MÁS ELEGIDO'));
+      if (t.highlight) row.appendChild(el('span', 'we-pop', STYLE.badge));
       row.appendChild(el('span', 'we-radio'));
       if (cfg.imageUrl) {
         var img = el('img', 'we-thumb');
