@@ -88,6 +88,12 @@ FORBIDDEN_MUTATIONS = {
 # Whitelist CERRADA: toda mutación `discount*` que no esté acá se bloquea.
 DISCOUNT_CREATE = {"discountautomaticbasiccreate", "discountcodebasiccreate"}
 DISCOUNT_DEACTIVATE = {"discountautomaticdeactivate", "discountcodedeactivate"}
+# --- Regalo gratis / BXGY (spec 2026-07-22-regalo-gratis-bxgy §9) -----------
+# Va en su PROPIO set y su propia función (`_check_bxgy`), NO en DISCOUNT_CREATE:
+# `_check_discount` asume la forma Basic (percentage acotado por maxDiscountPct),
+# y un regalo va por discountOnQuantity.effect.percentage, donde "gratis" es 1.0
+# (=100%) y maxDiscountPct lo bloquearía siempre. Su techo es de otra naturaleza.
+DISCOUNT_BXGY = {"discountautomaticbxgycreate"}
 
 # --- Allowlist de root fields ----------------------------------------------
 # EL DEFAULT ESTÁ INVERTIDO A PROPÓSITO: una familia de mutaciones que nadie
@@ -105,8 +111,8 @@ DISCOUNT_DEACTIVATE = {"discountautomaticdeactivate", "discountcodedeactivate"}
 #
 # La superficie de escritura del v1 es minúscula —descripción, SEO, ofertas—,
 # así que la allowlist es a la vez correcta y corta.
-ROOT_FIELD_ALLOWED = (PRODUCT_WRITE_ALLOWED | DISCOUNT_CREATE | DISCOUNT_DEACTIVATE
-                      | {"metafieldsset"})
+ROOT_FIELD_ALLOWED = (PRODUCT_WRITE_ALLOWED | DISCOUNT_CREATE | DISCOUNT_BXGY
+                      | DISCOUNT_DEACTIVATE | {"metafieldsset"})
 
 
 def _action(tool_name: str) -> str:
@@ -606,6 +612,246 @@ def _percentage_int(d: dict):
         return None
 
 
+# --- Regalo gratis / BXGY (spec 2026-07-22-regalo-gratis-bxgy §9) -----------
+
+def _as_pos_int(x):
+    """Entero positivo desde int o string de dígitos. None si no lo es.
+
+    Las cantidades de la API son `UnsignedInt64` y viajan como string ("2").
+    Estricto a propósito: un float (`2.9`) o un string no-dígito no cuentan —
+    `int(2.9)` truncaría en silencio, que es justo lo que un guard no quiere.
+    """
+    if isinstance(x, bool):
+        return None
+    if isinstance(x, int):
+        return x if x >= 0 else None
+    if isinstance(x, str) and x.strip().isdigit():
+        return int(x.strip())
+    return None
+
+
+def _bxgy_inputs(tool_input) -> list:
+    """Objetos de `variables` con forma de BXGY: traen customerBuys Y customerGets.
+
+    Mismo criterio anti-señuelo que `_discount_inputs`: devuelve TODOS, y con más
+    de uno el guard bloquea en vez de adivinar cuál ejecuta el servidor. Un Basic
+    no tiene `customerBuys`, así que el filtro los separa.
+    """
+    if not isinstance(tool_input, dict):
+        return []
+    variables = tool_input.get("variables")
+    if not isinstance(variables, dict):
+        return []
+    return [v for v in variables.values()
+            if isinstance(v, dict) and "customerBuys" in v and "customerGets" in v]
+
+
+def _gift_effect_pct_int(d):
+    """(pct_entero, error). El regalo VA por `customerGets.value.discountOnQuantity.
+    effect.percentage`. BXGY NO soporta `percentage` ni `discountAmount` al tope de
+    `value` (lo dice el schema), así que verlos ahí es forma inválida → 'unsupported'.
+
+    TRAMPA de unidades igual que escalones (§9.4): la API va en fracción 0.0-1.0,
+    el techo en entero. 'gratis' = 1.0 → 100. Convertir antes de comparar.
+    """
+    value = ((d.get("customerGets") or {}).get("value")) or {}
+    if "percentage" in value or "discountAmount" in value:
+        return None, "unsupported"
+    effect = ((value.get("discountOnQuantity") or {}).get("effect")) or {}
+    raw = effect.get("percentage")
+    if raw is None:
+        return None, "missing"
+    try:
+        return round(float(raw) * 100), None
+    except (TypeError, ValueError):
+        return None, "missing"
+
+
+def _bxgy_single_product(items):
+    """(gid_de_producto, error). Exactamente UN producto explícito, sin `all` ni
+    colección ni variantes. v1 del regalo es producto→producto; el gid de variante
+    no sirve para el mismo/cruzado ni para buscar el backup.
+    """
+    if not isinstance(items, dict):
+        return None, "missing"
+    if items.get("all"):
+        return None, "all"
+    if "collections" in items:
+        return None, "collections"
+    products = items.get("products") or {}
+    if products.get("productVariantsToAdd"):
+        return None, "variants"
+    ids = products.get("productsToAdd") or []
+    if len(ids) != 1:
+        return None, ("multi" if ids else "missing")
+    gid = ids[0]
+    if not (isinstance(gid, str) and "/Product/" in gid):
+        return None, "bad"
+    return gid, None
+
+
+def _gift_ceilings(policy):
+    """(maxGiftPct, maxGetQty, minBuyGetRatio) o None si el cliente no los tiene.
+
+    Claves OPCIONALES en la política (no rompen a escalones): si faltan, el regalo
+    no se puede crear. Fail closed — un cliente sin techo de regalos no regala.
+    """
+    mg, mq, mr = policy.get("maxGiftPct"), policy.get("maxGetQty"), policy.get("minBuyGetRatio")
+    if all(isinstance(x, int) and not isinstance(x, bool) for x in (mg, mq, mr)):
+        return mg, mq, mr
+    return None
+
+
+def _bxgy_scope_ok(policy, buy_gid, get_gid, buy_qty, get_qty, min_ratio):
+    """Motivo de bloqueo del alcance del regalo, o None. Compartido por el create
+    (donde los gids salen de la mutación) y el metafield (donde salen del JSON)."""
+    if buy_gid == get_gid:
+        # Mismo producto: el ratio evita 'comprá 1 llevá 1' (=50% off encubierto),
+        # que saltearía el maxDiscountPct de escalones por otra vía.
+        if buy_qty < min_ratio * get_qty:
+            return (f"en el mismo producto hay que comprar al menos {min_ratio} por cada "
+                    f"unidad regalada; pedís comprar {buy_qty} y regalar {get_qty}.")
+        return None
+    # Cruzado: solo si está habilitado y el regalo está en la lista curada.
+    if not policy.get("allowCrossProductGift"):
+        return "los regalos de otro producto no están habilitados para este cliente."
+    if get_gid not in (policy.get("giftableProducts") or []):
+        return "ese producto no está en la lista de regalables del cliente."
+    return None
+
+
+def _check_bxgy(names, tool_input, backups_root, now: float):
+    """Whitelist del regalo (spec §9.1). Recibe TODAS las mutaciones del documento;
+    cada una tiene que ser aceptable por sí sola (ninguna se vuelve inocente por
+    compartir documento con un deactivate)."""
+    fuera = [n for n in names if n not in DISCOUNT_BXGY | DISCOUNT_DEACTIVATE]
+    if fuera:
+        return "block", (f"'{fuera[0]}' no puede ir junto a un regalo en la misma operación.")
+    creates = [n for n in names if n in DISCOUNT_BXGY]
+    if len(creates) > 1:
+        return "block", "hay más de un regalo en la misma operación. Mandalos de a uno."
+
+    policy = load_policy(backups_root)
+    if policy is None:
+        return "block", ("no encontré una política de ofertas única (deal-policy.json). "
+                         "Sin techo que aplicar, no se crean regalos.")
+    ceils = _gift_ceilings(policy)
+    if ceils is None:
+        return "block", "este cliente no tiene configurado el techo de regalos."
+    max_gift, max_get, min_ratio = ceils
+
+    cands = _bxgy_inputs(tool_input)
+    if len(cands) > 1:
+        return "block", ("las variables traen más de un regalo y no puedo saber cuál se "
+                         "aplica. Mandá uno solo.")
+    d = cands[0] if cands else {}
+    if not d:
+        return "block", ("no encontré los datos del regalo en las variables. "
+                         "Tienen que ir en `variables`, no escritos dentro del query.")
+
+    # endsAt obligatorio y duración acotada (mismo criterio que escalones)
+    starts, ends = d.get("startsAt"), d.get("endsAt")
+    if policy.get("requireEndsAt") and not ends:
+        return "block", "todo regalo necesita fecha de fin."
+    if ends:
+        days = _duration_days(starts, ends)
+        if days is None:
+            return "block", "no pude leer las fechas del regalo."
+        if days > policy["maxDurationDays"]:
+            return "block", (f"el regalo dura {days} días y el máximo es "
+                             f"{policy['maxDurationDays']}.")
+
+    # usesPerOrderLimit forzado a 1: el regalo no se multiplica solo en el carrito.
+    if _as_pos_int(d.get("usesPerOrderLimit")) != 1:
+        return "block", "el regalo tiene que limitarse a una vez por pedido (usesPerOrderLimit: 1)."
+
+    # % del regalo: solo discountOnQuantity.effect.percentage, con la trampa de unidades.
+    pct, err = _gift_effect_pct_int(d)
+    if err == "unsupported":
+        return "block", ("el regalo tiene que expresarse como 'discountOnQuantity'; "
+                         "un BXGY no soporta percentage ni discountAmount al tope.")
+    if pct is None:
+        return "block", "no pude leer el porcentaje del regalo."
+    if pct > max_gift:
+        return "block", (f"el regalo descuenta {pct}% y el máximo para este cliente "
+                         f"es {max_gift}%.")
+
+    # Cantidad regalada
+    get_qty = _as_pos_int(((d.get("customerGets") or {}).get("value") or {})
+                          .get("discountOnQuantity", {}).get("quantity"))
+    if not get_qty or get_qty < 1:
+        return "block", "no pude leer cuántas unidades regala el descuento."
+    if get_qty > max_get:
+        return "block", f"el regalo es de {get_qty} unidades y el máximo es {max_get}."
+
+    # Scope: exactamente un producto explícito en la compra y en el regalo.
+    buy_gid, be = _bxgy_single_product((d.get("customerBuys") or {}).get("items"))
+    get_gid, ge = _bxgy_single_product((d.get("customerGets") or {}).get("items"))
+    if "all" in (be, ge):
+        return "block", "un regalo sobre TODO el catálogo no se permite."
+    if "collections" in (be, ge):
+        return "block", "un regalo a nivel colección no se permite."
+    if be or ge:
+        return "block", ("el regalo tiene que apuntar a un producto explícito para comprar "
+                         "y uno para regalar.")
+
+    buy_qty = _as_pos_int((d.get("customerBuys") or {}).get("value", {}).get("quantity"))
+    if not buy_qty or buy_qty < 1:
+        return "block", "no pude leer cuántas unidades hay que comprar."
+
+    why = _bxgy_scope_ok(policy, buy_gid, get_gid, buy_qty, get_qty, min_ratio)
+    if why:
+        return "block", why
+
+    # El backup se busca por el producto COMPRADO (P), que es el que configura el
+    # cliente y sobre el que se escribe el metafield worker.deal.
+    product_gid = ((tool_input or {}).get("variables") or {}).get("productId")
+    if not isinstance(product_gid, str) or "/Product/" not in product_gid:
+        return "block", ("la mutación tiene que traer `productId` en las variables, "
+                         "con el gid del producto de la oferta.")
+    ok, why = _covering_deal_backup(backups_root, product_gid, now)
+    return ("allow", "ok") if ok else ("block", why)
+
+
+def _check_bxgy_metafield(data, policy):
+    """Reglas del schema `type:"bxgy"` de §5 (motivo de bloqueo, o None).
+
+    El widget lee del metafield, no del descuento: un metafield con pct 100 y un
+    ref a un descuento acotado produciría la divergencia widget↔carrito. Por eso el
+    techo de regalo también se enforcea acá, no solo en el create.
+    """
+    ceils = _gift_ceilings(policy)
+    if ceils is None:
+        return "este cliente no tiene configurado el techo de regalos."
+    max_gift, max_get, min_ratio = ceils
+
+    scope = data.get("scope")
+    if scope not in ("same", "cross"):
+        return "el regalo tiene que ser del mismo producto o cruzado."
+    buy, get = data.get("buy") or {}, data.get("get") or {}
+    bq, gq, gpct = buy.get("qty"), get.get("qty"), get.get("pct")
+    if not (isinstance(bq, int) and not isinstance(bq, bool) and bq >= 1):
+        return "la compra requerida del regalo no es válida."
+    if not (isinstance(gq, int) and not isinstance(gq, bool) and gq >= 1):
+        return "la cantidad regalada no es válida."
+    if gq > max_get:
+        return f"el regalo es de {gq} unidades y el máximo es {max_get}."
+    if not (isinstance(gpct, int) and not isinstance(gpct, bool) and 0 <= gpct <= 100):
+        return "el porcentaje del regalo tiene que ser un entero entre 0 y 100."
+    if gpct > max_gift:
+        return f"el regalo descuenta {gpct}% y el máximo es {max_gift}%."
+    bp, gp = buy.get("product"), get.get("product")
+    if not (isinstance(bp, str) and "/Product/" in bp):
+        return "falta el producto que se compra."
+    if not (isinstance(gp, str) and "/Product/" in gp):
+        return "falta el producto que se regala."
+    if scope == "same" and bp != gp:
+        return "un regalo del mismo producto tiene que comprar y regalar el mismo producto."
+    if scope == "cross" and bp == gp:
+        return "un regalo cruzado tiene que ser de otro producto."
+    return _bxgy_scope_ok(policy, bp, gp, bq, gq, min_ratio)
+
+
 def _duration_days(starts, ends):
     def parse(x):
         if not isinstance(x, str) or not x.strip():
@@ -663,6 +909,14 @@ def _check_metafield(tool_input, backups_root, now: float):
             data = json.loads(e.get("value") or "{}")
         except Exception:
             return "block", "el contenido de la oferta no es JSON válido."
+        # Ramifica por tipo de oferta: un regalo (type:"bxgy") NO tiene `tiers`,
+        # así que aplicarle el schema de escalones lo bloquearía siempre. El campo
+        # `type` estaba plantado forward-compat; este milestone por fin lo lee.
+        if data.get("type") == "bxgy":
+            why = _check_bxgy_metafield(data, policy)
+            if why:
+                return "block", why
+            continue
         tiers = data.get("tiers")
         if not isinstance(tiers, list):
             return "block", "la oferta no tiene escalones."
@@ -861,6 +1115,10 @@ def evaluate(payload: dict, backups_root, now: float):
                              "y no puedo verificar las dos cosas juntas. Mandalas por separado.")
 
         if names:
+            # El regalo (BXGY) tiene su propia función y su propio techo: NO reusa
+            # `_check_discount`, que asume la forma Basic acotada por maxDiscountPct.
+            if any(n in DISCOUNT_BXGY for n in names):
+                return _check_bxgy(names, tool_input, backups_root, now)
             return _check_discount(names, tool_input, backups_root, now)
 
         # 3. Metafield de oferta. ANTES del fallthrough por GID_RE.

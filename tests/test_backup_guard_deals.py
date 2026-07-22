@@ -184,9 +184,14 @@ def test_all_delete_variants_are_blocked(tmp_path):
         assert d == "block", f"{mut} no bloqueó"
 
 def test_unlisted_discount_mutation_is_blocked(tmp_path):
-    """Whitelist CERRADA (spec §9.0): lo no enumerado se bloquea."""
+    """Whitelist CERRADA (spec §9.0): lo no enumerado se bloquea.
+
+    `discountAutomaticBxgyCreate` YA NO está acá: dejó de ser 'no enumerado' al
+    entrar el regalo gratis (va por `_check_bxgy` con su propio techo). Su cobertura
+    vive en `test_backup_guard_bxgy.py`. Las que quedan siguen fuera de la whitelist.
+    """
     policy(tmp_path); write_deal_backup(tmp_path)
-    for mut in ["discountAutomaticBxgyCreate", "discountAutomaticFreeShippingCreate",
+    for mut in ["discountAutomaticFreeShippingCreate",
                 "discountAutomaticAppCreate", "discountRedeemCodeBulkAdd"]:
         p = {"tool_name": T_GQL, "tool_input": {"query": f"mutation {{ {mut}(x: 1) {{ id }} }}"}}
         d, _ = bg.evaluate(p, tmp_path, time.time())
