@@ -146,6 +146,11 @@ armaste".)*
      } } } } }
    ```
 
+   > ⚠️ **PENDIENTE (verificado 2026-07-22):** esta búsqueda por título volvió **vacía** aunque había
+   > descuentos con el prefijo activos — la detección de huérfanos NO es confiable hoy. Mientras se
+   > investiga (¿sintaxis de la query?, ¿lag del índice de descuentos?), apoyate en los `ref` del
+   > metafield (que sí son la verdad) y no des la ausencia de resultados como "no hay huérfanos".
+
 3. **CARGAR EL TECHO.** `deal-policy.json` del cliente. Los cuatro números que te limitan:
    `maxDiscountPct`, `maxDurationDays`, `maxTiers`, y si `requireEndsAt` es true (lo es).
 
