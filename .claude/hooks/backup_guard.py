@@ -49,6 +49,15 @@ REQUIRED_BACKUP_FIELDS = {"descriptionHtml", "seo_title", "seo_description"}
 RECENT_WINDOW_SECONDS = 900  # 15 min
 GID_RE = re.compile(r"gid://shopify/Product/\d+", re.I)
 
+# --- Estilo del widget (spec §9): cosmético, cerrado, sin techo -------------
+# El look que el cliente configura en el builder. No mueve plata, pero se valida
+# igual (colores hex, textos acotados, keys cerradas) porque el widget lo pinta.
+STYLE_COLOR_KEYS = {"ink", "sage", "taupe", "cream"}
+STYLE_TEXT_KEYS = {"label", "badge"}
+STYLE_KEYS = STYLE_COLOR_KEYS | STYLE_TEXT_KEYS
+STYLE_TEXT_MAXLEN = 40
+HEX_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
+
 # Tools de escritura del connector prohibidos en el v1 (alcance: descripción + SEO).
 FORBIDDEN_ACTIONS = {
     "set-inventory",
@@ -377,6 +386,34 @@ def _covering_deal_backup(backups_root, product_id: str, now: float):
                    "El skill debe guardar el backup antes de escribir.")
 
 
+def _covering_style_backup(backups_root, product_id: str, now: float):
+    """(hay_backup_valido, motivo). Backup de ESTILO, discriminado por ruta
+    (`backups/style/`) y `kind == "style"` — las dos, igual que el de oferta.
+
+    Discriminador propio a propósito (spec §9.1): un backup de estilo NO puede
+    habilitar un write de plata (`worker.deal` / `discount*Create`) ni al revés.
+    El aislamiento vale por ruta Y por kind, defensa en profundidad idéntica al
+    de oferta. Frescura doble (mtime + ts), igual que `_covering_deal_backup`.
+    """
+    tail = product_id.split("/")[-1]
+    for p in Path(backups_root).glob(f"**/backups/style/{tail}-*.json"):
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if data.get("kind") != "style":
+            continue
+        if data.get("productId") != product_id:
+            continue
+        if now - p.stat().st_mtime > RECENT_WINDOW_SECONDS:
+            continue
+        if not _ts_fresh(data, now):
+            continue
+        return True, None
+    return False, (f"Sin backup de estilo reciente para {product_id}. "
+                   "El skill debe guardar el backup de estilo antes de escribir.")
+
+
 def _discount_mutations(text: str) -> list:
     """TODAS las mutaciones `discount*` del documento, en minúscula.
 
@@ -607,6 +644,11 @@ def _check_metafield(tool_input, backups_root, now: float):
         return "block", ("el pedido escribe más de una oferta a la vez y solo puedo "
                          "verificar el respaldo de una. Mandalas de a una.")
 
+    # Routing por key: worker.style es cosmético (sin techo) → su propio check,
+    # ANTES de cargar la política de plata (el estilo no depende de deal-policy).
+    if entries[0].get("namespace") == "worker" and entries[0].get("key") == "style":
+        return _check_style(tool_input, backups_root, now)
+
     policy = load_policy(backups_root)
     if policy is None:
         return "block", "no encontré una política de ofertas única (deal-policy.json)."
@@ -641,6 +683,50 @@ def _check_metafield(tool_input, backups_root, now: float):
                          "El metafield tiene que traer el id del producto.")
 
     ok, why = _covering_deal_backup(backups_root, owner, now)
+    return ("allow", "ok") if ok else ("block", why)
+
+
+def _check_style(tool_input, backups_root, now: float):
+    """metafieldsSet de `worker.style`: cosmético, cerrado, sin techo (spec §9).
+
+    No mueve plata, así que no carga `deal-policy.json`. Pero valida igual: keys
+    de un set cerrado, colores hex (para que un valor no inyecte CSS por la var),
+    textos acotados sin `<`/`>`. Y exige backup de ESTILO (`_covering_style_backup`,
+    kind y ruta propios) — nunca el de oferta.
+    """
+    variables = (tool_input or {}).get("variables") or {}
+    entries = []
+    for value in variables.values():
+        if isinstance(value, list):
+            entries.extend(x for x in value if isinstance(x, dict))
+        elif isinstance(value, dict) and ("namespace" in value or "ownerId" in value):
+            entries.append(value)
+    if not entries:
+        return "block", "no pude leer el metafield de estilo."
+    if len(entries) > 1:
+        return "block", "un estilo por vez."
+    e = entries[0]
+    if e.get("namespace") != "worker" or e.get("key") != "style":
+        return "block", f"solo worker.style, no {e.get('namespace')}.{e.get('key')}."
+    owner = e.get("ownerId") or ""
+    if "/Product/" not in owner:
+        return "block", "el estilo tiene que traer el id del producto."
+    try:
+        data = json.loads(e.get("value") or "{}")
+    except Exception:
+        return "block", "el estilo no es JSON válido."
+    if not isinstance(data, dict):
+        return "block", "el estilo tiene que ser un objeto."
+    for k, v in data.items():
+        if k not in STYLE_KEYS:
+            return "block", f"clave de estilo desconocida: {k}."
+        if k in STYLE_COLOR_KEYS:
+            if not (isinstance(v, str) and HEX_RE.match(v)):
+                return "block", f"{k} tiene que ser un color hex (#RRGGBB)."
+        else:
+            if not isinstance(v, str) or len(v) > STYLE_TEXT_MAXLEN or "<" in v or ">" in v:
+                return "block", f"{k} tiene que ser texto de hasta {STYLE_TEXT_MAXLEN} sin < ni >."
+    ok, why = _covering_style_backup(backups_root, owner, now)
     return ("allow", "ok") if ok else ("block", why)
 
 
