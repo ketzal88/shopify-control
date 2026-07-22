@@ -176,6 +176,19 @@
   .pv-ba span.h{ flex:1; display:flex; align-items:center; justify-content:center; color:#fff;
     font-size:11px; font-weight:700; letter-spacing:.05em; }
   .pv-ba-line{ position:absolute; left:50%; top:0; bottom:0; width:2px; background:#fff; transform:translateX(-1px); }
+  .pv-slider{ display:flex; gap:6px; }
+  .pv-slider span{ flex:1; height:54px; border-radius:7px; background:linear-gradient(135deg,var(--cream),var(--taupe)); }
+  .pv-slider span:nth-child(2){ background:linear-gradient(135deg,var(--taupe),var(--sage)); }
+  .pv-slider span:nth-child(3){ background:linear-gradient(135deg,var(--sage),var(--cream)); }
+  .pv-play{ width:46px; height:46px; margin:0 auto; border-radius:50%; background:var(--ink); color:#fff;
+    display:flex; align-items:center; justify-content:center; font-size:16px; }
+  .pv-steps{ display:flex; align-items:center; gap:7px; justify-content:center; }
+  .pv-steps .dot{ width:24px; height:24px; border-radius:50%; background:var(--sage); color:#fff;
+    font-size:11px; font-weight:700; display:flex; align-items:center; justify-content:center; }
+  .pv-steps .ln{ flex:0 0 18px; height:2px; background:var(--pv-line); }
+  .pv-benefits{ font-size:12.5px; line-height:1.9; }
+  .pv-benefits span{ display:block; }
+  .pv-benefits .ck{ color:var(--sage); font-weight:800; margin-right:6px; }
 </style>
 
 <div class="wrap">
@@ -302,25 +315,36 @@
       </div>
     </div>
 
-  </div>
-
-  <h2 class="section-label">Más mejoras que podés sumar <small>— pedímelas y las armo para tu tienda</small></h2>
-  <div class="grid">
-
-    <!-- Cuenta regresiva -->
+    <!-- Cuenta regresiva (construida) -->
     <div class="card">
       <div class="pv">
-        <span class="chip">a pedido</span>
         <div class="pv-count">
           <span class="pv-count-lbl">La oferta termina en</span>
           <div class="pv-count-num"><b>01</b><i>d</i><b>04</b><i>h</i><b>22</b><i>m</i></div>
         </div>
       </div>
       <h3>Cuenta regresiva</h3>
-      <p class="desc">Un reloj que muestra cuándo termina una oferta. Cuenta hasta la fecha que fijás
-        vos — nunca inventa urgencia falsa.</p>
+      <p class="desc">Un reloj hasta que termina una oferta. Cuenta a una fecha real — nunca inventa
+        urgencia ni resetea.</p>
       <div class="ask"><code>Poné una cuenta regresiva para la oferta del [producto].</code><button>Copiar</button></div>
     </div>
+
+    <!-- Barra de envío gratis (construida) -->
+    <div class="card">
+      <div class="pv">
+        <div class="pv-ship-txt">Te faltan <b>$12.000</b> para el envío gratis</div>
+        <div class="pv-bar"><span style="width:64%"></span></div>
+      </div>
+      <h3>Barra de envío gratis</h3>
+      <p class="desc">Muestra cuánto falta para el envío gratis y sube el ticket. Lee el total real
+        del carrito.</p>
+      <div class="ask"><code>Poné la barra de envío gratis desde $80.000.</code><button>Copiar</button></div>
+    </div>
+
+  </div>
+
+  <h2 class="section-label">Más mejoras que podés sumar <small>— pedímelas y las armo para tu tienda</small></h2>
+  <div class="grid">
 
     <!-- Tabla de talles -->
     <div class="card">
@@ -350,19 +374,6 @@
       <div class="ask"><code>Poné una barra de anuncios que diga [tu mensaje].</code><button>Copiar</button></div>
     </div>
 
-    <!-- Envío gratis (barra de progreso) -->
-    <div class="card">
-      <div class="pv">
-        <span class="chip">a pedido</span>
-        <div class="pv-ship-txt">Te faltan <b>$12.000</b> para el envío gratis</div>
-        <div class="pv-bar"><span style="width:64%"></span></div>
-      </div>
-      <h3>Barra de envío gratis</h3>
-      <p class="desc">Muestra cuánto falta para el envío gratis y sube el ticket promedio. Se
-        actualiza sola con el carrito.</p>
-      <div class="ask"><code>Poné la barra de envío gratis desde $80.000.</code><button>Copiar</button></div>
-    </div>
-
     <!-- Quedan pocas -->
     <div class="card">
       <div class="pv">
@@ -387,6 +398,66 @@
       <p class="desc">Un deslizador para comparar dos fotos. Bueno para mostrar transformaciones,
         resultados o el producto en uso.</p>
       <div class="ask"><code>Agregá un comparador antes y después al [producto].</code><button>Copiar</button></div>
+    </div>
+
+    <!-- Galería de fotos -->
+    <div class="card">
+      <div class="pv"><span class="chip">a pedido</span>
+        <div class="pv-slider"><span></span><span></span><span></span></div>
+      </div>
+      <h3>Galería de fotos</h3>
+      <p class="desc">Un carrusel de imágenes extra en la ficha, para mostrar el producto desde varios
+        ángulos o en uso.</p>
+      <div class="ask"><code>Agregá una galería de fotos al [producto].</code><button>Copiar</button></div>
+    </div>
+
+    <!-- Video flotante -->
+    <div class="card">
+      <div class="pv"><span class="chip">a pedido</span>
+        <div class="pv-play">▶</div>
+      </div>
+      <h3>Video flotante</h3>
+      <p class="desc">Un botón redondo que abre un video — del producto en uso o tu historia de marca.</p>
+      <div class="ask"><code>Poné un video flotante con [link del video].</code><button>Copiar</button></div>
+    </div>
+
+    <!-- Comparación con otros -->
+    <div class="card">
+      <div class="pv"><span class="chip">a pedido</span>
+        <table class="pv-size">
+          <tr><th>&nbsp;</th><th>Nosotros</th><th>Otros</th></tr>
+          <tr><td>Garantía</td><td>✓</td><td>✕</td></tr>
+          <tr><td>Envío 24h</td><td>✓</td><td>✕</td></tr>
+        </table>
+      </div>
+      <h3>Comparación con otros</h3>
+      <p class="desc">Una tabla que muestra por qué tu producto conviene frente a la competencia.</p>
+      <div class="ask"><code>Agregá una tabla que me compare con la competencia en el [producto].</code><button>Copiar</button></div>
+    </div>
+
+    <!-- Pasos de uso -->
+    <div class="card">
+      <div class="pv"><span class="chip">a pedido</span>
+        <div class="pv-steps"><span class="dot">1</span><span class="ln"></span><span class="dot">2</span><span class="ln"></span><span class="dot">3</span></div>
+      </div>
+      <h3>Pasos de uso</h3>
+      <p class="desc">Explica en 3 pasos cómo se usa o se cuida el producto. Ordena la info y da confianza.</p>
+      <div class="ask"><code>Agregá los pasos de cómo usar el [producto].</code><button>Copiar</button></div>
+    </div>
+
+    <!-- Lista de beneficios -->
+    <div class="card">
+      <div class="pv"><span class="chip">a pedido</span>
+        <div class="pv-benefits">
+          <span><span class="ck">✓</span> Hipoalergénico</span>
+          <span><span class="ck">✓</span> Ajuste gratis</span>
+          <span><span class="ck">✓</span> Garantía 1 año</span>
+        </div>
+      </div>
+      <h3>Lista de beneficios</h3>
+      <p class="desc">Los puntos fuertes del producto con tildes, cerca del precio, para reforzar la
+        decisión de compra.</p>
+      <div class="ask"><code>Agregá una lista de beneficios al [producto].</code><button>Copiar</button></div>
     </div>
 
   </div>
