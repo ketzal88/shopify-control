@@ -4,6 +4,27 @@ Append-only. Cada write deja una entrada: `## YYYY-MM-DD [write] producto — ba
 
 <!-- nuevas entradas arriba -->
 
+## 2026-07-22 [merge] [test-devstore] Unificación BXGY+Pack LatAm + E2E de FAQ
+Tienda: **Testing StandAlone Framework** (dev store, USD). **Nada escrito en blunua producción.**
+
+- **Merge unificado (`9e60b17`, en main):** se juntaron los carriles paralelos — builder + FAQ +
+  Pack LatAm (F1+F2+F3: `worker.faq`/`worker.trust`, owner SHOP, bloques confianza/whatsapp) + BXGY
+  (regalo, `_check_bxgy`) + el fix de seguridad HIGH del review de BXGY. Merge limpio (regiones
+  distintas del guard), **sin funciones duplicadas**. Verificado por la suite corriendo junta:
+  **250 tests pytest + 3 de Node, todo verde.** La rama `feat/regalo-bxgy-m1` quedó como subconjunto
+  de main (redundante).
+- **E2E de FAQ, camino real por el guard** sobre *The Complete Snowboard*
+  (`gid://shopify/Product/10429846257981`): backup `kind:"faq"` → `metafieldsSet worker.faq` por
+  `graphql_mutation` a través del guard → metafield creado (`...386173`), leído de vuelta idéntico.
+  El guard dejó pasar la FAQ válida con backup fresco, y **bloquea** una FAQ con `<script>` (probado
+  en el módulo vivo). El **JSON-LD FAQPage** que emite el widget se validó estructuralmente (2
+  Question/Answer bien formados).
+- **Fixture vivo:** la FAQ quedó en *The Complete Snowboard* de la dev store a propósito, para ver el
+  render al instalar el bloque. Para sacarla: "sacá las preguntas frecuentes de The Complete Snowboard".
+- **Pendiente (operador, no automatizable):** instalar los bloques en el tema (write de tema bloqueado
+  por diseño) + verificar el render visual + correr el Rich Results de Google (necesita URL pública;
+  la dev store tiene contraseña).
+
 ## 2026-07-22 [oferta] [test-devstore] The Multi-managed Snowboard — flujo completo del builder
 Tienda: **Testing StandAlone Framework** (dev store). **Nada en blunua producción.** Prueba
 end-to-end del builder: config `🧩 escalones-config` pegada → revalidación contra el techo → preview
