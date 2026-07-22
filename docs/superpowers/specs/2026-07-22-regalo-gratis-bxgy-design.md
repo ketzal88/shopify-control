@@ -2,9 +2,10 @@
 
 - **Fecha:** 2026-07-22
 - **Autor:** Gabriel (Worker) + Claude
-- **Estado:** Diseño. Brainstorm cerrado (decisiones G1–G14 abajo). Falta el review del spec, el plan y la implementación. Las tres incógnitas empíricas de §14 están **sin resolver** (se resuelven contra la dev-store, igual que hizo escalones).
+- **Estado:** Diseño. Brainstorm cerrado (decisiones G1–G16 abajo). Falta el review del spec, el plan y la implementación. Las cuatro incógnitas empíricas de §14 (D1–D4) están **sin resolver** (se resuelven contra la dev-store, igual que hizo escalones).
 - **Cliente piloto:** blunua
 - **Spec hermano:** `2026-07-19-quantity-breaks-design.md` (escalones). Este documento **reusa** su guard, su contrato de backup, su widget y su flujo de skill, y los **extiende** con un segundo tipo de oferta.
+- **Spec del builder:** `2026-07-21-escalones-builder-design.md` + plan `2026-07-22-escalones-builder.md` (constructor visual, **aún sin implementar**). El regalo **se integra al builder** (§17) y **construye sobre su infraestructura** (`worker.style`, `worker-render.js`, el template). El builder se generaliza de "solo escalones" a "por tipo de oferta". Esta es la segunda mitad del pedido ("sumarlos al constructor visual").
 - **Spec abuelo:** `2026-07-19-shopify-control-v1-design.md`
 
 ---
@@ -46,6 +47,8 @@ producto, qué regalo, qué umbral). Esa decisión es donde Worker tiene ventaja
 | G12 | `usesPerOrderLimit` | **Forzado a 1.** El regalo no se multiplica solo en el carrito. Enforced por el guard. |
 | G13 | Orden de construcción | **Mismo-producto primero, cruzado después** (fases del plan). La relajación del guard entra en incrementos testeados (§9.0 hermano). El cruzado nace apagado (`giftableProducts: []`). |
 | G14 | Modelo de datos | **Un solo tipo `bxgy`** para las dos formas; la diferencia es `scope` + si `buy.product == get.product`. Mantiene guard y widget con un modelo mental. |
+| G15 | Relación con el builder | **BXGY construye sobre la infraestructura del builder** (`worker.style`, `worker-render.js`, template). Orden de fases: builder-escalones (su plan) → BXGY backend → generalización del builder (§17). No se duplica nada. |
+| G16 | Generalización del builder | **El builder pasa de solo-escalones a por-tipo-de-oferta** (§17). El cliente elige "escalones" o "regalo" y arma cualquiera con preview real y techo horneado. |
 
 ---
 
@@ -94,6 +97,13 @@ por fin ejercita) y despacha:
 El **chrome compartido** se factoriza y lo usan las dos ramas: `formatMoney` + la "lección del centavo"
 (§4 hermano: redondeo por unidad), el colapso mobile, `preselectFromCart`, el POST a `/cart/update.js`,
 y el shell del CTA.
+
+**Esta factorización se apoya en `widget/render/worker-render.js`** —la fuente única de render que
+introduce el builder (Task 2 de su plan)—, extendida con la rama `bxgy`. El render de `bxgy` es **puro
+y builder-safe** (solo construye/estila el DOM; misma "frontera crítica" del builder): `onBuy` —incluida
+la 2ª línea de carrito del cruzado (§4.5)— y `preselectFromCart` **quedan fuera del render**, en el init
+del `.liquid`, para que el builder pueda reusar el render inerte, sin tocar el carrito real. Por eso este
+milestone **depende** de que la extracción de `worker-render.js` (builder) ya esté hecha (G15).
 
 ### 4.3 Datos que el bloque vuelca al DOM
 
@@ -526,3 +536,75 @@ que **no** es blunua producción antes de crear nada.
 | Un `create-discount` esquiva el techo | Sigue denegado; camino canónico `graphql_mutation` (§10) |
 | El repo queda con una regla dura que el skill viola | `CLAUDE.md` regla 5 + `store-standards` se actualizan dentro del milestone (§10) |
 | Escalones y regalo chocan en el mismo producto | Metafield único; el skill hace preview ANTES/DESPUÉS y reemplaza (§5, §12) |
+| Se generaliza el builder y se rompe el camino de escalones | La generalización no toca la plata (reusa guard §9 + `_check_style`); round-trip y preview testeados por tipo (§17.6) |
+| BXGY reinventa el render y diverge del builder | La rama `bxgy` vive en `worker-render.js`, fuente única; depende de la extracción del builder (G15, §4.2) |
+
+---
+
+## 17. Integración con el builder visual (el "constructor")
+
+Este milestone cumple también la segunda mitad del pedido: **sumar el regalo al builder visual**
+(`2026-07-21-escalones-builder-design.md`). El builder hoy está scopeado a solo-escalones (su D2 / §11
+YAGNI) y **todavía no está implementado** (tiene spec + plan de 5 tasks). Acá se **generaliza a
+por-tipo-de-oferta**, reusando toda su infraestructura sin duplicarla.
+
+### 17.1 Qué se reusa tal cual
+
+- **`worker.style`** (metafield cosmético, su guard `_check_style`, su backup `kind:"style"`): el look
+  (colores + copy) aplica **igual** al widget de regalo. La misma validación cerrada de keys sirve; a lo
+  sumo el set de textos gana el copy propio del regalo (badge "GRATIS") — un cambio acotado del set
+  cerrado, no una relajación.
+- **`worker-render.js`** (fuente única del render): gana la rama `bxgy` (§4.2). El builder reusa
+  `WorkerEscalones.render()` para el preview del regalo con el **código real**, igual que para escalones.
+- **El template + la lógica del builder** (`escalones-builder.*`): se generalizan (17.2).
+
+### 17.2 El builder pasa a ser "por tipo de oferta"
+
+- Gana un **selector de tipo** arriba: **Escalones | Regalo**. Según el tipo, muestra la sección de
+  escalones (tiers) o la de regalo (comprá `qty` / regalá `qty` / `%` / mismo-producto vs cruzado, con
+  el selector de producto-regalo limitado a `giftableProducts` horneado).
+- El **techo horneado** incluye ahora las claves de regalo (`maxGiftPct`, `maxGetQty`, `minBuyGetRatio`,
+  `allowCrossProductGift`, `giftableProducts`): la UI **no deja construir** un regalo fuera del techo,
+  igual que hoy con escalones. La frontera de confianza en tres lugares (§5 builder) queda intacta.
+- El **preview en vivo** usa el render real de la rama `bxgy`, con precios reales y el total honesto
+  "pagás N" (§4.4).
+
+### 17.3 El formato de la config
+
+Espeja `🧩 escalones-config` con un marcador propio:
+
+```
+🎁 regalo-config
+{ "v": 1, "scope": "same",
+  "buy":  { "product": { "id": "gid://…/P", "title": "Anillo NEXO" }, "qty": 2 },
+  "get":  { "product": { "id": "gid://…/P", "title": "Anillo NEXO", "handle": "anillo-nexo" }, "qty": 1, "pct": 100 },
+  "style": { "ink": "#4B4B4B", "label": "Comprá más y llevate un regalo", "badge": "GRATIS" } }
+```
+
+- Marcador `🎁 regalo-config`. Mismo principio: es una **request, no una orden** — `armar-regalo` corre
+  igual su paso 0 → techo → preview → gate → backup → write. No saltea el gate; el builder no es de
+  confianza y Claude revalida contra `deal-policy.json` (§5 builder, §9 de este spec).
+- Mapeo: `buy`/`get`/`scope` → `worker.deal` (`type:"bxgy"`); `style` → `worker.style`. El skill agrega
+  `strategy`/fechas/`ref`; la config no los trae.
+
+### 17.4 Del lado de Claude
+
+`armar-regalo` aprende a ingerir `🎁 regalo-config` (la versión tipada de lo que el cliente diría
+hablando), corre su flujo normal (§7) y **suma el write de estilo** a `worker.style` — dos asuntos → dos
+writes → dos backups (`deals/` y `style/`), exactamente como `armar-escalones` con el builder. El preview
+de texto del gate usa el mismo redondeo por unidad que el builder y el widget.
+
+### 17.5 Generación
+
+`generar-builder-escalones` se generaliza (o nace un `generar-builder` único): hornea productos + techo
+(con las claves de regalo) + el render real (con la rama `bxgy`) en el template generalizado. Sigue sin
+escribir nada a Shopify; sigue siendo un archivo que el cliente abre.
+
+### 17.6 Orden y dependencia (G15)
+
+El builder-escalones tiene su plan propio y **se ejecuta primero** (establece `worker.style`,
+`worker-render.js`, el template). BXGY backend va segundo. La generalización del builder va tercero,
+sobre las dos bases. Cada fase deja software testeable; la generalización **no toca la plata** (reusa el
+guard de §9 y el `_check_style` del builder). El cruzado nace apagado (`giftableProducts: []`) también en
+el builder: sin lista curada, el selector de producto-regalo aparece vacío y la UI no deja armar un
+cruzado.
