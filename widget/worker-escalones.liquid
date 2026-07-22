@@ -16,8 +16,15 @@
 {%- endcomment -%}
 
 {%- assign deal = product.metafields.worker.deal.value -%}
-{%- if deal and deal.tiers and deal.tiers.size > 0 -%}
+{%- assign we_is_bxgy = false -%}
+{%- if deal.type == 'bxgy' -%}{%- assign we_is_bxgy = true -%}{%- endif -%}
+{%- comment -%} Renderiza si hay escalones (deal.tiers) O un regalo (deal.type == bxgy). {%- endcomment -%}
+{%- if deal and deal.tiers.size > 0 or we_is_bxgy -%}
 {%- assign unit_variant = product.selected_or_first_available_variant -%}
+{%- comment -%} Regalo cruzado: el producto regalado se resuelve por su handle
+   (spec §4.3 / incógnita D1 — verificar en dev-store que all_products lo alcanza). {%- endcomment -%}
+{%- assign we_gift = null -%}
+{%- if we_is_bxgy and deal.scope == 'cross' -%}{%- assign we_gift = all_products[deal.get.handle] -%}{%- endif -%}
 
 <div id="worker-escalones" class="we" data-worker-escalones hidden>
 
@@ -38,6 +45,17 @@
     "cartUrl": {{ routes.cart_url | json }}
   }</script>
   <script type="application/json" data-worker-style>{%- if product.metafields.worker.style -%}{{ product.metafields.worker.style.value | json }}{%- else -%}{}{%- endif -%}</script>
+  <script type="application/json" data-worker-gift>{%- if we_is_bxgy -%}{
+    "scope": {{ deal.scope | json }},
+    "buyQty": {{ deal.buy.qty | json }},
+    "getQty": {{ deal.get.qty | json }},
+    "pct": {{ deal.get.pct | json }},
+    "giftVariantId": {%- if we_gift and we_gift.selected_or_first_available_variant -%}{{ we_gift.selected_or_first_available_variant.id | json }}{%- else -%}null{%- endif -%},
+    "giftTitle": {%- if we_gift -%}{{ we_gift.title | json }}{%- else -%}null{%- endif -%},
+    "giftPriceCents": {%- if we_gift and we_gift.selected_or_first_available_variant -%}{{ we_gift.selected_or_first_available_variant.price }}{%- else -%}null{%- endif -%},
+    "giftImageUrl": {%- if we_gift and we_gift.featured_image -%}{{ we_gift.featured_image | image_url: width: 72 | json }}{%- else -%}null{%- endif -%},
+    "giftFound": {%- if we_gift -%}true{%- else -%}false{%- endif -%}
+  }{%- else -%}null{%- endif -%}</script>
 
   <div class="we-wrap">
     <p class="we-label">Llevá más y ahorrá</p>
@@ -126,7 +144,9 @@
   var deal = readJSON('[data-worker-deal]');
   var variants = readJSON('[data-worker-variants]') || [];
   var cfg = readJSON('[data-worker-config]') || {};
-  if (!deal || !deal.tiers || !deal.tiers.length) return;
+  var gift = readJSON('[data-worker-gift]');
+  var isBxgy = !!(deal && deal.type === 'bxgy');
+  if (!deal || (!isBxgy && (!deal.tiers || !deal.tiers.length))) return;
 
   // --- Estilo (worker.style) con fallback POR-KEY. DEFAULT_STYLE tiene que
   //     quedar SINCRONIZADO con widget/render/worker-render.js y el <style> de
@@ -143,6 +163,79 @@
   root.style.setProperty('--we-taupe', STYLE.taupe);
   root.style.setProperty('--we-cream', STYLE.cream);
   var _lbl = root.querySelector('.we-label'); if (_lbl) _lbl.textContent = STYLE.label;
+
+  // ===== Rama REGALO (BXGY) — additiva; el camino de escalones NO se toca =====
+  // Escrita para el storefront; su render y carrito se VERIFICAN en dev-store
+  // (incógnitas D1/D2 del spec del regalo). La matemática es la de
+  // computeBxgyTotalCents (widget/render/worker-render.js), acá inline con el
+  // MISMO redondeo por unidad. `el` y `formatMoney` están hoisteadas más abajo.
+  if (isBxgy) {
+    gift = gift || {};
+    var unitP = cfg.unitPriceCents;
+    var buyQty = gift.buyQty || (deal.buy && deal.buy.qty) || 1;
+    var getQty = gift.getQty || (deal.get && deal.get.qty) || 1;
+    var gpct = (gift.pct != null) ? gift.pct : ((deal.get && deal.get.pct != null) ? deal.get.pct : 100);
+    var isCross = gift.scope === 'cross';
+    var afterPct = function (price, pct) { return Math.round(price * (100 - pct) / 100); };
+
+    // Regalo cruzado no resuelto (all_products no lo alcanzó): no renderiza,
+    // la ficha queda como estaba (spec §4.3).
+    if (isCross && !gift.giftFound) return;
+
+    var giftTermCents = isCross
+      ? getQty * afterPct(gift.giftPriceCents || 0, gpct)   // el regalo es OTRO producto (Q)
+      : getQty * afterPct(unitP, gpct);                     // el regalo es el MISMO producto (P)
+    var payCents = buyQty * unitP + giftTermCents;
+    var pVariant = (variants.filter(function (v) { return v.available; })[0] || variants[0] || {}).id;
+
+    // Tarjeta única del regalo (DOM, sin innerHTML).
+    var box = root.querySelector('[data-we-tiers]');
+    box.textContent = '';
+    var card = el('div', 'we-row on');
+    if (cfg.imageUrl) { var im = el('img', 'we-thumb'); im.src = cfg.imageUrl; im.alt = ''; im.loading = 'lazy'; card.appendChild(im); }
+    else { card.appendChild(el('span', 'we-thumb')); }
+    var mid = el('span', 'we-mid');
+    var freeLabel = gpct >= 100 ? 'gratis' : ('a -' + gpct + '%');
+    if (isCross) {
+      mid.appendChild(el('span', 'we-qty', 'Comprá ' + buyQty + ' y llevate ' + (gift.giftTitle || 'un regalo') + ' ' + freeLabel));
+    } else {
+      mid.appendChild(el('span', 'we-qty', 'Comprá ' + buyQty + ' y el ' + (buyQty + getQty) + 'º ' + freeLabel));
+    }
+    mid.appendChild(el('span', 'we-save', gpct >= 100 ? 'REGALO' : ('-' + gpct + '%')));
+    card.appendChild(mid);
+    var prices = el('span', 'we-prices');
+    prices.appendChild(el('span', 'we-total', formatMoney(payCents, cfg.moneyFormat)));
+    card.appendChild(prices);
+    box.appendChild(card);
+
+    // CTA que canta cantidad y total.
+    var gcta = root.querySelector('[data-we-cta]');
+    gcta.disabled = false;
+    gcta.textContent = isCross
+      ? ('Agregar + tu regalo · pagás ' + formatMoney(payCents, cfg.moneyFormat))
+      : ('Llevar ' + (buyQty + getQty) + ' · pagás ' + formatMoney(payCents, cfg.moneyFormat));
+
+    // Click: fija el carrito (update.js). Mismo producto: buyQty+getQty en P.
+    // Cruzado: buyQty en P + getQty de la variante de Q (2ª línea, §4.5).
+    gcta.addEventListener('click', function () {
+      var updates = {};
+      updates[pVariant] = buyQty + (isCross ? 0 : getQty);
+      variants.forEach(function (v) { if (v.id !== pVariant) updates[v.id] = 0; });
+      if (isCross && gift.giftVariantId) { updates[gift.giftVariantId] = getQty; }
+      gcta.classList.add('is-busy'); gcta.disabled = true;
+      fetch('/cart/update.js', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ updates: updates })
+      }).then(function (r) { if (!r.ok) throw new Error('cart'); return r.json(); })
+        .then(function () { window.location.href = cfg.cartUrl || '/cart'; })
+        .catch(function () { gcta.classList.remove('is-busy'); gcta.disabled = false; gcta.textContent = 'Hubo un problema, probá de nuevo'; });
+    });
+
+    root.dataset.weReady = '1';
+    root.hidden = false;
+    return;
+  }
 
   // Escalones ordenados por cantidad, por las dudas (el guard ya lo garantiza).
   var tiers = deal.tiers.slice().sort(function (a, b) { return a.qty - b.qty; });

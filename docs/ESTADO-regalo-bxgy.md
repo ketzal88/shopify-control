@@ -22,33 +22,36 @@ para el cruzado; `usesPerOrderLimit` forzado a 1; rechaza las formas no soportad
 ramifica por `type`. `deal-policy.json` de blunua y `_template` backfilleados (cruzado nace apagado:
 `giftableProducts: []`).
 
-## PENDIENTE — para un único dueño, con dev-store (NO se hizo autónomo de noche)
+## HECHO en el follow-up ("terminar todo lo que se pueda para salir a producción")
 
-1. **Cableado del widget storefront (`widget/worker-escalones.liquid`).** El `.liquid` NO renderiza un
-   regalo todavía: su gate Liquid es `deal.tiers.size > 0` (línea 19) y su JS asume `tiers`. Falta:
-   - Gate Liquid: `if deal and (deal.tiers.size > 0 or deal.type == 'bxgy')`.
-   - Rama `bxgy` en el JS: una tarjeta de regalo (badge "GRATIS"/"−X%"), CTA que canta "Llevar N ·
-     pagás M" usando `computeBxgyTotalCents` (ya está en `worker-render.js`).
-   - **Cruzado:** volcar el producto regalado vía `all_products[deal.get.handle]` (incógnita D1) y una
-     **2ª línea de carrito** en `onBuy` (la variante de Q en `get.qty`, además de P) — el descuento
-     nativo la deja en $0 (incógnita D2).
-   - **Ojo divergencia:** hoy el `.liquid` tiene render inline y NO consume `worker-render.js`
-     (el carril builder no completó la extracción). Decidir: extraer de una (mejor) o duplicar la
-     rama bxgy. La matemática ya está centralizada en `computeBxgyTotalCents` — usar esa, no reescribir.
-2. **Generalización del builder (§17 del spec).** `worker-render.js` tiene la matemática pero no la
-   rama de render DOM del regalo; el template/lógica del builder y `generar-builder-escalones` siguen
-   solo-escalones. Sumar: selector de tipo de oferta, sección de regalo con techo horneado, marcador
-   `🎁 regalo-config`, e ingestión en `armar-regalo`. Reconciliar con `§6/§7` del
-   `2026-07-22-catalogo-widgets-design.md` (mismo movimiento, dos vistas).
-3. **Gobernanza (§10 del spec).** Actualizar `CLAUDE.md` regla 5 y `clients/blunua/store-standards.md`
-   para declarar la clase "regalo" con su techo. (No se tocó para no colisionar con otros carriles.)
-4. **Verificación en vivo contra dev-store** (§13.2 + incógnitas §14, requiere paso 0 confirmando que
-   NO es blunua producción):
+- **Widget `worker-escalones.liquid` cableado para el regalo** (additivo; el camino de escalones NO se
+  tocó). Gate Liquid abierto a `type:"bxgy"`, volcado de datos del regalo (incluido el cruzado vía
+  `all_products[deal.get.handle]` + precio del regalado), rama `bxgy` en el JS con tarjeta de regalo,
+  CTA "Llevar N · pagás M" (redondeo por unidad), y `onBuy` con la 2ª línea de carrito del cruzado.
+  **Verificado offline:** JS `node --check` OK + tags Liquid balanceados. **NO verificado:** el render y
+  el carrito reales (incógnitas D1/D2) — eso es dev-store.
+- **Gobernanza:** `CLAUDE.md` regla 5 declara ya la clase "regalo/BXGY" y `worker.style`.
+
+## PENDIENTE — para un único dueño, con dev-store (NO se puede hacer autónomo/offline)
+
+1. **Verificación en vivo contra dev-store** — **el único gate real antes de producción.** El widget y
+   el guard están escritos; falta probar que se comportan. Requiere paso 0 (confirmar que el connector
+   NO apunta a blunua producción):
    - Mismo producto: comprá 2 → 3º gratis; el carrito paga lo que cantó el botón.
    - Cruzado: comprá P → Q a $0; que la línea de $0 renderice y checkoutee (D2).
    - `usesPerOrderLimit: 1`: comprá 4 en "buy 2 get 1" → **solo 1 gratis** (D3).
    - `all_products[handle]` resuelve el regalo cruzado (D1).
    - Ciclo crear → verificar en checkout → sacar → verificar que dejó de aplicar.
+
+2. **Push y merge a `main`** — operator-only (`stack.json`). Solo lo hacés vos.
+
+## Mejoras que NO bloquean producción (se pueden diferir)
+
+- **Generalización del builder visual (§17 del spec).** El regalo funciona por lenguaje natural (skill
+  `armar-regalo`); el builder visual es la capa opcional. Sumar: selector de tipo de oferta, marcador
+  `🎁 regalo-config`, ingestión, y reconciliar con `§6/§7` del `2026-07-22-catalogo-widgets-design.md`.
+- **`clients/blunua/store-standards.md`** — declarar la clase "regalo" en prosa (la regla dura ya está
+  en `CLAUDE.md`; esto es documentación para humanos).
 
 ## Review adversarial del guard — RESUELTO (commit `9c5b1a7`)
 
