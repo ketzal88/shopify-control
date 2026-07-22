@@ -139,7 +139,9 @@ Hoy el widget tiene colores y textos hardcodeados. Cambio retrocompatible:
 
 - El preámbulo Liquid vuelca también `product.metafields.worker.style` como JSON.
 - El JS aplica esos valores como **CSS custom properties** (`--we-ink`, etc.) y overrides de copy,
-  con **fallback a los defaults actuales** si el metafield no existe.
+  con **fallback por-key**: cada clave que falte o venga vacía cae al default del `.liquid`. Así un
+  `worker.style` vacío (`{}`) —el camino de "sacar el look" de §9.2— resetea **todo** a los defaults,
+  no solo el caso de ausencia total del metafield.
 - Un producto sin `worker.style` se ve exactamente como hoy. Nada se rompe.
 
 ## 9. El metafield `worker.style` (nuevo)
@@ -176,9 +178,11 @@ Por eso el estilo lleva **su propio discriminador**:
 
 ### 9.2 Quitar el look
 
-Sacar el estilo es escribir `worker.style` vacío (o borrar el metafield): el widget cae a los defaults
-del `.liquid` (§8). Es un write como cualquiera → backup de estilo + gate. No hay "restore" de estilos
-anteriores, igual que con las ofertas (E11).
+Sacar el estilo es escribir `worker.style` vacío (`{}`) — **no borrarlo**: `metafieldDelete` está
+fuera de la whitelist del guard (los borrados están bloqueados como clase), así que el camino es el
+mismo que "sacar la oferta" (escribir vacío). El widget cae a los defaults del `.liquid` (§8). Es un
+write como cualquiera → backup de estilo + gate. No hay "restore" de estilos anteriores, igual que con
+las ofertas (E11).
 
 ## 10. Testing
 
