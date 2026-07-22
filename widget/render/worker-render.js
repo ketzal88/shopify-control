@@ -66,6 +66,15 @@
   function computeTierUnitCents(unit, pct) { return Math.round(unit * (100 - pct) / 100); }
   function computeTierTotalCents(unit, pct, qty) { return computeTierUnitCents(unit, pct) * qty; }
 
+  // REGALO / BXGY: "pagás buyQty enteras + getQty al pct". Modelarlo como un %
+  // único mentiría por redondeo contra el descuento nativo (que cobra las buyQty
+  // completas + las getQty con su effect, sin promediar). El total honesto es
+  // este, con el MISMO redondeo por unidad del centavo. pct=100 => el regalo sale
+  // gratis. Fuente única del monto: la comparte el builder, el widget y el gate.
+  function computeBxgyTotalCents(unit, buyQty, getQty, pct) {
+    return buyQty * unit + getQty * computeTierUnitCents(unit, pct);
+  }
+
   function el(tag, cls, text) {
     var e = document.createElement(tag);
     if (cls) e.className = cls;
@@ -188,6 +197,7 @@
     formatMoney: formatMoney,
     computeTierUnitCents: computeTierUnitCents,
     computeTierTotalCents: computeTierTotalCents,
+    computeBxgyTotalCents: computeBxgyTotalCents,
     render: render
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

@@ -4,5 +4,11 @@
   "maxTiers": 4,
   "requireEndsAt": true,
   "allowCollectionScope": false,
-  "enabledStrategies": ["automatic"]
+  "enabledStrategies": ["automatic"],
+
+  "maxGiftPct": 100,
+  "maxGetQty": 1,
+  "minBuyGetRatio": 2,
+  "allowCrossProductGift": true,
+  "giftableProducts": []
 }

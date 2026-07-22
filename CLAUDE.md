@@ -37,9 +37,14 @@ contra `clients/{slug}/connection.md`). Si no coinciden, se aborta.
 5. **Alcance de escritura:** dos clases, cada una con su guardrail.
    - **Texto:** descripción (`descriptionHtml`, vía `Shopify:update-product`) + SEO meta
      title/description (`seo.title`/`seo.description`, vía `Shopify:graphql_mutation`).
-   - **Ofertas:** escalones por cantidad — descuentos nativos + metafield `worker.deal`, con
-     techo por cliente en `deal-policy.json` que el hook enforcea. Ver
+   - **Ofertas:** dos tipos, ambos con techo por cliente en `deal-policy.json` que el hook enforcea.
+     (a) **Escalones por cantidad** — descuentos nativos + metafield `worker.deal`, ver
      `docs/superpowers/specs/2026-07-19-quantity-breaks-design.md`.
+     (b) **Regalo gratis / BXGY** — mismo producto ("comprá 2, el 3º gratis") o cruzado ("comprá X,
+     llevate Y") — `discountAutomaticBxgyCreate` + `worker.deal` con `type:"bxgy"`; techo propio
+     (`maxGiftPct`/`maxGetQty`/`minBuyGetRatio` + allowlist de regalables), ver
+     `docs/superpowers/specs/2026-07-22-regalo-gratis-bxgy-design.md`.
+   - **Estilo del widget:** metafield `worker.style` (cosmético, sin techo, validación de set cerrado).
    - NUNCA precio de lista, stock, status, tags, título ni handle/URL.
    **Esto está enforced por diseño, no por prosa:** `permissions.deny` en `settings.json` bloquea
    los tools fuera de alcance (`set-inventory`, `create-product`, `create-collection`,
