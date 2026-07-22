@@ -63,11 +63,14 @@ Sesión nocturna: Gabriel pidió sumar los catálogos de **wigy** (45 widgets) y
   (~26 adopta, ~7 adopta-con-matiz de plata, ~10 fuera por necesitar backend/PII/ML); consolida en
   **7 familias** en vez de 45 one-offs; propone un guardrail nuevo de **honestidad** (no fabricar
   urgencia/prueba social falsa); y prioriza para blunua (W1 quick wins de confianza → W4 ofertas BxGy).
-- **Decisión clave que reencuadra el builder de escalones:** el `_check_style` bespoke del plan del
-  builder debería nacer como la 1ª entrada de un **registro** `COSMETIC_METAFIELDS` en el guard (§7,
-  D1). Por eso **no toqué `backup_guard.py`** esta noche.
-- **Necesita tu call:** las 6 incógnitas de §12 (forma del guard, corte descripción/bloque, owner SHOP,
-  honestidad como regla dura, y confirmar cuál fue "la app que me pasaste" — sospecho que wigy).
+- **Reconciliado con el carril paralelo:** mientras escribía, otro stream commiteó Tasks 1-2 del builder
+  (`worker.style` guard bespoke `e838cc8` + `worker-render.js` `8680c54`) y el spec de regalo-gratis
+  BxGy (`8c881a0`). El catálogo ubica los tres como piezas del mismo programa. `_check_style` ya está en
+  `main` → el registro `COSMETIC_METAFIELDS` es un **refactor para la 2ª familia cosmética**, no urgente
+  (§7, D1). **No toqué `backup_guard.py`** (lo tenía el otro stream).
+- **Necesita tu call:** las 6 incógnitas de §12 (cuándo refactorizar a registro, corte descripción/
+  bloque, owner SHOP, "Confianza" un bloque o varios, honestidad como regla dura, y confirmar cuál fue
+  "la app que me pasaste" — sospecho que wigy, superconjunto de todo lo de vitrina).
 
 ## PENDIENTE #2 — blunua real
 Cargar los ⚠️ de `clients/blunua/store-standards.md` (vocabulario prohibido, keywords por categoría, taxonomía) + conectar el Shopify real de blunua (hoy conectada la dev store).

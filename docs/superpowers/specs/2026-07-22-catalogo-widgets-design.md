@@ -11,6 +11,19 @@
   (el builder). Este doc **generaliza** esos dos a un programa de widgets.
 - **Fuentes ingeridas:** `wigy.app/todos` (45 widgets) + `crecenube.com/#apps` (8 apps + 6 calculadoras).
 
+> **Nota de reconciliación (post-commit, misma noche).** Mientras escribía esto, un stream paralelo
+> (otro agente que Gabriel dejó corriendo el mismo "hace todo") commiteó en `main`: el guard de
+> `worker.style` **ya shippeado** (`e838cc8`, `_check_style` bespoke en `backup_guard.py:689`), el
+> render como fuente única (`8680c54`, `widget/render/worker-render.js` — Tasks 1-2 del plan del
+> builder, hechos), y un **spec completo de regalo-gratis BxGy** (`8c881a0`,
+> `2026-07-22-regalo-gratis-bxgy-design.md`). Eso cambia dos cosas acá, ya corregidas abajo:
+> 1. **`worker.style` no es una decisión abierta: está construido bespoke.** El registro
+>    `COSMETIC_METAFIELDS` pasa de "decisión antes de construir" a **refactor cuando lleguen las
+>    familias cosméticas** (§7, §12-D1). No es urgente ni bloqueante.
+> 2. **La familia Ofertas-ampliadas ya tiene diseño.** El regalo-gratis BxGy (mismo-producto = "2x1/3x2"
+>    de wigy; cruzado = "productos complementarios/pack") está especificado en detalle en su propio
+>    spec. Mi catálogo lo **referencia**, no lo re-diseña (§5, §6, §11).
+
 ---
 
 ## 1. Contexto y objetivo
@@ -138,9 +151,9 @@ Columna "→": el metafield/owner propuesto. **PROD** = por producto, **SHOP** =
 | 5 | Barra de acción (sticky ATC) | ADOPTA | bloque SHOP, sin dato | Familia Vitrina. Cosmético puro. |
 | 35 | Video flotante | ADOPTA | `worker.float` SHOP | Familia Vitrina. |
 | 36 | Botón de WhatsApp | ADOPTA | `worker.float` SHOP | **Quick win LatAm** (conversión). |
-| 3 | Bundle 2x1, 3x2 | ADOPTA c/matiz | `worker.deal` PROD | BxGy. Hoy `discountAutomaticBxgyCreate` está **bloqueado** por el guard: extiende la whitelist de ofertas con techo. |
-| 1 | Productos complementarios | ADOPTA c/matiz | `worker.combo` PROD | Cross-sell. Solapa `armar-combo` (que hoy propone, no escribe). Cart/checkout scope. |
-| 17 | Pack complementarios | ADOPTA c/matiz | `worker.combo` PROD | Bundle con checkboxes + descuento → camino de ofertas. |
+| 3 | Bundle 2x1, 3x2 | **EN DISEÑO** | `worker.deal` (`bxgy` same) | = regalo-gratis mismo-producto. **Ya especificado** en `2026-07-22-regalo-gratis-bxgy-design.md`. |
+| 1 | Productos complementarios | ADOPTA c/matiz | `worker.combo` PROD | Cross-sell (recomendación). Solapa `armar-combo` (hoy propone, no escribe). Distinto del regalo cruzado (que sí regala). |
+| 17 | Pack complementarios | ADOPTA c/matiz | `worker.combo` PROD | Bundle fijo con descuento. **Ojo:** el bundle no es descuento nativo de Shopify (regalo-gratis §15/G1 lo deja fuera); parte cae en regalo cruzado, parte necesita otro motor. |
 | 45 | Conjunto de looks | ADOPTA c/matiz | `worker.combo` PROD | Combos de outfit; solapa `armar-combo`. |
 | 14 | Cupón de descuento (badge) | ADOPTA c/matiz | `worker.deal` (codes) | El badge muestra un código que tiene que existir (estrategia `codes`, hoy off para blunua). |
 | 43 | Barra de progreso (envío gratis) | ADOPTA c/matiz | `worker.freeship` SHOP | Cart-scope, lee total del carrito client-side. |
@@ -169,7 +182,7 @@ N ítems:
 
 | Familia | Metafield | Absorbe | Owner |
 |---|---|---|---|
-| **Ofertas** | `worker.deal` | escalones (done), 2x1/3x2, complementarios/pack, cupón | PROD |
+| **Ofertas** | `worker.deal` | escalones (**M2 done**), regalo/BxGy 2x1-3x2 + cruzado (**spec `regalo-gratis-bxgy`, en curso**), cupón (estrategia `codes`, off) | PROD |
 | **Confianza** | `worker.trust` | alertas, garantía, badges (envío/cuotas/transferencia), beneficios, info envío/despacho, tags | PROD + SHOP |
 | **Contenido enriquecido** | `worker.media` | video/imágenes y texto, columnas, pestañas, pasos, comparadores, sliders | PROD |
 | **FAQ** | `worker.faq` | preguntas frecuentes (+ schema FAQPage) | PROD |
@@ -202,17 +215,20 @@ widget no escala. La generalización:
 3. **Backup `kind` por familia**, con la misma regla de cruce que ya se probó: un backup `kind:"trust"`
    no habilita un write de `deal`, y viceversa (el aislamiento por ruta+kind del §9.1 del builder es el
    patrón a copiar). Cada spec cosmético declara su `kind`.
-4. **Las ofertas c/matiz tocan el techo, no el registro cosmético.** 2x1/3x2 y pack son **plata**:
-   extienden la whitelist de descuentos (`discountAutomaticBxgyCreate` con un techo BxGy en
-   `deal-policy.json`), no el registro cosmético. Son la parte cara y arriesgada del catálogo → van
-   después, con su propia ronda de review adversarial (como el M1 de escalones).
+4. **Las ofertas c/matiz tocan el techo, no el registro cosmético.** El regalo/BxGy (2x1/3x2 + cruzado)
+   es **plata**: extiende la whitelist de descuentos (`discountAutomaticBxgyCreate` con un techo en
+   `deal-policy.json`), no el registro cosmético. Es la parte cara y arriesgada → su propia ronda de
+   review adversarial. **Ya tiene diseño** (`2026-07-22-regalo-gratis-bxgy-design.md`, `_check_bxgy`
+   función propia, no reusa `_check_discount`).
 
-> **Esto reencuadra el builder de escalones.** Su Task 1 implementa `_check_style` bespoke. Si la
-> mañana adopta el registro, conviene que Task 1 nazca ya como la **primera entrada del registro**
-> (`COSMETIC_METAFIELDS["style"]`) en vez de una función suelta que refactorizaríamos enseguida. Es una
-> decisión de la mañana (§12-D1), por eso **no toqué `backup_guard.py` esta noche**: construir la forma
-> equivocada del guard de plata, sin vos despierto para revisar la seguridad, es exactamente el tipo de
-> cambio que no hago solo.
+> **Estado real (post-commit):** `_check_style` **ya está en `main`** bespoke (`e838cc8`,
+> `backup_guard.py:689`) — lo shippeó el stream paralelo. El registro `COSMETIC_METAFIELDS` **no** es
+> una decisión "antes de construir": es un **refactor para cuando llegue la 2ª familia cosmética**
+> (Confianza, FAQ), no antes. Con una sola entrada (`style`) el bespoke está bien; la función-por-widget
+> recién duele en la 3ª o 4ª. La regla se mantiene —*cuando* se agregue la 2ª, se hace el registro en vez
+> de copiar `_check_style`—, pero no hay nada que revertir hoy. **Yo no toqué `backup_guard.py`**: el
+> stream paralelo es dueño de ese archivo esta noche, y tocar el guard de plata desde dos sesiones a la
+> vez es pedir un conflicto justo donde no se puede.
 
 ---
 
@@ -290,8 +306,10 @@ sin tocar plata):
   corte descripción-vs-bloque** (§12-D2).
 - **W3 — Urgencia honesta.** Cuenta regresiva (atada a `endsAt`), Barra de envío gratis, Urgencia de
   stock real. Introduce cart-scope y lectura de dato en vivo.
-- **W4 — Ofertas ampliadas (la parte cara).** 2x1/3x2 (BxGy con techo), complementarios/pack. Toca el
-  guard de plata → ronda de review adversarial propia, como el M1 de escalones. **No antes de W1-W3.**
+- **W4 — Ofertas ampliadas (la parte cara).** Regalo/BxGy: 2x1/3x2 (mismo-producto) + cruzado. Toca el
+  guard de plata → review adversarial propia, como el M1 de escalones. **Ya en curso en paralelo:** spec
+  `2026-07-22-regalo-gratis-bxgy-design.md` cerrado (brainstorm G1–G16), pendiente plan + implementación.
+  Esta W corre en su propio carril, no depende de W1-W3.
 - **Fuera de programa:** reseñas/social/wishlist/probador → §9, se anotan, no se construyen.
 
 **Regla de secuencia:** primero lo cosmético (barato, estrena el registro), después lo de plata (caro,
@@ -303,10 +321,10 @@ riesgoso, review propio). Es la misma curva de riesgo que ya validó el repo.
 
 Estas son las que **no** decidí solo porque cambian la forma de lo que se construye:
 
-- **D1 — Forma del guard cosmético.** ¿El builder de escalones nace con `_check_style` bespoke (como
-  está el plan) o ya como la **primera entrada del registro** `COSMETIC_METAFIELDS` (§7)? Mi
-  recomendación: registro, porque el catálogo lo va a necesitar en la semana siguiente. Impacta el
-  Task 1 del plan `2026-07-22-escalones-builder.md`.
+- **D1 — Cuándo refactorizar a registro cosmético.** `_check_style` ya está en `main` bespoke
+  (`e838cc8`). No hay decisión "antes de construir": la pregunta es *cuándo* migrar a
+  `COSMETIC_METAFIELDS` (§7). Mi recomendación: al construir la **2ª** familia cosmética (W1: Confianza/
+  FAQ), no antes. Hoy no hay nada que revertir.
 - **D2 — Corte descripción vs. bloque.** La familia Contenido (§6) pisa `mejorar-descripcion`. ¿Qué va
   en la descripción (indexable, SEO) y qué en un bloque aparte? Sin este corte, W2 duplica superficie.
 - **D3 — ¿Owner SHOP entra ya o después?** Los quick wins de W1 (WhatsApp, badges de tienda) son
@@ -324,9 +342,14 @@ Estas son las que **no** decidí solo porque cambian la forma de lo que se const
 
 ## 13. Relación con lo ya existente
 
+- **Hay un carril paralelo corriendo** (otro agente, misma noche): ejecutó Tasks 1-2 del builder
+  (guard `worker.style` + `worker-render.js`, commits `e838cc8`/`8680c54`) y cerró el spec de
+  regalo-gratis BxGy (`8c881a0`). Este catálogo es el **mapa** que ubica esos dos trabajos dentro del
+  programa: el builder es la primera instancia del patrón, el regalo es la 1ª familia de plata nueva.
+  Los tres son piezas del mismo programa, no esfuerzos sueltos.
 - **El builder de escalones sigue siendo la primera instancia** de este programa, no un desvío. Su
   `worker.style` es la semilla del registro cosmético (§7). El plan `2026-07-22-escalones-builder.md`
-  se ejecuta igual; lo único que la mañana puede cambiar es la **forma** de su Task 1 (D1).
+  se ejecuta igual; Tasks 1-2 ya están en `main`.
 - **`armar-combo`** ya es el generador de la familia Ofertas-combo (hoy propone, no escribe). Cuando se
   construya `worker.combo`, ese skill gana el camino de write (como `armar-escalones` lo tiene).
 - **La capa de canales** (`cubrir-demanda`, etc.) es ortogonal: diagnostica marketing, no pone widgets.
