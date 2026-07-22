@@ -383,9 +383,13 @@ limpieza porque no pudiste registrarla.
 
 ## Si el cliente pide algo fuera de alcance
 
-Bajar el precio de lista, poner un descuento a toda la tienda o a una colección entera, regalo por
-compra, envío gratis, cupones sueltos, pausar o publicar productos: **no se hace y no se intenta.**
-Esos caminos están bloqueados por diseño, así que intentarlo solo genera un error feo.
+Bajar el precio de lista, poner un descuento a toda la tienda o a una colección entera, envío gratis,
+cupones sueltos, pausar o publicar productos: **no se hace y no se intenta.** Esos caminos están
+bloqueados por diseño, así que intentarlo solo genera un error feo.
+
+El **regalo por compra** ("comprá 2 y el 3º gratis", "llevate algo de regalo") sí se puede, pero es
+**otro skill** (`armar-regalo`), no este. Si el cliente lo pide, no lo armes acá: es una oferta
+distinta, con otro techo y otra forma de escritura.
 
 Guion (neutro, adaptar según `store-standards §2`):
 > *"Eso todavía no lo puedo hacer yo. Lo anoto y lo vemos con el equipo."*
