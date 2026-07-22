@@ -1,0 +1,63 @@
+{%- comment -%}
+  ============================================================================
+  worker-trust · widget "Confianza" (badges + mensajes)  (shopify-control · F2)
+  ============================================================================
+  Bloque Custom Liquid. Se pega UNA vez, desde el editor de temas, en la
+  plantilla de producto, CERCA del botón "Agregar al carrito". NO se edita
+  ningún archivo del tema.
+
+  Lee product.metafields.worker.trust y, si no hay, cae a shop.metafields.worker.trust
+  (un badge puede ser por producto o de toda la tienda). Renderiza los ítems de
+  tipo `badge` y `message`. Los ítems `whatsapp` los ignora acá: los muestra el
+  bloque flotante worker-whatsapp.liquid. Si no hay ítems inline, no renderiza nada.
+
+  El texto va server-rendered (crawleable + `| escape`); los íconos son un set
+  cerrado de SVG (nunca URLs ni SVG del usuario → sin inyección).
+
+  Diseño: docs/superpowers/specs/2026-07-22-pack-latam-vitrina-design.md §6
+  Guard:  worker.trust validado por COSMETIC_METAFIELDS en backup_guard.py
+  ============================================================================
+{%- endcomment -%}
+
+{%- assign trust = product.metafields.worker.trust.value | default: shop.metafields.worker.trust.value -%}
+{%- if trust and trust.items and trust.items.size > 0 -%}
+{%- assign has_inline = false -%}
+{%- for it in trust.items -%}{%- if it.type == "badge" or it.type == "message" -%}{%- assign has_inline = true -%}{%- endif -%}{%- endfor -%}
+{%- if has_inline -%}
+
+<div id="worker-trust" class="wt">
+  {%- for it in trust.items -%}
+    {%- if it.type == "badge" -%}
+    <span class="wt-badge">
+      <span class="wt-ico" aria-hidden="true">{%- case it.icon -%}
+        {%- when "cuotas" -%}<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
+        {%- when "transferencia" -%}<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h15l-3-3M20 17H5l3 3"/></svg>
+        {%- when "envio" -%}<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5h11v10H2zM13 8h4l4 4v3h-8"/><circle cx="6" cy="18" r="1.6"/><circle cx="17.5" cy="18" r="1.6"/></svg>
+        {%- when "garantia" -%}<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4-3 7-7 8-4-1-7-4-7-8V6z"/><path d="M9 12l2 2 4-4"/></svg>
+        {%- when "seguridad" -%}<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>
+      {%- endcase -%}</span>
+      <span class="wt-txt">{{ it.text | escape }}</span>
+    </span>
+    {%- elsif it.type == "message" -%}
+    <p class="wt-msg">{{ it.text | escape }}</p>
+    {%- endif -%}
+  {%- endfor -%}
+</div>
+
+<style>
+  #worker-trust.wt{
+    --wt-ink:#4B4B4B; --wt-sage:#9CB0B1; --wt-line:rgba(75,75,75,.18);
+    font-family:inherit; color:var(--wt-ink); margin:14px 0; max-width:520px;
+    display:flex; flex-wrap:wrap; gap:8px 10px; align-items:center;
+  }
+  #worker-trust .wt-badge{
+    display:inline-flex; align-items:center; gap:6px; padding:6px 11px;
+    border:1.5px solid var(--wt-line); border-radius:20px; font-size:12px; font-weight:600;
+  }
+  #worker-trust .wt-ico{ display:inline-flex; color:var(--wt-sage); }
+  #worker-trust .wt-msg{
+    flex-basis:100%; margin:2px 0 0; font-size:12.5px; opacity:.75;
+  }
+</style>
+{%- endif -%}
+{%- endif -%}
