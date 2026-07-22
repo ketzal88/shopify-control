@@ -50,8 +50,29 @@ ramifica por `type`. `deal-policy.json` de blunua y `_template` backfilleados (c
    - `all_products[handle]` resuelve el regalo cruzado (D1).
    - Ciclo crear → verificar en checkout → sacar → verificar que dejó de aplicar.
 
-## Review adversarial del guard
+## Review adversarial del guard — RESUELTO (commit `9c5b1a7`)
 
-Se corrió una review adversarial del `_check_bxgy` (código de plata, como el M1 de escalones que
-encontró 7 agujeros). **Resultado y correcciones: ver los commits posteriores a `40c04fb` en esta
-rama** (si los hay) y la sección de cierre del reporte de la sesión.
+Se corrió una review adversarial del `_check_bxgy` (código de plata; el M1 de escalones encontró 7
+agujeros así). Ejecutó ~15 payloads reales contra el guard. **Tres hallazgos, los tres corregidos con
+TDD (test que reproduce el bypass → fix → verde). 214 tests passed.**
+
+- **HIGH — reabría escalones.** Un comentario (`#x\n`) o coma entre el nombre de la mutación y su `(`
+  rompía el router de asuntos (`_discount_mutations`, regex sobre texto **crudo**) mientras el gate de
+  allowlist (`_root_mutation_fields`, comment-stripped) lo dejaba pasar. El descuento caía al camino de
+  producto pidiendo **solo un backup de descripción** → todo el techo evadido. **Afectaba
+  `discountAutomaticBxgyCreate` Y `discountAutomaticBasicCreate`** (escalones). Fix: clasificar y
+  despachar los asuntos desde `roots` (el parser que ya decidió la allowlist), no desde el regex crudo.
+  Es exactamente la causa raíz de `docs/2026-07-20-hallazgos-de-seguridad-backup-guard.md`: dos formas
+  de leer el mismo documento, y la decisión final confiaba en la débil.
+- **MED — backup desacoplado.** El backup se buscaba por `variables.productId` sin compararlo con el
+  producto realmente comprado; un backup de otro producto autorizaba el write. Fix: `productId == buy_gid`.
+- **LOW — gid con espacio.** `"gid…/1 "` (espacio al final) se leía como falso "cruzado" y salteaba el
+  ratio de mismo-producto. Fix: forma canónica `PRODUCT_GID_RE`.
+
+Objetivos donde el review NO encontró bypass (confirmado): sin backup → bloquea; señuelo `aaa_decoy` →
+cerrado; trampa fracción/entero y borde 100 → cubiertos; `all`/`collections`/variantes en buy o get →
+cerrado; metafield `type:bxgy` sobre techo → cerrado.
+
+> **Nota para el operador:** el HIGH **no lo introdujo BXGY** — estaba latente en el router de asuntos
+> desde escalones. Este milestone lo encontró y lo cerró para las dos familias. Vale traerlo al `main`
+> aunque se difiera el resto del regalo.
