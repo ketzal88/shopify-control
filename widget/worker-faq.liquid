@@ -1,0 +1,96 @@
+{%- comment -%}
+  ============================================================================
+  worker-faq · widget "Preguntas frecuentes"  (shopify-control · Pack LatAm F1)
+  ============================================================================
+  Bloque Custom Liquid. Se pega UNA vez, desde el editor de temas, en la
+  plantilla de producto, DEBAJO de la descripción. NO se edita ningún archivo
+  del tema.
+
+  Lee el metafield product.metafields.worker.faq (JSON escrito por el skill
+  `armar-faq`). Si no hay preguntas —metafield ausente o `items` vacío— el
+  bloque no renderiza NADA (estado por defecto; sacar la FAQ = escribir items:[]).
+
+  A diferencia del widget de escalones, el TEXTO de las preguntas se renderiza
+  server-side con Liquid (crawleable + `| escape` como defensa), y el JS solo
+  abre/cierra el acordeón. Además emite un JSON-LD `FAQPage` para que Google y
+  los buscadores con IA citen las respuestas (SEO/GEO).
+
+  Diseño: docs/superpowers/specs/2026-07-22-pack-latam-vitrina-design.md §6
+  Guard:  worker.faq validado por COSMETIC_METAFIELDS en backup_guard.py
+  ============================================================================
+{%- endcomment -%}
+
+{%- assign faq = product.metafields.worker.faq.value -%}
+{%- if faq and faq.items and faq.items.size > 0 -%}
+
+{%- comment -%} — Datos estructurados: FAQPage (server-rendered, sin depender de JS) — {%- endcomment -%}
+<script type="application/ld+json">
+{ "@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [
+{%- for it in faq.items -%}
+{ "@type": "Question", "name": {{ it.q | json }}, "acceptedAnswer": { "@type": "Answer", "text": {{ it.a | json }} } }{%- unless forloop.last -%},{%- endunless -%}
+{%- endfor -%}
+] }
+</script>
+
+<section id="worker-faq" class="wf" data-worker-faq>
+  <h2 class="wf-title">Preguntas frecuentes</h2>
+  <div class="wf-list">
+    {%- for it in faq.items -%}
+    <div class="wf-item">
+      <button type="button" class="wf-q" aria-expanded="false" data-wf-q>
+        <span class="wf-q-txt">{{ it.q | escape }}</span>
+        <span class="wf-icon" aria-hidden="true"></span>
+      </button>
+      <div class="wf-a" data-wf-a hidden><p>{{ it.a | escape }}</p></div>
+    </div>
+    {%- endfor -%}
+  </div>
+</section>
+
+<style>
+  #worker-faq.wf{
+    --wf-ink:#4B4B4B; --wf-sage:#9CB0B1; --wf-line:rgba(75,75,75,.16);
+    font-family:inherit; color:var(--wf-ink); margin:24px 0; max-width:640px;
+  }
+  #worker-faq .wf-title{
+    font-size:13px; letter-spacing:.14em; text-transform:uppercase; opacity:.6;
+    margin:0 0 12px; font-weight:600;
+  }
+  #worker-faq .wf-item{ border-bottom:1.5px solid var(--wf-line); }
+  #worker-faq .wf-q{
+    display:flex; align-items:center; gap:12px; width:100%; text-align:left;
+    background:none; border:0; padding:15px 2px; cursor:pointer; color:inherit;
+    font:inherit; font-size:14px; font-weight:600;
+  }
+  #worker-faq .wf-q-txt{ flex:1; min-width:0; }
+  #worker-faq .wf-icon{
+    flex:0 0 14px; width:14px; height:14px; position:relative; opacity:.55;
+    transition:transform .2s ease;
+  }
+  #worker-faq .wf-icon::before,
+  #worker-faq .wf-icon::after{
+    content:""; position:absolute; background:var(--wf-ink); border-radius:2px;
+  }
+  #worker-faq .wf-icon::before{ top:6px; left:0; width:14px; height:2px; }
+  #worker-faq .wf-icon::after{ top:0; left:6px; width:2px; height:14px; }
+  #worker-faq .wf-q[aria-expanded="true"] .wf-icon{ transform:rotate(45deg); }
+  #worker-faq .wf-a{ padding:0 2px 16px; }
+  #worker-faq .wf-a p{ margin:0; font-size:13.5px; line-height:1.6; opacity:.85; }
+</style>
+
+<script>{% raw %}
+(function () {
+  var root = document.getElementById('worker-faq');
+  if (!root || root.dataset.wfReady) return;
+  root.querySelectorAll('[data-wf-q]').forEach(function (btn) {
+    var panel = btn.parentNode.querySelector('[data-wf-a]');
+    btn.addEventListener('click', function () {
+      var open = btn.getAttribute('aria-expanded') === 'true';
+      btn.setAttribute('aria-expanded', open ? 'false' : 'true');
+      if (panel) panel.hidden = open;
+    });
+  });
+  root.dataset.wfReady = '1';
+})();
+{% endraw %}</script>
+{%- endif -%}
