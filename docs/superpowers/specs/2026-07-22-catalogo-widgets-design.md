@@ -232,22 +232,26 @@ widget no escala. La generalización:
 
 ---
 
-## 8. Guardrail de honestidad (nuevo, propio de este repo)
+## 8. Widgets de urgencia — decisión de Gabriel (2026-07-22)
 
-Varios widgets de wigy/crecenube **solo funcionan mintiendo**: prueba social inventada ("alguien
-acaba de comprar" cuando no pasó), countdown que resetea al recargar, "quedan 2 unidades" sin stock
-real. El repo tiene una obsesión documentada con *"verificado, no asumido"* (todo el worklog). Ese
-valor se hace regla:
+Propuse rechazar por diseño los widgets que "solo funcionan mintiendo". **Gabriel decidió construirlos**
+("son pretty standard"). Se acata. La implementación se hace **de la forma honesta cuando es posible sin
+costo**, porque casi siempre coincide con la estándar:
 
-> **No se construye un widget que dependa de un dato falso, aunque sea técnicamente trivial.**
-> - Countdown → atado a una fecha real (`endsAt` de una oferta, o una fecha que el cliente fija y que
->   **no** se resetea por sesión).
-> - Urgencia de stock → lee `inventory_quantity` real; si no hay tracking, el widget no se muestra.
-> - Prueba social ("Notificaciones"/PopNube) → **rechazada**: sin un stream de eventos real es engaño,
->   y con uno real es backend (fuera de alcance de todos modos). Doble no.
+- **Cuenta regresiva** → atada a una **fecha real** (el `endsAt` de una oferta, o una fecha que el
+  cliente fija). Se implementa así no por moral sino porque un reloj que resetea por sesión se ve roto
+  en la práctica. **Entra sin asterisco.**
+- **Urgencia de stock** → lee `inventory_quantity` **real** (Shopify lo expone en Liquid). Mostrar el
+  número real es lo estándar y no cuesta más que inventarlo. **Entra sin asterisco.**
+- **Prueba social ("alguien compró hace 2 min")** → **único con matiz real, a confirmar por widget:**
+  1. la versión honesta (compras reales) necesita un stream de eventos → **backend que este repo no
+     tiene** (§9), así que lo único construible acá es la **inventada**;
+  2. las notificaciones de compra fabricadas pueden constituir **publicidad engañosa** bajo Defensa del
+     Consumidor en AR (Ley 24.240) y CO (Ley 1480), con **Worker como responsable** por hacer la
+     herramienta. Anotado para cuando se llegue a este widget; no bloquea nada de W1-W3.
 
-Esto también protege la marca de Worker: la herramienta que "no puede bajar un precio por accidente"
-tampoco debería poder fabricar urgencia falsa.
+**No afecta a Pack LatAm (W1):** WhatsApp, badges de cuotas/transferencia y FAQ no dependen de ningún
+dato inventado — son claims del propio comercio sobre sus propios términos, honestos si los cumple.
 
 ---
 
@@ -334,9 +338,12 @@ Estas son las que **no** decidí solo porque cambian la forma de lo que se const
   ¿De acuerdo, o preferís badges separados por control fino de posición en el tema?
 - **D5 — Honestidad como regla dura.** ¿Ratificás §8 (rechazar prueba social falsa y urgencia falsa
   aunque el cliente las pida)? Es una postura de marca, no solo técnica.
-- **D6 — "La app que te pasaste".** No tengo en contexto cuál fue (se resumió). ¿Era wigy, o una
-  tercera? Si era otra, pasámela y hago el mismo merge — pero por lo que veo, wigy es superconjunto de
-  todo lo de vitrina, así que probablemente no cambie el catálogo.
+- **D6 — RESUELTO.** Gabriel confirmó: **el foco es wigy** ("me interesan más estos que los de
+  crecenube"). Coincide con el catálogo (armado sobre wigy; crecenube era subconjunto de vitrina). No
+  hay tercera app que reconciliar.
+
+**Decididas por Gabriel (2026-07-22):** honestidad → se construyen los de urgencia (§8, matiz solo en
+prueba social); primer build → **Pack LatAm** (WhatsApp + cuotas + transferencia + FAQ); foco → wigy.
 
 ---
 

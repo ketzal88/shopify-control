@@ -6,3 +6,7 @@ __pycache__/
 .playwright-mcp/
 .superpowers/
 e2e-storefront-password-gate.png
+
+# builder generado para probar (no versionar)
+widget/_preview/
+.playwright-mcp/

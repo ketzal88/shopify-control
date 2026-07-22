@@ -71,7 +71,7 @@ declarada y no usada"; como variable extra no declarada, Shopify la ignora y el 
 
 ```json
 { "productId": "gid://shopify/Product/999",
-  "d": { "title": "shopify-control · NEXO Plateado · 2+",
+  "d": { "title": "shopify-control · NEXO Plateado · 2+ · 20260720-224000",
          "startsAt": "2026-07-20T00:00:00Z",
          "endsAt":   "2026-10-18T00:00:00Z",
          "minimumRequirement": { "quantity": { "greaterThanOrEqualToQuantity": "2" } },
@@ -82,9 +82,15 @@ declarada y no usada"; como variable extra no declarada, Shopify la ignora y el 
 
 Campo por campo, y por qué:
 
-- **`title` con prefijo `shopify-control ·`** — obligatorio. Es lo que permite después distinguir en
-  el admin qué descuentos creó la herramienta y cuáles puso una persona a mano, y es la base de la
-  detección de huérfanos. Formato: `shopify-control · {producto} · {qty}+`.
+- **`title` con prefijo `shopify-control ·` + token único al final** — obligatorio. El prefijo
+  permite distinguir en el admin qué creó la herramienta. El **token único es obligatorio, no
+  cosmético**: el reemplazo de una oferta crea los descuentos nuevos ANTES de desactivar los viejos
+  (orden crear→publicar→desactivar, para no anunciar un precio que el carrito no aplica), así que el
+  viejo `· 2+` sigue **vivo** cuando nace el nuevo — y **Shopify exige título único entre descuentos
+  automáticos**. Sin token, todo reemplazo de oferta falla a la mitad (verificado en vivo, worklog
+  2026-07-22). Formato: `shopify-control · {producto} · {qty}+ · {ts}`, con `{ts}` = el timestamp de
+  la oferta (`YYYYMMDD-HHMMSS`, **el mismo del backup e igual para los tres escalones**, para que se
+  agrupen visualmente en el admin).
 - **`greaterThanOrEqualToQuantity`** viaja como **string** (`"2"`), no como número. Es la API.
 - **`percentage`** es fracción: `pct / 100`. `10` → `0.10`.
 - **`items.products.productsToAdd`** con ids **explícitos**. Nunca `all: true` (descuento sobre todo

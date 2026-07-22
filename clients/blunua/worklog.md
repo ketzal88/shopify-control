@@ -4,6 +4,22 @@ Append-only. Cada write deja una entrada: `## YYYY-MM-DD [write] producto — ba
 
 <!-- nuevas entradas arriba -->
 
+## 2026-07-22 [oferta] [test-devstore] The Multi-managed Snowboard — flujo completo del builder
+Tienda: **Testing StandAlone Framework** (dev store). **Nada en blunua producción.** Prueba
+end-to-end del builder: config `🧩 escalones-config` pegada → revalidación contra el techo → preview
+ANTES/DESPUÉS → gate → backup → write. Reemplazó la oferta demo (2/-10%, 3/-20%) por 2/-10%,
+3/-18%, 4/-23%.
+
+- Backup: `clients/blunua/backups/deals/10429846683965-20260722-103830.json` (`previous` = oferta demo).
+- Creados:      `.../1765733761341` (2+ 10%), `.../1765733892413` (3+ 18%), `.../1765732679997` (4+ 23%).
+- Desactivados: `.../1765235720509` (2+ 10% viejo), `.../1765235786045` (3+ 20% viejo) → EXPIRED.
+- **HALLAZGO (título único):** al reemplazar, crear un nuevo `· 2+`/`· 3+` chocó con el viejo aún
+  activo — **Shopify exige título único entre descuentos automáticos**. El `· 4+` entró (no había
+  viejo). Recuperado con sufijo de timestamp (`· 103830`). **FIX pendiente en
+  `strategies/automatic.md`:** el formato de título tiene que llevar un token único SIEMPRE, porque
+  el orden crear→desactivar hace que el viejo siga vivo cuando se crea el nuevo. Sin eso, todo
+  reemplazo de oferta falla a la mitad.
+
 ## 2026-07-21 [test] [e2e] §14 resuelto en vivo + widget M2 construido
 Tienda: **Testing StandAlone Framework** (dev store, USD). **Nada escrito en blunua producción.**
 Corrige la entrada de abajo (2026-07-20): la validación empírica de §14 **ya no es "pendiente para
