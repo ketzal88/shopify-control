@@ -58,6 +58,11 @@ STYLE_KEYS = STYLE_COLOR_KEYS | STYLE_TEXT_KEYS
 STYLE_TEXT_MAXLEN = 40
 HEX_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 
+# worker.faq (Pack LatAm F1): preguntas frecuentes, forma cerrada {version, items[{q,a}]}.
+FAQ_MAX_ITEMS = 12
+FAQ_Q_MAXLEN = 120
+FAQ_A_MAXLEN = 600
+
 # Tools de escritura del connector prohibidos en el v1 (alcance: descripción + SEO).
 FORBIDDEN_ACTIONS = {
     "set-inventory",
@@ -386,22 +391,24 @@ def _covering_deal_backup(backups_root, product_id: str, now: float):
                    "El skill debe guardar el backup antes de escribir.")
 
 
-def _covering_style_backup(backups_root, product_id: str, now: float):
-    """(hay_backup_valido, motivo). Backup de ESTILO, discriminado por ruta
-    (`backups/style/`) y `kind == "style"` — las dos, igual que el de oferta.
+def _covering_cosmetic_backup(key, backups_root, product_id: str, now: float):
+    """(hay_backup_valido, motivo). Backup COSMÉTICO de la familia `key`,
+    discriminado por ruta (`backups/{key}/`) Y `kind == key` — las dos, igual que
+    oferta/estilo.
 
-    Discriminador propio a propósito (spec §9.1): un backup de estilo NO puede
-    habilitar un write de plata (`worker.deal` / `discount*Create`) ni al revés.
-    El aislamiento vale por ruta Y por kind, defensa en profundidad idéntica al
-    de oferta. Frescura doble (mtime + ts), igual que `_covering_deal_backup`.
+    Discriminador propio a propósito (spec §5.2): un backup cosmético de una
+    familia NO habilita un write de plata (`worker.deal` / `discount*Create`) ni
+    de otra familia cosmética, ni al revés. El aislamiento vale por ruta Y por
+    kind, defensa en profundidad idéntica a la de oferta. Frescura doble (mtime +
+    ts), igual que `_covering_deal_backup`.
     """
     tail = product_id.split("/")[-1]
-    for p in Path(backups_root).glob(f"**/backups/style/{tail}-*.json"):
+    for p in Path(backups_root).glob(f"**/backups/{key}/{tail}-*.json"):
         try:
             data = json.loads(p.read_text(encoding="utf-8"))
         except Exception:
             continue
-        if data.get("kind") != "style":
+        if data.get("kind") != key:
             continue
         if data.get("productId") != product_id:
             continue
@@ -410,8 +417,13 @@ def _covering_style_backup(backups_root, product_id: str, now: float):
         if not _ts_fresh(data, now):
             continue
         return True, None
-    return False, (f"Sin backup de estilo reciente para {product_id}. "
-                   "El skill debe guardar el backup de estilo antes de escribir.")
+    return False, (f"Sin backup cosmético reciente ({key}) para {product_id}. "
+                   "El skill debe guardar el backup antes de escribir.")
+
+
+def _covering_style_backup(backups_root, product_id: str, now: float):
+    """Compat: el estilo es la familia cosmética `style` (spec §9.1)."""
+    return _covering_cosmetic_backup("style", backups_root, product_id, now)
 
 
 def _discount_mutations(text: str) -> list:
@@ -644,10 +656,12 @@ def _check_metafield(tool_input, backups_root, now: float):
         return "block", ("el pedido escribe más de una oferta a la vez y solo puedo "
                          "verificar el respaldo de una. Mandalas de a una.")
 
-    # Routing por key: worker.style es cosmético (sin techo) → su propio check,
-    # ANTES de cargar la política de plata (el estilo no depende de deal-policy).
-    if entries[0].get("namespace") == "worker" and entries[0].get("key") == "style":
-        return _check_style(tool_input, backups_root, now)
+    # Routing por key: las familias cosméticas (worker.style, worker.faq, …) van
+    # sin techo a su check de registro, ANTES de cargar la política de plata (no
+    # dependen de deal-policy). worker.deal cae abajo, a la rama de plata.
+    key0 = entries[0].get("key")
+    if entries[0].get("namespace") == "worker" and key0 in COSMETIC_METAFIELDS:
+        return _check_cosmetic(key0, tool_input, backups_root, now)
 
     policy = load_policy(backups_root)
     if policy is None:
@@ -686,14 +700,63 @@ def _check_metafield(tool_input, backups_root, now: float):
     return ("allow", "ok") if ok else ("block", why)
 
 
-def _check_style(tool_input, backups_root, now: float):
-    """metafieldsSet de `worker.style`: cosmético, cerrado, sin techo (spec §9).
+def _style_body(data):
+    """Valida el cuerpo de `worker.style`: set cerrado de keys, colores hex (para
+    que un valor no inyecte CSS por la var), textos acotados sin `<`/`>`. Devuelve
+    un motivo (str) o None si es válido. Un `{}` (sacar el look) es válido: el loop
+    no corre y cae a los defaults del widget."""
+    for k, v in data.items():
+        if k not in STYLE_KEYS:
+            return f"clave de estilo desconocida: {k}."
+        if k in STYLE_COLOR_KEYS:
+            if not (isinstance(v, str) and HEX_RE.match(v)):
+                return f"{k} tiene que ser un color hex (#RRGGBB)."
+        else:
+            if not isinstance(v, str) or len(v) > STYLE_TEXT_MAXLEN or "<" in v or ">" in v:
+                return f"{k} tiene que ser texto de hasta {STYLE_TEXT_MAXLEN} sin < ni >."
+    return None
 
-    No mueve plata, así que no carga `deal-policy.json`. Pero valida igual: keys
-    de un set cerrado, colores hex (para que un valor no inyecte CSS por la var),
-    textos acotados sin `<`/`>`. Y exige backup de ESTILO (`_covering_style_backup`,
-    kind y ruta propios) — nunca el de oferta.
-    """
+
+def _faq_body(data):
+    """Valida el cuerpo de `worker.faq`: `{version, items[{q,a}]}`, textos acotados
+    sin `<`/`>` (el widget usa `textContent`, pero validar en el borde es barato),
+    1..FAQ_MAX_ITEMS. Devuelve un motivo (str) o None si es válido. `items: []` es
+    válido: es "sacar la FAQ" (el widget deja de mostrarse), espejo del `{}` de estilo."""
+    extra = set(data.keys()) - {"version", "items"}
+    if extra:
+        return f"clave de FAQ desconocida: {sorted(extra)[0]}."
+    items = data.get("items", [])
+    if not isinstance(items, list):
+        return "las preguntas tienen que venir en una lista."
+    if len(items) > FAQ_MAX_ITEMS:
+        return f"la FAQ tiene {len(items)} preguntas y el máximo es {FAQ_MAX_ITEMS}."
+    for it in items:
+        if not isinstance(it, dict) or set(it.keys()) != {"q", "a"}:
+            return "cada pregunta tiene que tener exactamente pregunta y respuesta."
+        q, a = it.get("q"), it.get("a")
+        if not isinstance(q, str) or not q.strip() or len(q) > FAQ_Q_MAXLEN or "<" in q or ">" in q:
+            return f"la pregunta tiene que ser texto de hasta {FAQ_Q_MAXLEN} sin < ni >."
+        if not isinstance(a, str) or not a.strip() or len(a) > FAQ_A_MAXLEN or "<" in a or ">" in a:
+            return f"la respuesta tiene que ser texto de hasta {FAQ_A_MAXLEN} sin < ni >."
+    return None
+
+
+# Registro de familias cosméticas: key -> validador de cuerpo. Agregar un widget
+# cosmético (trust, etc.) es agregar UNA entrada, no una función de guard nueva
+# (catálogo §7). Cada familia tiene su backup propio `kind == key` — aislamiento
+# por ruta+kind: un backup cosmético no habilita un write de plata ni de otra
+# familia (`_covering_cosmetic_backup`). worker.deal (plata, con techo) NO está
+# acá: sigue su rama propia en `_check_metafield`.
+COSMETIC_METAFIELDS = {
+    "style": _style_body,
+    "faq": _faq_body,
+}
+
+
+def _check_cosmetic(key, tool_input, backups_root, now: float):
+    """metafieldsSet de una familia cosmética (`worker.{key}`): sin techo, forma
+    cerrada por el validador del registro, backup propio `kind == key`.
+    Product-scope (owner SHOP entra en F2, spec §5.3)."""
     variables = (tool_input or {}).get("variables") or {}
     entries = []
     for value in variables.values():
@@ -702,32 +765,31 @@ def _check_style(tool_input, backups_root, now: float):
         elif isinstance(value, dict) and ("namespace" in value or "ownerId" in value):
             entries.append(value)
     if not entries:
-        return "block", "no pude leer el metafield de estilo."
+        return "block", f"no pude leer el metafield ({key}) que se está escribiendo."
     if len(entries) > 1:
-        return "block", "un estilo por vez."
+        return "block", "un cambio por vez."
     e = entries[0]
-    if e.get("namespace") != "worker" or e.get("key") != "style":
-        return "block", f"solo worker.style, no {e.get('namespace')}.{e.get('key')}."
+    if e.get("namespace") != "worker" or e.get("key") != key:
+        return "block", f"solo worker.{key}, no {e.get('namespace')}.{e.get('key')}."
     owner = e.get("ownerId") or ""
     if "/Product/" not in owner:
-        return "block", "el estilo tiene que traer el id del producto."
+        return "block", f"el {key} tiene que traer el id del producto."
     try:
         data = json.loads(e.get("value") or "{}")
     except Exception:
-        return "block", "el estilo no es JSON válido."
+        return "block", f"el {key} no es JSON válido."
     if not isinstance(data, dict):
-        return "block", "el estilo tiene que ser un objeto."
-    for k, v in data.items():
-        if k not in STYLE_KEYS:
-            return "block", f"clave de estilo desconocida: {k}."
-        if k in STYLE_COLOR_KEYS:
-            if not (isinstance(v, str) and HEX_RE.match(v)):
-                return "block", f"{k} tiene que ser un color hex (#RRGGBB)."
-        else:
-            if not isinstance(v, str) or len(v) > STYLE_TEXT_MAXLEN or "<" in v or ">" in v:
-                return "block", f"{k} tiene que ser texto de hasta {STYLE_TEXT_MAXLEN} sin < ni >."
-    ok, why = _covering_style_backup(backups_root, owner, now)
-    return ("allow", "ok") if ok else ("block", why)
+        return "block", f"el {key} tiene que ser un objeto."
+    why = COSMETIC_METAFIELDS[key](data)
+    if why:
+        return "block", why
+    ok, why2 = _covering_cosmetic_backup(key, backups_root, owner, now)
+    return ("allow", "ok") if ok else ("block", why2)
+
+
+def _check_style(tool_input, backups_root, now: float):
+    """Compat: worker.style es la familia cosmética `style` (spec §9)."""
+    return _check_cosmetic("style", tool_input, backups_root, now)
 
 
 def _check_tiers_schema(tiers, policy):
