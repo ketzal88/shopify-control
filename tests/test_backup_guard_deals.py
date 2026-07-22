@@ -784,3 +784,22 @@ def test_inline_payload_blocks_with_the_RIGHT_reason(tmp_path):
     assert d == "block"
     assert "variables" in why, f"el motivo tiene que senalar las variables, dio: {why}"
     assert "fecha de fin" not in why, f"motivo enganoso: {why}"
+
+
+def test_comment_between_name_and_paren_does_not_bypass_basic(tmp_path):
+    """El agujero HIGH que el review adversarial de BXGY encontró REABRÍA escalones:
+    un comentario entre `discountAutomaticBasicCreate` y su '(' rompía el router de
+    asuntos (regex crudo) mientras el gate de allowlist (comment-stripped) pasaba;
+    el create de 90% sobre items.all caía al camino de producto con solo un backup
+    de descripción. El fix (rutear asuntos desde `roots`) cierra las dos familias.
+    """
+    policy(tmp_path); write_description_backup(tmp_path)
+    p = {"tool_name": T_GQL, "tool_input": {
+        "query": "mutation ($d: DiscountAutomaticBasicInput!) { discountAutomaticBasicCreate #x\n"
+                 " (automaticBasicDiscount: $d) { automaticDiscountNode { id } } }",
+        "variables": {"d": {"title": "x", "startsAt": "2026-07-20T00:00:00Z",
+                            "endsAt": "2036-01-01T00:00:00Z",
+                            "customerGets": {"value": {"percentage": 0.9}, "items": {"all": True}}},
+                      "productId": PID, "decoy": {"id": PID}}}}
+    d, why = bg.evaluate(p, tmp_path, time.time())
+    assert d == "block", f"el comentario reabrió escalones (90% sobre todo el catálogo): {why}"

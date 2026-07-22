@@ -48,6 +48,11 @@ COLLECTION_WRITE_ALLOWED = set()
 REQUIRED_BACKUP_FIELDS = {"descriptionHtml", "seo_title", "seo_description"}
 RECENT_WINDOW_SECONDS = 900  # 15 min
 GID_RE = re.compile(r"gid://shopify/Product/\d+", re.I)
+# Forma CANÓNICA exacta de un gid de producto (sin espacios, nada antes ni después).
+# `"/Product/" in gid` aceptaba `"gid://…/1 "` (espacio al final), y dos formas del
+# mismo producto se leían como productos distintos → falso "cruzado" que salteaba el
+# ratio de mismo-producto (hallazgo LOW del review de BXGY).
+PRODUCT_GID_RE = re.compile(r"^gid://shopify/Product/\d+$")
 
 # --- Estilo del widget (spec §9): cosmético, cerrado, sin techo -------------
 # El look que el cliente configura en el builder. No mueve plata, pero se valida
@@ -685,7 +690,7 @@ def _bxgy_single_product(items):
     if len(ids) != 1:
         return None, ("multi" if ids else "missing")
     gid = ids[0]
-    if not (isinstance(gid, str) and "/Product/" in gid):
+    if not (isinstance(gid, str) and PRODUCT_GID_RE.match(gid)):
         return None, "bad"
     return gid, None
 
@@ -809,7 +814,15 @@ def _check_bxgy(names, tool_input, backups_root, now: float):
     if not isinstance(product_gid, str) or "/Product/" not in product_gid:
         return "block", ("la mutación tiene que traer `productId` en las variables, "
                          "con el gid del producto de la oferta.")
-    ok, why = _covering_deal_backup(backups_root, product_gid, now)
+    # El `productId` —con el que se busca el backup y sobre el que se escribe el
+    # metafield worker.deal— tiene que ser EXACTAMENTE el producto comprado. Sin
+    # esta atadura, un backup fresco de cualquier producto autorizaba el write
+    # sobre otro (hallazgo MED del review de BXGY). Se compara contra el buy_gid
+    # canónico, y el backup se busca por ese, no por el productId sin validar.
+    if product_gid.strip() != buy_gid:
+        return "block", ("el `productId` no coincide con el producto que se compra en el regalo. "
+                         "El respaldo y la oferta tienen que ser del mismo producto.")
+    ok, why = _covering_deal_backup(backups_root, buy_gid, now)
     return ("allow", "ok") if ok else ("block", why)
 
 
@@ -841,9 +854,9 @@ def _check_bxgy_metafield(data, policy):
     if gpct > max_gift:
         return f"el regalo descuenta {gpct}% y el máximo es {max_gift}%."
     bp, gp = buy.get("product"), get.get("product")
-    if not (isinstance(bp, str) and "/Product/" in bp):
+    if not (isinstance(bp, str) and PRODUCT_GID_RE.match(bp)):
         return "falta el producto que se compra."
-    if not (isinstance(gp, str) and "/Product/" in gp):
+    if not (isinstance(gp, str) and PRODUCT_GID_RE.match(gp)):
         return "falta el producto que se regala."
     if scope == "same" and bp != gp:
         return "un regalo del mismo producto tiene que comprar y regalar el mismo producto."
@@ -1102,46 +1115,55 @@ def evaluate(payload: dict, backups_root, now: float):
         # motivo legítimo para mandar una oferta, un metafield y una edición de
         # producto en el mismo pedido, y negarse es mucho más fácil de razonar
         # que intentar satisfacer todas las combinaciones a la vez.
-        names = _discount_mutations(text)
+        # Los ASUNTOS se clasifican desde `roots` — los root fields que ya pasaron
+        # el gate de allowlist, calculados por `_root_mutation_fields` (borra
+        # comentarios, consciente de llaves/paréntesis). Clasificar desde el MISMO
+        # parser que decidió la allowlist cierra la clase de agujero donde un
+        # segundo parser más débil (el regex `nombre\s*\(` sobre texto CRUDO de
+        # `_discount_mutations`/`_product_mutations`) no reconoce una mutación que
+        # un comentario o una coma separaron de su `(`: el write caía al camino de
+        # producto pidiendo solo un backup de descripción, evadiendo el techo
+        # entero. Era el bypass HIGH del review adversarial de BXGY, y reabría
+        # escalones por igual (los dos usan este router). El defecto era mantener
+        # dos formas de leer el documento y confiar la decisión final a la débil.
+        discount_roots = [r for r in roots if r.startswith("discount")]
+        product_roots = [r for r in roots if r.startswith("product")]
+        collection_roots = [r for r in roots if r.startswith("collection")]
+        has_metafield = "metafieldsset" in roots
+
         asuntos = []
-        if names:
+        if discount_roots:
             asuntos.append("ofertas")
-        if "metafieldsset" in low:
+        if has_metafield:
             asuntos.append("metafields")
-        if _product_mutations(text):
+        if product_roots or collection_roots:
             asuntos.append("cambios de producto")
         if len(asuntos) > 1:
             return "block", (f"esta operación mezcla {' y '.join(asuntos)} en un mismo pedido "
                              "y no puedo verificar las dos cosas juntas. Mandalas por separado.")
 
-        if names:
+        if discount_roots:
             # El regalo (BXGY) tiene su propia función y su propio techo: NO reusa
             # `_check_discount`, que asume la forma Basic acotada por maxDiscountPct.
-            if any(n in DISCOUNT_BXGY for n in names):
-                return _check_bxgy(names, tool_input, backups_root, now)
-            return _check_discount(names, tool_input, backups_root, now)
+            if any(n in DISCOUNT_BXGY for n in discount_roots):
+                return _check_bxgy(discount_roots, tool_input, backups_root, now)
+            return _check_discount(discount_roots, tool_input, backups_root, now)
 
         # 3. Metafield de oferta. ANTES del fallthrough por GID_RE.
-        if "metafieldsset" in low:
+        if has_metafield:
             return _check_metafield(tool_input, backups_root, now)
 
-        # Familia de producto: whitelist CERRADA, por nombre y antes del control
-        # de campos. El control de campos solo mira el objeto `input: {...}` /
-        # `product: {...}`, así que las mutaciones que reciben `productId:` más
-        # arrays (`options:`, `positions:`, `moves:`, `sellingPlanGroupIds:`)
-        # no exponen ninguna key: `_product_input_keys` devuelve un conjunto
-        # VACÍO, el chequeo de alcance pasa en el vacío y quedaban gobernadas
-        # solo por el backup — o sea que un backup de descripción fresco era una
-        # llave de 15 minutos para duplicar el producto, reordenar variantes o
-        # cambiarle las opciones. Eran 21 de las 26 mutaciones `product*`.
-        fuera_de_alcance = [m for m in _product_mutations(text)
-                            if m not in PRODUCT_WRITE_ALLOWED]
+        # Familia de producto: whitelist CERRADA, desde `roots`. Tras el gate de
+        # `desconocidas` el único root de producto posible es `productupdate`, así
+        # que esto es defensa en profundidad; se mantiene por si la allowlist crece.
+        # El control de campos (abajo) sigue mirando el objeto `input: {...}`.
+        fuera_de_alcance = [m for m in product_roots if m not in PRODUCT_WRITE_ALLOWED]
         if fuera_de_alcance:
             return "block", (f"la mutación '{fuera_de_alcance[0]}' está fuera del alcance del v1. "
                              "Lo único que se puede escribir de un producto es su descripción y su SEO.")
 
         # Colecciones: misma whitelist cerrada, y vacía.
-        col = [m for m in _collection_mutations(text) if m not in COLLECTION_WRITE_ALLOWED]
+        col = [m for m in collection_roots if m not in COLLECTION_WRITE_ALLOWED]
         if col:
             return "block", (f"la mutación '{col[0]}' está fuera del alcance del v1: "
                              "las colecciones no se tocan desde acá.")

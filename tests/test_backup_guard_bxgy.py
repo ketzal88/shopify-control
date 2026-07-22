@@ -319,3 +319,67 @@ def test_escalones_metafield_still_works(tmp_path):
                              "type": "json", "value": value}]}}}
     d, why = bg.evaluate(p, tmp_path, time.time())
     assert d == "allow", why
+
+
+# --- Review adversarial (2026-07-22): los tres hallazgos y sus fixes ---------
+
+def write_description_backup(root, product_id=PID):
+    """Backup de DESCRIPCIÓN (no de oferta). Es el estado normal tras
+    mejorar-descripcion, y el que el bypass del comentario usaba como llave."""
+    d = Path(root) / "clients/blunua/backups"
+    d.mkdir(parents=True, exist_ok=True)
+    p = d / f"{product_id.split('/')[-1]}-desc.json"
+    p.write_text(json.dumps({"productId": product_id,
+        "fields": {"descriptionHtml": "old", "seo_title": "o", "seo_description": "o"},
+        "ts": datetime.now().isoformat()}), encoding="utf-8")
+    return p
+
+def test_comment_between_name_and_paren_does_not_bypass_bxgy(tmp_path):
+    """HALLAZGO 1 (HIGH). Un comentario entre el nombre de la mutación y su '('
+    rompía el router de asuntos (regex `name\\s*\\(` sobre texto CRUDO) mientras el
+    gate de allowlist (que borra comentarios) lo dejaba pasar. El regalo caía al
+    camino de producto pidiendo SOLO un backup de descripción → todo el techo
+    evadido. Fix: clasificar los asuntos desde `roots`, no desde el regex crudo."""
+    policy(tmp_path, maxGiftPct=50, maxGetQty=1, minBuyGetRatio=2, giftableProducts=[])
+    write_description_backup(tmp_path)   # NO hay backup de oferta, solo de descripción
+    d_input = {
+        "title": "x", "startsAt": "2026-07-20T00:00:00Z", "endsAt": "2026-10-18T00:00:00Z",
+        "usesPerOrderLimit": "99",
+        "customerBuys": {"value": {"quantity": "1"},
+                         "items": {"products": {"productsToAdd": [PID]}}},
+        "customerGets": {"value": {"discountOnQuantity": {"quantity": "10",
+                                    "effect": {"percentage": 1.0}}},
+                         "items": {"products": {"productsToAdd": [QID]}}}}
+    p = {"tool_name": T_GQL, "tool_input": {
+        "query": "mutation ($d: DiscountAutomaticBxgyInput!) { discountAutomaticBxgyCreate #x\n"
+                 " (automaticBxgyDiscount: $d) { automaticDiscountNode { id } } }",
+        # el señuelo {"id": ...} hace que _variables_product_keys coseche "id", que
+        # es lo que el bypass necesitaba para pasar el chequeo de campos de producto.
+        "variables": {"d": d_input, "decoy": {"id": PID}}}}
+    d, why = bg.evaluate(p, tmp_path, time.time())
+    assert d == "block", f"el comentario evadió el techo del regalo entero: {why}"
+
+def test_backup_productId_must_match_buy_product(tmp_path):
+    """HALLAZGO 2 (MED). El backup se buscaba por variables.productId sin
+    compararlo con el producto REALMENTE comprado. Un backup de otro producto
+    autorizaba el write. Fix: productId == buy_gid."""
+    policy(tmp_path)
+    write_deal_backup(tmp_path, product_id="gid://shopify/Product/999")  # backup de 999, no de P
+    p = bxgy_create(buy_qty=2, get_qty=1, gift_pct=0.5, product_id="gid://shopify/Product/999")
+    d, why = bg.evaluate(p, tmp_path, time.time())
+    assert d == "block", f"un backup de otro producto autorizó el regalo sobre P: {why}"
+
+def test_backup_productId_matching_buy_product_is_allowed(tmp_path):
+    """Control de sobre-bloqueo: con productId == el producto comprado y su backup, pasa."""
+    policy(tmp_path); write_deal_backup(tmp_path)
+    d, why = bg.evaluate(bxgy_create(), tmp_path, time.time())
+    assert d == "allow", why
+
+def test_gid_with_trailing_space_is_rejected(tmp_path):
+    """HALLAZGO 3 (LOW). 'gid P' vs 'gid P ' (espacio al final) se tomaba como
+    cruzado y saltaba el ratio de mismo-producto. Fix: forma canónica del gid."""
+    policy(tmp_path, allowCrossProductGift=True, giftableProducts=["gid://shopify/Product/1 "])
+    write_deal_backup(tmp_path)
+    p = bxgy_create(buy_qty=1, get_qty=1, buy_pid=PID, get_pid="gid://shopify/Product/1 ")
+    d, why = bg.evaluate(p, tmp_path, time.time())
+    assert d == "block", f"un gid con espacio evadió el ratio como falso cruzado: {why}"
