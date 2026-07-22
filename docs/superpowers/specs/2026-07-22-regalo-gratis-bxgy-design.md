@@ -8,6 +8,24 @@
 - **Spec del builder:** `2026-07-21-escalones-builder-design.md` + plan `2026-07-22-escalones-builder.md` (constructor visual, **aún sin implementar**). El regalo **se integra al builder** (§17) y **construye sobre su infraestructura** (`worker.style`, `worker-render.js`, el template). El builder se generaliza de "solo escalones" a "por tipo de oferta". Esta es la segunda mitad del pedido ("sumarlos al constructor visual").
 - **Spec abuelo:** `2026-07-19-shopify-control-v1-design.md`
 
+> **Nota de reconciliación (misma noche, post-commit).** Gabriel dejó corriendo varios agentes
+> "hacé todo" en paralelo sobre `main`. Además de este spec, esa noche se commitearon: la
+> implementación del builder Tasks 1–3 (`e838cc8` guard `worker.style`, `8680c54`
+> `widget/render/worker-render.js`, `d727bcc` `armar-escalones` ingiere la config) y un spec de
+> programa `2026-07-22-catalogo-widgets-design.md` que ubica este regalo como la familia "Ofertas
+> ampliadas" (W4). **Implicaciones para este spec:**
+> 1. **La implementación de BXGY NO se hace en paralelo.** `_check_bxgy` toca `backup_guard.py`, la
+>    rama `bxgy` toca `worker-render.js`, y el skill toca `armar-*` — los tres son archivos de los que
+>    otro carril es dueño esta noche. Tocar el guard de plata desde dos sesiones a la vez es garantía
+>    de conflicto. La implementación espera a **un único dueño**, después de que el plan del builder
+>    termine (establece la infra de la que este depende, G15).
+> 2. `worker.style` y `worker-render.js` (§4.2, §17) **ya existen en `main`** (Tasks 1–2 del builder).
+>    La rama `bxgy` se agrega sobre eso, no lo crea.
+> 3. La generalización del builder (§17) y el registro cosmético del catálogo (§7 de ese doc) son **el
+>    mismo movimiento visto de dos lados**: reconciliar al planificar, no duplicar.
+> 4. La ronda de **review adversarial** de este spec queda para su propia fase de implementación (W4
+>    del catálogo), con un único dueño — no se corre en paralelo esta noche.
+
 ---
 
 ## 1. Contexto y objetivo
