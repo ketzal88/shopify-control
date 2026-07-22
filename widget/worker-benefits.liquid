@@ -1,0 +1,19 @@
+{%- comment -%}
+  worker-benefits · "Lista de beneficios" (shopify-control). Bloque Custom Liquid en
+  la ficha, cerca del precio. Lee product.metafields.worker.benefits. Sin ítems, no
+  renderiza. Texto server-rendered (| escape). Guard: COSMETIC_METAFIELDS.
+{%- endcomment -%}
+{%- assign bf = product.metafields.worker.benefits.value -%}
+{%- if bf and bf.items and bf.items.size > 0 -%}
+<ul id="worker-benefits" class="wbf">
+  {%- for it in bf.items -%}
+  <li><span class="wbf-ck" aria-hidden="true">✓</span>{{ it | escape }}</li>
+  {%- endfor -%}
+</ul>
+<style>
+  #worker-benefits.wbf{ font-family:inherit; color:#4B4B4B; margin:14px 0; max-width:420px;
+    list-style:none; padding:0; }
+  #worker-benefits li{ display:flex; align-items:center; gap:8px; font-size:13.5px; padding:4px 0; }
+  #worker-benefits .wbf-ck{ color:#9CB0B1; font-weight:800; flex:0 0 auto; }
+</style>
+{%- endif -%}

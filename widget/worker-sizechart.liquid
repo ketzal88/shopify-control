@@ -1,0 +1,24 @@
+{%- comment -%}
+  worker-sizechart · "Tabla de talles" (shopify-control). Bloque Custom Liquid en
+  la ficha. Lee product.metafields.worker.sizechart. Sin filas, no renderiza nada.
+  Texto server-rendered (crawleable, | escape). Guard: COSMETIC_METAFIELDS.
+{%- endcomment -%}
+{%- assign sc = product.metafields.worker.sizechart.value -%}
+{%- if sc and sc.rows and sc.rows.size > 0 -%}
+<div id="worker-sizechart" class="wsc">
+  {%- if sc.title -%}<p class="wsc-title">{{ sc.title | escape }}</p>{%- endif -%}
+  <table class="wsc-table">
+    {%- for row in sc.rows -%}
+    <tr>{%- for cell in row -%}<td>{{ cell | escape }}</td>{%- endfor -%}</tr>
+    {%- endfor -%}
+  </table>
+</div>
+<style>
+  #worker-sizechart.wsc{ font-family:inherit; color:#4B4B4B; margin:18px auto; max-width:420px; }
+  #worker-sizechart .wsc-title{ font-size:11px; letter-spacing:.12em; text-transform:uppercase;
+    opacity:.6; font-weight:600; margin:0 0 9px; }
+  #worker-sizechart .wsc-table{ width:100%; border-collapse:collapse; font-size:13px; }
+  #worker-sizechart .wsc-table td{ border:1px solid rgba(75,75,75,.16); padding:7px 11px; }
+  #worker-sizechart .wsc-table tr:first-child td{ font-weight:700; background:rgba(75,75,75,.04); }
+</style>
+{%- endif -%}

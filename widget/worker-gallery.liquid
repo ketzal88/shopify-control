@@ -1,0 +1,42 @@
+{%- comment -%}
+  worker-gallery · "Galería de fotos" (shopify-control). Bloque Custom Liquid en la
+  ficha. Lee product.metafields.worker.gallery (lista de imágenes https, validadas por
+  el guard). Carrusel con flechas. Sin imágenes, no renderiza.
+{%- endcomment -%}
+{%- assign gl = product.metafields.worker.gallery.value -%}
+{%- if gl and gl.images and gl.images.size > 0 -%}
+<div id="worker-gallery" class="wgl" data-worker-gallery>
+  <div class="wgl-track" data-wgl-track>
+    {%- for img in gl.images -%}<img class="wgl-img" src="{{ img }}" alt="" loading="lazy">{%- endfor -%}
+  </div>
+  {%- if gl.images.size > 1 -%}
+  <button class="wgl-nav wgl-prev" data-wgl-prev aria-label="Anterior">‹</button>
+  <button class="wgl-nav wgl-next" data-wgl-next aria-label="Siguiente">›</button>
+  {%- endif -%}
+</div>
+<style>
+  #worker-gallery.wgl{ position:relative; margin:18px auto; max-width:520px; font-family:inherit; }
+  #worker-gallery .wgl-track{ display:flex; gap:8px; overflow-x:auto; scroll-snap-type:x mandatory;
+    scrollbar-width:none; border-radius:10px; }
+  #worker-gallery .wgl-track::-webkit-scrollbar{ display:none; }
+  #worker-gallery .wgl-img{ flex:0 0 100%; scroll-snap-align:center; width:100%; height:auto;
+    border-radius:10px; display:block; }
+  #worker-gallery .wgl-nav{ position:absolute; top:50%; transform:translateY(-50%); width:34px; height:34px;
+    border-radius:50%; border:0; background:rgba(255,255,255,.9); color:#4B4B4B; font-size:18px;
+    cursor:pointer; box-shadow:0 2px 8px rgba(0,0,0,.18); display:flex; align-items:center; justify-content:center; }
+  #worker-gallery .wgl-prev{ left:8px; } #worker-gallery .wgl-next{ right:8px; }
+</style>
+<script>{% raw %}
+(function () {
+  var root = document.getElementById('worker-gallery');
+  if (!root || root.dataset.wglReady) return;
+  var track = root.querySelector('[data-wgl-track]');
+  var prev = root.querySelector('[data-wgl-prev]');
+  var next = root.querySelector('[data-wgl-next]');
+  function by(dir) { track.scrollBy({ left: dir * track.clientWidth, behavior: 'smooth' }); }
+  if (prev) prev.addEventListener('click', function () { by(-1); });
+  if (next) next.addEventListener('click', function () { by(1); });
+  root.dataset.wglReady = '1';
+})();
+{% endraw %}</script>
+{%- endif -%}

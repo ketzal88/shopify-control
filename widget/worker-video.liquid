@@ -1,0 +1,60 @@
+{%- comment -%}
+  worker-video · "Video flotante" (shopify-control). Bloque Custom Liquid en el layout
+  (toda la tienda): lee shop.metafields.worker.video (url https validada por el guard).
+  Botón flotante que abre un modal con el video. Sin url, no renderiza.
+{%- endcomment -%}
+{%- assign vd = shop.metafields.worker.video.value -%}
+{%- if vd and vd.url -%}
+<div id="worker-video" class="wvd" data-worker-video data-url="{{ vd.url | escape }}">
+  <button class="wvd-btn" data-wvd-open aria-label="{{ vd.label | default: 'Ver video' | escape }}">▶</button>
+  <div class="wvd-modal" data-wvd-modal hidden>
+    <div class="wvd-box">
+      <button class="wvd-close" data-wvd-close aria-label="Cerrar">✕</button>
+      <div class="wvd-frame" data-wvd-frame></div>
+    </div>
+  </div>
+</div>
+<style>
+  #worker-video .wvd-btn{ position:fixed; left:18px; bottom:18px; z-index:997; width:52px; height:52px;
+    border-radius:50%; border:0; background:#4B4B4B; color:#fff; font-size:16px; cursor:pointer;
+    box-shadow:0 4px 14px rgba(0,0,0,.22); }
+  #worker-video .wvd-modal{ position:fixed; inset:0; z-index:1000; background:rgba(0,0,0,.7);
+    display:flex; align-items:center; justify-content:center; padding:20px; }
+  #worker-video .wvd-box{ position:relative; width:100%; max-width:720px; aspect-ratio:16/9; background:#000;
+    border-radius:12px; overflow:hidden; }
+  #worker-video .wvd-frame,#worker-video .wvd-frame iframe,#worker-video .wvd-frame video{
+    width:100%; height:100%; border:0; display:block; }
+  #worker-video .wvd-close{ position:absolute; top:-40px; right:0; background:none; border:0; color:#fff;
+    font-size:22px; cursor:pointer; }
+</style>
+<script>{% raw %}
+(function () {
+  var root = document.getElementById('worker-video');
+  if (!root || root.dataset.wvdReady) return;
+  var url = root.getAttribute('data-url');
+  var modal = root.querySelector('[data-wvd-modal]');
+  var frame = root.querySelector('[data-wvd-frame]');
+  function ytId(u) { var m = u.match(/(?:youtu\.be\/|[?&]v=|embed\/)([\w-]{6,})/); return m ? m[1] : null; }
+  function build() {
+    if (frame.firstChild) return;
+    var id = ytId(url), el;
+    if (id) {
+      el = document.createElement('iframe');
+      el.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture');
+      el.setAttribute('allowfullscreen', '');
+      el.setAttribute('src', 'https://www.youtube.com/embed/' + id + '?autoplay=1');
+    } else {
+      el = document.createElement('video'); el.setAttribute('controls', ''); el.setAttribute('autoplay', '');
+      el.setAttribute('src', url);
+    }
+    frame.appendChild(el);
+  }
+  function open() { build(); modal.hidden = false; }
+  function close() { modal.hidden = true; frame.textContent = ''; }
+  root.querySelector('[data-wvd-open]').addEventListener('click', open);
+  root.querySelector('[data-wvd-close]').addEventListener('click', close);
+  modal.addEventListener('click', function (e) { if (e.target === modal) close(); });
+  root.dataset.wvdReady = '1';
+})();
+{% endraw %}</script>
+{%- endif -%}

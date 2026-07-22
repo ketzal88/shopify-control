@@ -1,0 +1,30 @@
+{%- comment -%}
+  worker-compare · "Comparación con otros" (shopify-control). Bloque Custom Liquid en
+  la ficha. Lee product.metafields.worker.compare. Sin filas, no renderiza. Texto
+  server-rendered (| escape). Guard: COSMETIC_METAFIELDS.
+{%- endcomment -%}
+{%- assign cp = product.metafields.worker.compare.value -%}
+{%- if cp and cp.rows and cp.rows.size > 0 -%}
+<table id="worker-compare" class="wcp">
+  <tr>
+    <th></th>
+    <th class="us">{{ cp.usLabel | default: 'Nosotros' | escape }}</th>
+    <th>{{ cp.themLabel | default: 'Otros' | escape }}</th>
+  </tr>
+  {%- for row in cp.rows -%}
+  <tr>
+    <td class="ft">{{ row[0] | escape }}</td>
+    <td class="us">{{ row[1] | escape }}</td>
+    <td>{{ row[2] | escape }}</td>
+  </tr>
+  {%- endfor -%}
+</table>
+<style>
+  #worker-compare.wcp{ font-family:inherit; color:#4B4B4B; margin:18px auto; max-width:460px;
+    width:100%; border-collapse:collapse; font-size:13px; }
+  #worker-compare th,#worker-compare td{ border:1px solid rgba(75,75,75,.16); padding:8px 11px; text-align:center; }
+  #worker-compare td.ft{ text-align:left; font-weight:600; }
+  #worker-compare th{ font-size:11px; text-transform:uppercase; letter-spacing:.05em; }
+  #worker-compare .us{ background:rgba(156,176,177,.16); font-weight:700; }
+</style>
+{%- endif -%}

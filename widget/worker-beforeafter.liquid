@@ -1,0 +1,56 @@
+{%- comment -%}
+  worker-beforeafter · "Antes y después" (shopify-control). Bloque Custom Liquid en la
+  ficha. Lee product.metafields.worker.beforeafter (2 imágenes https, validadas por el
+  guard). Deslizador para comparar. Sin las dos imágenes, no renderiza.
+{%- endcomment -%}
+{%- assign ba = product.metafields.worker.beforeafter.value -%}
+{%- if ba and ba.before and ba.after -%}
+<div id="worker-ba" class="wba" data-worker-ba>
+  <img class="wba-img" src="{{ ba.after }}" alt="{{ ba.afterLabel | default: 'Después' | escape }}">
+  <div class="wba-before" data-wba-before>
+    <img class="wba-img" src="{{ ba.before }}" alt="{{ ba.beforeLabel | default: 'Antes' | escape }}">
+  </div>
+  <div class="wba-handle" data-wba-handle></div>
+  <span class="wba-lbl wba-l">{{ ba.beforeLabel | default: 'Antes' | escape }}</span>
+  <span class="wba-lbl wba-r">{{ ba.afterLabel | default: 'Después' | escape }}</span>
+</div>
+<style>
+  #worker-ba.wba{ position:relative; margin:18px auto; max-width:460px; border-radius:10px;
+    overflow:hidden; user-select:none; touch-action:none; font-family:inherit; }
+  #worker-ba .wba-img{ display:block; width:100%; height:auto; pointer-events:none; }
+  #worker-ba .wba-before{ position:absolute; inset:0; width:50%; overflow:hidden; }
+  #worker-ba .wba-before .wba-img{ width:100vw; max-width:460px; }
+  #worker-ba .wba-handle{ position:absolute; top:0; bottom:0; left:50%; width:3px; background:#fff;
+    transform:translateX(-1.5px); box-shadow:0 0 0 1px rgba(0,0,0,.15); cursor:ew-resize; }
+  #worker-ba .wba-handle::after{ content:"⇆"; position:absolute; top:50%; left:50%;
+    transform:translate(-50%,-50%); width:30px; height:30px; border-radius:50%; background:#fff;
+    color:#4B4B4B; font-size:13px; display:flex; align-items:center; justify-content:center;
+    box-shadow:0 2px 6px rgba(0,0,0,.2); }
+  #worker-ba .wba-lbl{ position:absolute; bottom:9px; font-size:10px; font-weight:700; color:#fff;
+    background:rgba(0,0,0,.45); padding:3px 8px; border-radius:20px; letter-spacing:.05em; }
+  #worker-ba .wba-l{ left:9px; } #worker-ba .wba-r{ right:9px; }
+</style>
+<script>{% raw %}
+(function () {
+  var root = document.getElementById('worker-ba');
+  if (!root || root.dataset.wbaReady) return;
+  var before = root.querySelector('[data-wba-before]');
+  var handle = root.querySelector('[data-wba-handle]');
+  function set(pct) {
+    pct = Math.max(0, Math.min(100, pct));
+    before.style.width = pct + '%';
+    handle.style.left = pct + '%';
+  }
+  function move(e) {
+    var r = root.getBoundingClientRect();
+    var x = (e.touches ? e.touches[0].clientX : e.clientX) - r.left;
+    set(x / r.width * 100);
+  }
+  var dragging = false;
+  root.addEventListener('pointerdown', function (e) { dragging = true; move(e); });
+  window.addEventListener('pointermove', function (e) { if (dragging) move(e); });
+  window.addEventListener('pointerup', function () { dragging = false; });
+  root.dataset.wbaReady = '1';
+})();
+{% endraw %}</script>
+{%- endif -%}

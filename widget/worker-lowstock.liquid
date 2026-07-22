@@ -1,0 +1,22 @@
+{%- comment -%}
+  worker-lowstock · "Quedan pocas" (shopify-control). Bloque Custom Liquid en la ficha,
+  cerca del precio. Lee product.metafields.worker.lowstock (umbral + texto) y el stock
+  REAL de la variante. Solo aparece si hay tracking de stock y quedan entre 1 y el
+  umbral — nunca inventa un número. Guard: COSMETIC_METAFIELDS.
+{%- endcomment -%}
+{%- assign ls = product.metafields.worker.lowstock.value -%}
+{%- if ls and ls.threshold -%}
+  {%- assign v = product.selected_or_first_available_variant -%}
+  {%- if v.inventory_management and v.inventory_quantity > 0 and v.inventory_quantity <= ls.threshold -%}
+<div id="worker-lowstock" class="wls">
+  <span class="wls-dot">🔥</span>
+  {{ ls.text | default: 'Quedan pocas unidades' | escape }}
+  <b>({{ v.inventory_quantity }})</b>
+</div>
+<style>
+  #worker-lowstock.wls{ font-family:inherit; color:#b45; font-size:13px; font-weight:600;
+    display:inline-flex; align-items:center; gap:6px; margin:12px 0; }
+  #worker-lowstock b{ color:#4B4B4B; }
+</style>
+  {%- endif -%}
+{%- endif -%}
