@@ -4,6 +4,29 @@ Append-only. Cada write deja una entrada: `## YYYY-MM-DD [write] producto — ba
 
 <!-- nuevas entradas arriba -->
 
+## 2026-07-21 [test] [e2e] §14 resuelto en vivo + widget M2 construido
+Tienda: **Testing StandAlone Framework** (dev store, USD). **Nada escrito en blunua producción.**
+Corrige la entrada de abajo (2026-07-20): la validación empírica de §14 **ya no es "pendiente para
+el M2"** — se corrió y las tres incógnitas dieron favorable.
+
+- **Demo en vivo, camino canónico completo** sobre *The Multi-managed Snowboard*
+  (`gid://shopify/Product/10429846683965`, $629.95, variante única): backup de oferta → dos
+  descuentos automáticos (`2+ →10%`, `3+ →20%`) por `graphql_mutation` a través del guard →
+  metafield `worker.deal`. El guard dejó pasar exactamente las dos clases de escritura y nada más.
+- **Las tres incógnitas de §14, verificadas contra el carrito real** (mejor que `draftOrderCalculate`,
+  que el guard bloquea): A) los dos automáticos coexisten `ACTIVE`; B) a 3 unidades gana el 20%, no
+  se apila con el 10% (`combinesWith.productDiscounts:false`); C) 1 snowboard + 1 producto distinto
+  → **sin descuento** (umbral por producto). 2u = $1,133.92 (10%), 3u = $1,511.88 (20%).
+- **Lección del centavo:** el carrito cobró $1,133.**92**, no $1,133.**91**. Shopify redondea
+  **por unidad** y después multiplica. El widget calcula igual (verificado en Node, todo verde).
+- **Backup de prueba borrado** (era transitorio, sobre id de dev store). La **oferta demo quedó
+  VIVA** en la dev store a propósito: es el fixture para instalar y ver el widget. No es blunua.
+- **Widget M2 construido:** `widget/worker-escalones.liquid` (híbrido del brainstorm: tarjetas +
+  barra de progreso, colapso mobile, botón que canta cantidad+total, `update.js` que fija) +
+  `docs/runbooks/instalar-widget-escalones.md`.
+- **Pendiente M2:** instalación manual del bloque en el tema (E4, operador — los writes de tema
+  están bloqueados por diseño) y los N selectores mezclables de §4.6 (v1 usa una variante).
+
 ## 2026-07-20 [milestone] Escalones por cantidad — M1 (guard + política + skill)
 
 **No se escribió nada en la tienda de blunua.** Este milestone es código y documentación: agrega

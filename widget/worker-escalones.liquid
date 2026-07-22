@@ -1,0 +1,340 @@
+{%- comment -%}
+  ============================================================================
+  worker-escalones · widget "Llevá más y ahorrá"  (shopify-control · M2)
+  ============================================================================
+  Bloque Custom Liquid. Se pega UNA vez, desde el editor de temas, en la
+  plantilla de producto, inmediatamente ARRIBA del botón "Agregar al carrito".
+  NO se edita ningún archivo del tema (spec §4.1).
+
+  Lee el metafield product.metafields.worker.deal (JSON escrito por el skill
+  `armar-escalones`). Si no hay oferta —metafield ausente o `tiers` vacío— el
+  bloque no renderiza NADA (spec §5, estado por defecto).
+
+  Instalación y verificación: docs/runbooks/instalar-widget-escalones.md
+  Diseño: docs/superpowers/specs/2026-07-19-quantity-breaks-design.md §4–§5
+  ============================================================================
+{%- endcomment -%}
+
+{%- assign deal = product.metafields.worker.deal.value -%}
+{%- if deal and deal.tiers and deal.tiers.size > 0 -%}
+{%- assign unit_variant = product.selected_or_first_available_variant -%}
+
+<div id="worker-escalones" class="we" data-worker-escalones hidden>
+
+  {%- comment -%} — Datos volcados al DOM; el JS no lee Liquid, solo estos JSON — {%- endcomment -%}
+  <script type="application/json" data-worker-deal>{{ deal | json }}</script>
+  <script type="application/json" data-worker-variants>[
+    {%- for v in product.variants -%}
+      {"id":{{ v.id | json }},"title":{{ v.title | json }},"price":{{ v.price }},"available":{{ v.available }}}{%- unless forloop.last -%},{%- endunless -%}
+    {%- endfor -%}
+  ]</script>
+  <script type="application/json" data-worker-config>{
+    "productId": {{ product.id | json }},
+    "productTitle": {{ product.title | json }},
+    "hasOnlyDefaultVariant": {{ product.has_only_default_variant | json }},
+    "unitPriceCents": {{ unit_variant.price }},
+    "imageUrl": {%- if product.featured_image -%}{{ product.featured_image | image_url: width: 72 | json }}{%- else -%}null{%- endif -%},
+    "moneyFormat": {{ shop.money_format | json }},
+    "cartUrl": {{ routes.cart_url | json }}
+  }</script>
+
+  <div class="we-wrap">
+    <p class="we-label">Llevá más y ahorrá</p>
+    <div class="we-tiers" data-we-tiers></div>
+    <button type="button" class="we-toggle" data-we-toggle hidden></button>
+    <div class="we-nudge" data-we-nudge hidden>
+      <div class="we-bar"><div class="we-fill" data-we-fill></div></div>
+      <div class="we-nudge-txt" data-we-nudge-txt></div>
+    </div>
+    <p class="we-note" data-we-note hidden></p>
+    <button type="button" class="we-cta" data-we-cta disabled>&nbsp;</button>
+  </div>
+</div>
+
+<style>
+  #worker-escalones.we{
+    --we-ink:#4B4B4B; --we-sage:#9CB0B1; --we-taupe:#CEC4BA; --we-cream:#E9E6DD;
+    --we-line:rgba(75,75,75,.16); --we-radius:10px;
+    font-family:inherit; color:var(--we-ink); margin:0 0 16px; max-width:520px;
+  }
+  #worker-escalones .we-label{
+    font-size:11px; letter-spacing:.14em; text-transform:uppercase; opacity:.6;
+    margin:0 0 10px; font-weight:600;
+  }
+  #worker-escalones .we-row{
+    display:flex; align-items:center; gap:10px; padding:11px 12px;
+    border:1.5px solid var(--we-line); border-radius:var(--we-radius);
+    margin-bottom:7px; background:#fff; position:relative; cursor:pointer;
+    text-align:left; width:100%; font:inherit; color:inherit;
+  }
+  #worker-escalones .we-row.on{ border-color:var(--we-ink); border-width:2px; background:#fdfcfa; }
+  #worker-escalones .we-radio{
+    width:15px; height:15px; border-radius:50%; border:2px solid rgba(75,75,75,.3); flex:0 0 15px;
+  }
+  #worker-escalones .we-row.on .we-radio{ border-color:var(--we-ink); border-width:4.5px; }
+  #worker-escalones .we-thumb{
+    width:34px; height:34px; border-radius:7px; flex:0 0 34px; object-fit:cover;
+    background:linear-gradient(135deg,var(--we-cream),var(--we-taupe));
+  }
+  #worker-escalones .we-mid{ flex:1; min-width:0; }
+  #worker-escalones .we-qty{ display:block; font-size:13px; font-weight:600; }
+  #worker-escalones .we-save{
+    display:inline-block; font-size:9.5px; font-weight:700; padding:2px 7px;
+    border-radius:20px; background:var(--we-sage); color:#fff; margin-top:3px;
+  }
+  #worker-escalones .we-prices{ text-align:right; white-space:nowrap; }
+  #worker-escalones .we-total{ display:block; font-size:13px; font-weight:700; }
+  #worker-escalones .we-old{ text-decoration:line-through; opacity:.45; font-size:11px; }
+  #worker-escalones .we-pop{
+    position:absolute; top:-8px; right:11px; background:var(--we-ink); color:#fff;
+    font-size:8px; font-weight:700; letter-spacing:.1em; padding:3px 8px; border-radius:20px;
+  }
+  #worker-escalones .we-toggle{
+    display:block; width:100%; text-align:center; font-size:11px; opacity:.65;
+    background:none; border:0; padding:5px 0 2px; cursor:pointer; color:inherit;
+  }
+  #worker-escalones .we-nudge{ display:flex; align-items:center; gap:9px; margin:9px 0 0;
+    background:var(--we-cream); border-radius:9px; padding:9px 11px; }
+  #worker-escalones .we-bar{ flex:1; height:6px; border-radius:20px; background:rgba(75,75,75,.15); overflow:hidden; }
+  #worker-escalones .we-fill{ height:100%; width:0; border-radius:20px;
+    background:linear-gradient(90deg,var(--we-sage),var(--we-ink)); transition:width .25s ease; }
+  #worker-escalones .we-nudge.is-max .we-fill{ width:100% !important; background:var(--we-sage); }
+  #worker-escalones .we-nudge-txt{ font-size:11px; white-space:nowrap; }
+  #worker-escalones .we-note{ font-size:11px; opacity:.7; margin:8px 0 0; }
+  #worker-escalones .we-cta{
+    margin-top:11px; width:100%; padding:13px; border-radius:9px; border:0;
+    background:var(--we-ink); color:#fff; font-size:13px; font-weight:600; cursor:pointer;
+  }
+  #worker-escalones .we-cta[disabled]{ opacity:.55; cursor:default; }
+  #worker-escalones .we-cta.is-busy{ opacity:.7; cursor:progress; }
+  @media (max-width:480px){
+    #worker-escalones .we-tiers.is-collapsed .we-row:not(.on){ display:none; }
+    #worker-escalones .we-toggle{ display:block; }
+  }
+</style>
+
+<script>{% raw %}
+(function () {
+  var root = document.getElementById('worker-escalones');
+  if (!root || root.dataset.weReady) return;
+
+  function readJSON(sel) {
+    var el = root.querySelector(sel);
+    try { return JSON.parse(el.textContent); } catch (e) { return null; }
+  }
+  var deal = readJSON('[data-worker-deal]');
+  var variants = readJSON('[data-worker-variants]') || [];
+  var cfg = readJSON('[data-worker-config]') || {};
+  if (!deal || !deal.tiers || !deal.tiers.length) return;
+
+  // Escalones ordenados por cantidad, por las dudas (el guard ya lo garantiza).
+  var tiers = deal.tiers.slice().sort(function (a, b) { return a.qty - b.qty; });
+  var unit = cfg.unitPriceCents;               // precio unitario en centavos
+  var strategy = deal.strategy || 'automatic';
+
+  // Fabriquita de nodos: sin innerHTML en ningún lado (repo security-conscious).
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+
+  // --- Dinero: formateador clásico de Shopify (respeta shop.money_format,
+  //     así sirve igual para USD ($629.95) que para COP ($160.200) ---------
+  function formatMoney(cents, format) {
+    format = format || '${{amount}}';
+    var m = format.match(/\{\{\s*(\w+)\s*\}\}/);
+    if (!m) return format;
+    function delim(number, precision, thousands, decimal) {
+      thousands = thousands == null ? ',' : thousands;
+      decimal = decimal == null ? '.' : decimal;
+      if (isNaN(number) || number == null) number = 0;
+      number = (number / 100.0).toFixed(precision);
+      var parts = number.split('.');
+      var whole = parts[0].replace(/(\d)(?=(\d\d\d)+(?!\d))/g, '$1' + thousands);
+      return whole + (parts[1] ? decimal + parts[1] : '');
+    }
+    var value;
+    switch (m[1]) {
+      case 'amount': value = delim(cents, 2); break;
+      case 'amount_no_decimals': value = delim(cents, 0); break;
+      case 'amount_with_comma_separator': value = delim(cents, 2, '.', ','); break;
+      case 'amount_no_decimals_with_comma_separator': value = delim(cents, 0, '.', ','); break;
+      case 'amount_with_apostrophe_separator': value = delim(cents, 2, "'", '.'); break;
+      case 'amount_no_decimals_with_space_separator': value = delim(cents, 0, ' ', ''); break;
+      case 'amount_with_space_separator': value = delim(cents, 2, ' ', ','); break;
+      default: value = delim(cents, 2);
+    }
+    return format.replace(/\{\{\s*\w+\s*\}\}/, value);
+  }
+  // LECCIÓN DEL CENTAVO (§14): Shopify redondea POR UNIDAD y después multiplica.
+  // 629.95 × 0.9 = 566.955 → 566.96 → × 2 = 1133.92 (no 1133.91). Hay que
+  // calcular igual, o el preview miente por un centavo contra el carrito real.
+  function tierUnitCents(pct) { return Math.round(unit * (100 - pct) / 100); }
+  function tierTotalCents(t) { return tierUnitCents(t.pct) * t.qty; }
+
+  // --- Estado -------------------------------------------------------------
+  var selectedIdx = 0;                          // arranca en 1 unidad (E7, §4.4)
+  // Variante elegida para las N unidades. v1: una sola variante para todo el
+  // escalón (no N selectores mezclables de §4.6 todavía). Default: la disponible.
+  var chosenVariant = (variants.filter(function (v) { return v.available; })[0] || variants[0] || {}).id;
+
+  function qtyLabel(q) { return q + ' ' + (q === 1 ? 'unidad' : 'unidades'); }
+
+  // --- Render de las filas de escalón (DOM, sin innerHTML) ----------------
+  function buildRows() {
+    var box = root.querySelector('[data-we-tiers]');
+    box.textContent = '';
+    tiers.forEach(function (t, i) {
+      var row = el('button', 'we-row' + (i === selectedIdx ? ' on' : ''));
+      row.type = 'button';
+      row.setAttribute('data-we-idx', i);
+      if (t.highlight) row.appendChild(el('span', 'we-pop', 'MÁS ELEGIDO'));
+      row.appendChild(el('span', 'we-radio'));
+      if (cfg.imageUrl) {
+        var img = el('img', 'we-thumb');
+        img.src = cfg.imageUrl; img.alt = ''; img.loading = 'lazy';
+        row.appendChild(img);
+      } else {
+        row.appendChild(el('span', 'we-thumb'));
+      }
+      var mid = el('span', 'we-mid');
+      mid.appendChild(el('span', 'we-qty', qtyLabel(t.qty)));
+      if (t.pct > 0) mid.appendChild(el('span', 'we-save', 'AHORRÁS ' + t.pct + '%'));
+      row.appendChild(mid);
+      var prices = el('span', 'we-prices');
+      prices.appendChild(el('span', 'we-total', formatMoney(tierTotalCents(t), cfg.moneyFormat)));
+      if (t.pct > 0) prices.appendChild(el('span', 'we-old', formatMoney(unit * t.qty, cfg.moneyFormat)));
+      row.appendChild(prices);
+      row.addEventListener('click', function () { select(i); });
+      box.appendChild(row);
+    });
+  }
+
+  // --- Barra de progreso (§4.3) ------------------------------------------
+  function paintNudge() {
+    var nudge = root.querySelector('[data-we-nudge]');
+    var fill = root.querySelector('[data-we-fill]');
+    var txt = root.querySelector('[data-we-nudge-txt]');
+    nudge.hidden = false;
+    txt.textContent = '';
+    var last = tiers.length - 1;
+    if (selectedIdx >= last) {                  // tope: llena + tono acento, no desaparece
+      nudge.classList.add('is-max');
+      txt.appendChild(document.createTextNode('✓ Ahorro máximo'));
+      return;
+    }
+    nudge.classList.remove('is-max');
+    var next = tiers[selectedIdx + 1];
+    var diff = next.qty - tiers[selectedIdx].qty;
+    fill.style.width = Math.round(selectedIdx / last * 100) + '%';
+    txt.appendChild(document.createTextNode('Sumá '));
+    txt.appendChild(el('strong', null, diff + ' más'));
+    txt.appendChild(document.createTextNode(' → '));
+    txt.appendChild(el('strong', null, next.pct + '%'));
+  }
+
+  // --- CTA que canta cantidad y total (§4.2) -----------------------------
+  function paintCta() {
+    var cta = root.querySelector('[data-we-cta]');
+    var t = tiers[selectedIdx];
+    cta.disabled = false;
+    cta.textContent = 'Llevar ' + t.qty + ' · ' + formatMoney(tierTotalCents(t), cfg.moneyFormat);
+  }
+
+  function select(i) {
+    selectedIdx = i;
+    root.querySelectorAll('.we-row').forEach(function (r, idx) {
+      r.classList.toggle('on', idx === i);
+    });
+    paintNudge();
+    paintCta();
+  }
+
+  // --- Estado inicial desde el carrito (§4.6) -----------------------------
+  function preselectFromCart() {
+    fetch((cfg.cartUrl || '/cart') + '.js', { headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.json(); })
+      .then(function (cart) {
+        var have = 0;
+        (cart.items || []).forEach(function (it) {
+          if (it.product_id === cfg.productId) have += it.quantity;
+        });
+        if (have > 0) {
+          var idx = 0;                          // el escalón que corresponde, o el inmediato inferior
+          for (var k = 0; k < tiers.length; k++) { if (tiers[k].qty <= have) idx = k; }
+          select(idx);
+          var note = root.querySelector('[data-we-note]');
+          note.hidden = false;
+          note.textContent = 'Ya tenés ' + have + ' en el carrito.';
+        }
+      })
+      .catch(function () { /* sin carrito legible: se queda en 1 unidad */ });
+  }
+
+  // --- Click final: fija el carrito (update.js, §4.6) ---------------------
+  function onBuy() {
+    var cta = root.querySelector('[data-we-cta]');
+    var t = tiers[selectedIdx];
+    var updates = {};
+    // La variante elegida lleva TODA la cantidad del escalón...
+    updates[chosenVariant] = t.qty;
+    // ...y TODA otra variante del producto va explícitamente en 0 (regla 2, §4.6):
+    // fija, no suma; sin esto, unidades preexistentes rompen el total anunciado.
+    variants.forEach(function (v) { if (v.id !== chosenVariant) updates[v.id] = 0; });
+
+    cta.classList.add('is-busy');
+    cta.disabled = true;
+    fetch('/cart/update.js', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ updates: updates })
+    }).then(function (r) {
+      if (!r.ok) throw new Error('cart update failed');
+      return r.json();
+    }).then(function () {
+      if (strategy === 'codes' && t.code) {
+        // única rama sensible a la estrategia (§4.2): el widget aplica el código
+        window.location.href = '/discount/' + encodeURIComponent(t.code) + '?redirect=' + (cfg.cartUrl || '/cart');
+      } else {
+        window.location.href = cfg.cartUrl || '/cart';
+      }
+    }).catch(function () {
+      cta.classList.remove('is-busy');
+      cta.disabled = false;
+      cta.textContent = 'Hubo un problema, probá de nuevo';
+    });
+  }
+
+  // --- Colapso en mobile (§4.5): deja el escalón elegido + "ver los demás" -
+  function setupCollapse() {
+    var box = root.querySelector('[data-we-tiers]');
+    var toggle = root.querySelector('[data-we-toggle]');
+    if (tiers.length <= 1) return;
+    function apply() {
+      var collapsed = window.matchMedia('(max-width:480px)').matches;
+      box.classList.toggle('is-collapsed', collapsed && !box.dataset.weOpen);
+      toggle.hidden = !collapsed;
+      toggle.textContent = box.dataset.weOpen ? 'Ver menos ⌃' : 'Ver los demás ⌄';
+    }
+    toggle.addEventListener('click', function () {
+      if (box.dataset.weOpen) delete box.dataset.weOpen; else box.dataset.weOpen = '1';
+      apply();
+    });
+    window.addEventListener('resize', apply);
+    apply();
+  }
+
+  // --- Arranque -----------------------------------------------------------
+  buildRows();
+  paintNudge();
+  paintCta();
+  setupCollapse();
+  root.querySelector('[data-we-cta]').addEventListener('click', onBuy);
+  preselectFromCart();
+  root.dataset.weReady = '1';
+  root.hidden = false;                          // recién ahora se muestra (sin flash)
+})();
+{% endraw %}</script>
+{%- endif -%}
