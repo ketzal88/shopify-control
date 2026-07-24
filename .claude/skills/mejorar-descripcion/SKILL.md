@@ -53,8 +53,13 @@ Va **antes** de identificar el producto a propósito: la terminología del clien
    (el texto va por stdin; sale 0 si está limpio, 1 y explica si hay issues)
 
    Chequea em-dash, longitud 80-150, keyword, **materiales falsos** (oro/plata/chapado: el material es acero quirúrgico), **lujo-vacío**, **claims médicos**, **voseo** y presencia del bloque GEO. Si algo falla, corregí ANTES del preview. **No muestres nada que no pase.** Después completá a mano los ítems que el linter no puede ver (vocabulario de marca, que el humanizer haya corrido).
-7. **PREVIEW.** Mostrá al cliente, en el chat, en texto plano y sin jerga: "ASÍ ESTÁ AHORA" vs "ASÍ QUEDARÍA", el bloque "Cómo se va a ver en Google", y "Qué mejoré" en bullets. Formato abajo.
-8. **GATE.** Preguntá: "¿Lo aplico a tu tienda? Responde sí o no." NO escribas nada hasta un "sí" explícito. Si dice no, no escribís.
+7. **PREVIEW.** Mostrá el antes/después como **un mensaje normal en el chat** (NO dentro de ningún cuadro), con formato para que se lea fácil: títulos en negrita, viñetas y saltos de línea reales. Sin jerga. Orden: intro de una línea → la descripción nueva → "Cómo se va a ver en Google" → "Qué mejoré" en tildes → "Lo que decía antes" al final (secundario). Formato exacto abajo.
+   > ⚠️ **El preview NUNCA va adentro del cuadro de confirmación del paso 8.** Ese cuadro aplasta los saltos de línea y las viñetas en un párrafo justificado ilegible (es el bug que veía el cliente: un muro de texto). El antes/después va SIEMPRE como mensaje de chat, que sí respeta el formato. El cuadro lleva SOLO la pregunta corta.
+8. **GATE.** Recién después del preview, pedí el OK con un cuadro de confirmación (`AskUserQuestion`) que lleve **solo la pregunta corta**, sin nada del preview adentro:
+   - Pregunta: `¿Lo aplico a tu tienda?`
+   - Opciones: `Sí, aplicá` / `No, dejá como está`
+
+   NO escribas nada hasta que elija "Sí, aplicá". Si elige "No", no escribís.
 9. **BACKUP (antes de escribir).** Guardá los valores VIEJOS de los 3 campos en `clients/{slug}/backups/{productIdTail}-{YYYYMMDD-HHMMSS}.json`:
    ```json
    { "productId": "gid://shopify/Product/123", "fields": { "descriptionHtml": "...viejo...", "seo_title": "...viejo...", "seo_description": "...viejo..." }, "ts": "2026-07-19T12:00:00" }
@@ -80,46 +85,48 @@ Registralo en el worklog y seguí con lo que sí podés hacer. No expliques por 
 
 ## Preview — formato exacto (ejemplo blunua, registro neutro)
 
-```
-Anillo NEXO Plateado. Encontré la descripción actual y te propongo esta mejora:
+Esto va como **mensaje de chat** (el markdown de abajo se renderiza con negritas y viñetas: por eso se lee fácil). El cuadro de confirmación viene **después** y solo con la pregunta.
 
-ASÍ ESTÁ AHORA:
-"Anillo NEXO de acero. Color plateado. Ajustable. Material resistente."
+--- 8< --- así se ve el mensaje de chat --- 8< ---
 
-ASÍ QUEDARÍA:
-  Anillo NEXO Plateado en acero quirúrgico, no irrita la piel
+**Anillo NEXO Plateado** — encontré la descripción actual y te propongo esta mejora.
 
-  Un anillo minimalista para todos los días. Se ve elegante pero sencillo, y está
-  hecho en acero quirúrgico hipoalergénico que no destiñe ni irrita, incluso en
-  pieles sensibles. Es parte de la colección NEXO, pensada para combinarse:
-  funciona sola o en conjunto.
+**Así quedaría la descripción**
 
-  Por qué dura:
-  • Acero quirúrgico hipoalergénico, seguro para piel sensible y uso diario
-  • Resistente al agua, no se oxida ni pierde el brillo
-  • Diseño minimalista que combina con tu estilo sin robar protagonismo
+Anillo NEXO Plateado en acero quirúrgico, no irrita la piel.
 
-  Preguntas frecuentes:
-  • ¿Se puede mojar? Sí, resiste el agua sin problema.
-  • ¿Sirve para piel sensible? Sí, el acero quirúrgico es hipoalergénico.
-  • ¿Es ajustable? Sí, se adapta a tu dedo.
+Un anillo minimalista para todos los días. Se ve elegante pero sencillo, y está hecho en acero quirúrgico hipoalergénico que no destiñe ni irrita, incluso en pieles sensibles. Es parte de la colección NEXO, pensada para combinarse: funciona sola o en conjunto.
 
-Cómo se va a ver en Google (título y resumen del buscador):
-  Título: Anillo NEXO en acero quirúrgico hipoalergénico | blunua
-  Resumen: Anillo minimalista que no irrita la piel, resiste el agua y dura.
-           Ideal para uso diario y para regalar.
+Por qué dura:
+- Acero quirúrgico hipoalergénico, seguro para piel sensible y uso diario
+- Resistente al agua, no se oxida ni pierde el brillo
+- Diseño minimalista que combina con tu estilo sin robar protagonismo
 
-Qué mejoré:
-✅ Agregué las palabras que la gente busca en Google
-✅ Sumé preguntas frecuentes, que ayudan a aparecer en respuestas de Google y ChatGPT
-✅ Usé la voz de blunua: cercana y clara, sin exagerar
-✅ Dejé claro el beneficio principal: no irrita, dura, para uso diario
+Preguntas frecuentes:
+- ¿Se puede mojar? Sí, resiste el agua sin problema.
+- ¿Sirve para piel sensible? Sí, el acero quirúrgico es hipoalergénico.
+- ¿Es ajustable? Sí, se adapta a tu dedo.
 
-(En tu tienda los títulos se ven en negrita y las viñetas como lista.)
+**Cómo se va a ver en Google**
+- **Título:** Anillo NEXO en acero quirúrgico hipoalergénico | blunua
+- **Resumen:** Anillo minimalista que no irrita la piel, resiste el agua y dura. Ideal para uso diario y para regalar.
 
-¿Lo aplico a tu tienda? Responde sí o no.
-(si después no te convence, dime "vuelve a la anterior" y lo dejo como estaba)
-```
+**Qué mejoré**
+- ✅ Agregué las palabras que la gente busca en Google
+- ✅ Sumé preguntas frecuentes, que ayudan a aparecer en respuestas de Google y ChatGPT
+- ✅ Usé la voz de blunua: cercana y clara, sin exagerar
+- ✅ Dejé claro el beneficio principal: no irrita, dura, para uso diario
+
+**Lo que decía antes**
+> Anillo NEXO de acero. Color plateado. Ajustable. Material resistente.
+
+*(En tu tienda el look final puede variar un poco: los títulos se ven en negrita y las viñetas como lista.)*
+
+--- 8< --- fin del mensaje de chat --- 8< ---
+
+Y **recién ahí** el cuadro de confirmación (paso 8), solo con la pregunta:
+
+> `¿Lo aplico a tu tienda?`  →  `Sí, aplicá`  /  `No, dejá como está`
 
 ## Escritura en lote
 - **Máximo 5 productos por lote.** Si el cliente pide más, hacelo en tandas y avisale.
@@ -131,8 +138,8 @@ Qué mejoré:
 ## Revertir (undo)
 "Vuelve a la anterior" es un write como cualquier otro: lleva preview, gate y confirmación.
 1. Leé el valor ACTUAL de los 3 campos (descripción con `get-product`, SEO con `graphql_query`).
-2. **Preview:** mostrale a qué texto va a volver ("ASÍ QUEDÓ" vs "ASÍ VOLVERÍA A QUEDAR").
-3. **Gate:** "¿Lo dejo como estaba antes? Responde sí o no."
+2. **Preview:** como **mensaje de chat** (mismo formato que arriba, nunca dentro del cuadro), mostrale a qué texto va a volver: "Ahora dice" vs "Volvería a decir".
+3. **Gate:** cuadro de confirmación con **solo la pregunta corta** — `¿Lo dejo como estaba antes?` → `Sí, volvé` / `No, dejá lo nuevo`.
 4. Guardá un backup fresco del valor ACTUAL (esto habilita también el *redo*), mismo formato y carpeta. Va primero: así el write pasa el guard aunque hayan pasado horas desde el cambio original.
 5. Escribí los valores VIEJOS del último backup: descripción con `update-product`, SEO con `graphql_mutation`.
 6. Append al worklog.
