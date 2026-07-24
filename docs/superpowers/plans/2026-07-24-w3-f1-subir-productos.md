@@ -41,7 +41,7 @@
 
 - [ ] **Step 1: Crear el fixture chico** (`tests/fixtures/w3_mini.csv`)
 
-Header nativo mínimo (subconjunto de las 85 columnas) + 3 filas: un producto con 2 variantes en 2 filas, y otro producto de 1 fila. Incluir en un valor un carácter no-ASCII (`Diseño`) guardado en **cp1252** para forzar el fallback. (El agente lo genera con un pequeño script que escribe bytes cp1252; o a mano si el editor lo permite.)
+Header nativo mínimo (subconjunto de las 85 columnas) + 3 filas: un producto con 2 variantes en 2 filas, y otro producto de 1 fila. **La fila de continuación repite el `Handle`** (como hace el export real de Shopify) y deja `Title` vacío, para que el test ejercite el mismo camino de agrupado que el archivo de 678. Incluir en un valor un carácter no-ASCII (`Diseño`) guardado en **cp1252** para forzar el fallback. (El agente lo genera con un pequeño script que escribe bytes cp1252; o a mano si el editor lo permite.)
 
 Columnas del fixture: `Handle,Title,Type,Tags,Option1 Name,Option1 Value,Variant SKU,Variant Price,Variant Barcode,Variant Grams,Image Src,Image Position,Image Alt Text,Variant Image,Body (HTML),SEO Title,SEO Description,Status`
 
@@ -49,14 +49,17 @@ Columnas del fixture: `Handle,Title,Type,Tags,Option1 Name,Option1 Value,Variant
 
 ```python
 # tests/test_product_csv.py
-import sys, json, subprocess
+import sys, json, subprocess, importlib.util
 from pathlib import Path
 
 HOOKS = Path(__file__).resolve().parents[1] / ".claude" / "hooks"
-sys.path.insert(0, str(HOOKS))
 FIX = Path(__file__).resolve().parent / "fixtures"
 
-import product_csv as pc
+# Cargar el módulo por ruta (mismo patrón que test_description_lint / test_backup_guard,
+# evita ensuciar sys.path en la sesión pytest compartida).
+_spec = importlib.util.spec_from_file_location("product_csv", HOOKS / "product_csv.py")
+pc = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(pc)
 
 def test_read_rows_handles_cp1252_fallback():
     rows, cols = pc.read_rows(FIX / "w3_mini.csv")

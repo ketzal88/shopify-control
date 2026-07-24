@@ -1,4 +1,4 @@
 {
-  "//": "Placeholder. El connector de Shopify se conecta vía la app de Claude (OAuth) por tienda. Ver docs/runbooks/conectar-tienda.md. Cuando se conozca el nombre del server MCP, documentarlo acá.",
+  "//": "Vacío A PROPÓSITO. Los connectors (Shopify y Worker Brain) se agregan vía la app de Claude (Settings → Connectors, OAuth por-usuario), NO como servers de este repo — por eso no hay tokens acá. Conectar Shopify: docs/runbooks/conectar-tienda.md. Conectar el Brain (solo lectura, scopeado por cliente): docs/runbooks/conectar-brain.md.",
   "mcpServers": {}
 }

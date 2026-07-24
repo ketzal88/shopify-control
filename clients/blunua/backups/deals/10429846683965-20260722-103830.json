@@ -1,0 +1,19 @@
+{
+  "kind": "deal",
+  "productId": "gid://shopify/Product/10429846683965",
+  "previous": {
+    "version": 1,
+    "type": "quantity_breaks",
+    "tiers": [
+      { "qty": 1, "pct": 0 },
+      { "qty": 2, "pct": 10, "highlight": true, "ref": "gid://shopify/DiscountAutomaticNode/1765235720509", "code": null },
+      { "qty": 3, "pct": 20, "ref": "gid://shopify/DiscountAutomaticNode/1765235786045", "code": null }
+    ],
+    "strategy": "automatic",
+    "startsAt": "2026-07-20T00:00:00Z",
+    "endsAt": "2026-09-18T00:00:00Z",
+    "createdBy": "shopify-control",
+    "ts": "2026-07-21T22:02:07Z"
+  },
+  "ts": "2026-07-22T10:38:30"
+}
