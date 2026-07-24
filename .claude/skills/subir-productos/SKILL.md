@@ -1,28 +1,49 @@
 ---
 name: subir-productos
-description: Prepara y revisa productos nuevos a partir de un archivo que entrega el cliente (más una carpeta de fotos), cumpliendo los estándares de la tienda. Muestra un preview producto por producto en el chat. Esta fase NO crea nada en Shopify: termina en el preview. Usar cuando el cliente quiere subir productos nuevos desde un archivo, cargar un catálogo, o dice que tiene una lista de productos para agregar.
+description: Sube productos nuevos a partir de un archivo que entrega el cliente (más una carpeta de fotos), cumpliendo los estándares de la tienda. Primero prepara y muestra un preview producto por producto en el chat (F1); con la confirmación del cliente, los crea en Shopify como BORRADORES inertes (todavía no a la venta), con variantes, precio e imágenes, y permite deshacerlos (archivarlos). Publicarlos (ponerlos a la venta) es un paso aparte. Usar cuando el cliente quiere subir productos nuevos desde un archivo, cargar un catálogo, o dice que tiene una lista de productos para agregar.
 ---
 
-# Subir productos nuevos (F1 — preparar y revisar)
+# Subir productos nuevos (F1 preparar · F2 crear borradores)
 
-Skill de **preparación** sobre datos que el cliente entrega. No escribe nada en Shopify: lee el
-archivo, lo agrupa en productos, lo valida, chequea contra la tienda viva cuáles ya existen, genera
-la descripción y el SEO de cada uno con el mismo craft que `mejorar-descripcion`, y arma un preview
-sin jerga. Crear los productos como borradores (y publicarlos) es una fase futura, todavía no
-construida.
+Skill de dos fases sobre datos que el cliente entrega.
+
+- **F1 — preparar y revisar (no escribe nada):** lee el archivo, lo agrupa en productos, lo valida,
+  chequea contra la tienda viva cuáles ya existen, genera la descripción y el SEO de cada uno con el
+  mismo craft que `mejorar-descripcion`, y arma un preview sin jerga. Termina en el preview.
+- **F2 — crear borradores (escribe, con protocolo):** con la confirmación explícita del cliente,
+  crea los productos que quedaron listos como **borradores inertes** en la tienda real —con
+  variantes, precio e imágenes—, deja un registro de cada alta, y permite deshacerlas (archivarlas).
+
+> **Los productos quedan como borradores: todavía NO están a la venta.** Ponerlos a la venta
+> (publicarlos) es un paso aparte que todavía no está disponible desde acá. Decíselo al cliente con
+> todas las letras al terminar.
 
 ## Reglas duras (no negociables)
-- **Esta fase no escribe nada en Shopify.** Ningún tool de escritura se llama en este flujo. El
-  resultado final es siempre un preview en el chat, nunca un producto creado.
+- **F1 no escribe nada. F2 escribe SOLO borradores, y solo por el camino permitido.** El alta va
+  siempre por `Shopify:graphql_mutation` con `productSet` en `status: "DRAFT"`. El connector tiene
+  denegado el tool `create-product` a propósito: no lo uses, no hay camino alternativo.
+- **Alcance de lo que se escribe en un alta (cerrado y mínimo).** El `productSet` solo puede llevar:
+  `title`, `handle`, `descriptionHtml`, `seo`, `productType`, `tags`, `status`, `productOptions`,
+  `variants` y `files`. Cada variante solo: `optionValues`, `price`, `sku`, `barcode`, `file`.
+  **NUNCA** `collections`, `metafields`, `inventoryQuantities`/`inventoryItem` (stock), ni `id`. Un
+  `productSet` con `id` edita un producto existente, no es un alta. El guard de seguridad enforcea
+  todo esto: si mandás un campo fuera de ese set, o un status distinto de DRAFT, o un precio fuera
+  del techo del cliente, te bloquea. No hay que pelearle al guard: hay que mandar exactamente el set
+  permitido.
+- **Siempre en borrador.** `status: "DRAFT"`, sin excepción. Publicar (status ACTIVE) no está
+  disponible en esta fase.
 - **Sin jerga con el cliente:** todo lo que ve es lenguaje natural. Nunca nombres de archivo
-  técnico, de comando, de skill, ni la palabra "CSV", "JSON" o "CLI". Al cliente se le habla de "tu
-  archivo" y "tu carpeta de fotos".
-- **Registro:** el que diga `store-standards.md §2` del cliente (blunua: español neutro, SIN
-  voseo). Los textos literales de este archivo son **plantillas**: si el cliente tiene otro
-  registro, adaptalos.
-- **El gate de crear todavía no existe.** Aunque el cliente diga "sí, creálos", esta fase no tiene
-  forma de escribir en Shopify (no está construido y no hay que simularlo). Ver la sección "Si el
-  cliente pide crear ya" más abajo.
+  técnico, de campo, de comando, de skill, ni las palabras "CSV", "JSON", "productSet", "borrador
+  técnico" ni "CLI". Al cliente se le habla de "tu archivo", "tu carpeta de fotos", y de que los
+  productos "quedaron cargados pero todavía no publicados".
+- **Registro:** el que diga `clients/{slug}/store-standards.md §2` (blunua: español neutro, SIN
+  voseo). Los textos literales de este archivo son **plantillas**: adaptalos al registro del cliente.
+- **Humanizer obligatorio** antes de todo texto que vea el cliente (preview y confirmaciones):
+  `handsOn-Worker/skills/humanizer/SKILL.md`. Hoy no es invocable como skill desde este repo — leé
+  ese archivo y aplicá sus reglas a mano.
+- **Todo write lleva el protocolo completo** (confirmar tienda → cargar contexto → identificar →
+  leer → generar → humanizer → checklist → preview → **gate explícito** → escribir → **registro de
+  creación** → confirmar). **El undo (archivar) también es un write** y lleva su propio gate.
 
 ## Paso 0 — Confirmar cliente y tienda (obligatorio, antes de todo)
 La sesión se abre en la RAÍZ del repo, así que el contexto del cliente NO se carga solo.
@@ -36,12 +57,15 @@ La sesión se abre en la RAÍZ del repo, así que el contexto del cliente NO se 
 - `clients/{slug}/store-standards.md` (molde canónico §3, registro §2, keywords por categoría §4,
   checklist §9).
 - La marca en handsOn (link en el `CLAUDE.md` del cliente): brand-voice, vocabulario.
+- El techo de alta del cliente vive en `clients/{slug}/create-policy.json` (lo aplica el guard: piso
+  y techo de precio, tamaño de lote, ventana para deshacer). No hace falta que lo cites al cliente;
+  sí respetalo.
 
 ## Flujo F1 (siempre en este orden)
 
 1. **RECIBIR.** Pedile al cliente, en lenguaje natural, dónde está el archivo con los productos
-   nuevos y dónde está la carpeta con las fotos. Traducilo a dos rutas locales. No hace falta que
-   el cliente sepa qué formato tiene el archivo: si viene de Shopify, ya sirve tal cual.
+   nuevos y dónde está la carpeta con las fotos. Traducilo a dos rutas locales. No hace falta que el
+   cliente sepa qué formato tiene el archivo: si viene de Shopify, ya sirve tal cual.
 
 2. **PARSEAR.** Corré:
 
@@ -49,7 +73,7 @@ La sesión se abre en la RAÍZ del repo, así que el contexto del cliente NO se 
    python .claude/hooks/product_csv.py "<ruta del archivo>"
    ```
 
-   Leé el resultado (JSON por salida estándar): trae, por cada producto, un estado —`crear` o
+   Leé el resultado (por salida estándar): trae, por cada producto, un estado —`crear` o
    `rechazado`— y, si fue rechazado, el motivo en texto. Esto es trabajo interno: nunca lo mencionés
    al cliente con esos nombres. Si el archivo no se pudo leer o el comando falla, decile al cliente
    en lenguaje natural que no se pudo abrir el archivo y avisá al operador; no sigas adivinando el
@@ -60,16 +84,15 @@ La sesión se abre en la RAÍZ del repo, así que el contexto del cliente NO se 
    - `Shopify:search_products` por `sku:<sku>` de cada variante.
 
    Si cualquiera de las dos búsquedas encuentra un match, ese producto pasa a "ya existe" y no se
-   procesa más (no se le genera copy). Guardá a qué producto de la tienda corresponde, para poder
-   mencionarlo en el preview si hace falta.
+   procesa más (no se le genera copy ni se crea). Guardá a qué producto de la tienda corresponde,
+   para poder mencionarlo en el preview si hace falta.
 
 4. **GENERAR COPY.** Por cada producto que sigue en `crear` (ni rechazado ni "ya existe"):
    - Escribí la descripción con el molde canónico de `store-standards §3`: título → hook → 3
      beneficios → material/garantía → bloque GEO (2-4 preguntas frecuentes). Tejé las keywords de
      `§4` en el texto, no en bloque aparte.
    - Generá también meta title (~60 caracteres) y meta description (~155 caracteres).
-   - Pasá todo por el humanizer (obligatorio): `handsOn-Worker/skills/humanizer/SKILL.md`. Hoy no es
-     invocable como skill desde este repo — leé ese archivo y aplicá sus reglas a mano. Sin
+   - Pasá todo por el humanizer (obligatorio): `handsOn-Worker/skills/humanizer/SKILL.md`. Sin
      em-dashes, sin voseo si el registro es neutro, sin lenguaje promocional vacío.
    - Corré el linter de verdad, sobre el **texto plano** (no el HTML). El texto va por entrada
      estándar (por eso el `echo` adelante, si no el comando se queda esperando):
@@ -84,28 +107,138 @@ La sesión se abre en la RAÍZ del repo, así que el contexto del cliente NO se 
 5. **PREVIEW.** Armá el mensaje de chat (nunca dentro de un cuadro de confirmación: eso aplasta el
    formato) con:
    - Un índice arriba de todo: cuántos productos quedaron listos para crear, cuántos ya existen en
-     la tienda, y cuántos tienen algún problema (y por qué, en lenguaje natural, no el motivo
-     técnico crudo).
-   - El detalle de cada producto que quedó listo para crear: nombre, precio, variantes (por
-     ejemplo color o talla), la descripción generada, cómo se va a ver en Google (título y resumen),
-     y el estado de las fotos (si el archivo trae fotos o no para ese producto).
-   - Los productos con problemas o que ya existen: mencionalos con el motivo, sin entrar en detalle
-     técnico ("ese ya está en tu tienda, lo salteo" / "a ese le falta el precio, revisalo y lo
-     volvemos a intentar").
-   - **Esta fase termina acá.** No hay gate de creación porque no hay nada que crear todavía.
+     la tienda, y cuántos tienen algún problema (y por qué, en lenguaje natural).
+   - El detalle de cada producto que quedó listo para crear: nombre, precio, variantes (por ejemplo
+     color o talla), la descripción generada, cómo se va a ver en Google (título y resumen), y el
+     estado de las fotos (si el archivo trae fotos o no para ese producto).
+   - Los productos con problemas o que ya existen: mencionalos con el motivo, sin detalle técnico
+     ("ese ya está en tu tienda, lo salteo" / "a ese le falta el precio, revisalo y lo volvemos a
+     intentar").
+   - **Cerrá el preview preguntando si querés que los cargue como borradores** (el gate de F2, abajo).
+     No los cargues sin esa confirmación.
 
-## Si el cliente pide crear o publicar ya
-Explicale que por ahora el archivo se revisa y se prepara, y que crearlos en la tienda es un paso
-que todavía falta construir. No lo intentes ni simules un resultado.
+## Fase F2 — Crear los borradores
+
+### 1. Gate de crear (explícito, sí/no)
+Después del preview, preguntá en lenguaje natural si el cliente quiere que cargue esos productos.
+Dejá claro **qué** se va a hacer y **qué no**:
+
+> "Puedo cargarlos en tu tienda como borradores: van a quedar con sus fotos, variantes y precio,
+> pero **todavía no a la venta**. Ponerlos a la venta es un paso aparte. ¿Los cargo así?"
+
+Solo seguí si el cliente dice que sí. Si dice que no, quedate en el preview. Cargá **solo** los
+productos que quedaron "listos para crear" (nunca los rechazados ni los que ya existen).
+
+### 2. Imágenes (antes de crear cada producto)
+Por cada foto del producto:
+- **Si es una URL** (la foto ya vive en internet): usala directo como `files[].originalSource`.
+- **Si es un archivo local** (está en la carpeta de fotos del cliente): subí los bytes con
+  `Shopify:graphql_mutation` usando `stagedUploadsCreate` (resource `IMAGE`). Eso te devuelve un
+  destino con `url` y `parameters`; hacé el `PUT`/`POST` de los bytes de la imagen a ese destino, y
+  después usá el `resourceUrl` que te devolvió como `originalSource` en `files[]`.
+
+Cada imagen que quieras mostrar va en `files[]`. Para atar una imagen a una variante puntual, poné
+esa imagen también en `variants[].file` (y asegurate de que esté además en `files[]`).
+
+> **Si el paso de subir la foto local queda bloqueado** (el guard todavía no habilita la subida de
+> bytes por sí sola): pedile al cliente la foto como link (URL) y usala directo en `originalSource`,
+> o avisale al operador para que habilite ese paso. Nunca fuerces otro camino de escritura.
+
+### 3. Crear (un `productSet` en DRAFT por producto)
+Armá la mutación y **validala antes** con `Shopify:validate_graphql_codeblocks`. Después corré
+`Shopify:graphql_mutation` con `productSet(input: $p, synchronous: true)`, pasando el producto en
+`variables` (no escrito dentro del query). El objeto `$p` lleva **solo** campos del set permitido:
+
+```graphql
+mutation($p: ProductSetInput!) {
+  productSet(input: $p, synchronous: true) {
+    product { id handle status }
+    userErrors { field message }
+  }
+}
+```
+
+`variables`:
+
+```json
+{
+  "p": {
+    "title": "…",
+    "handle": "…",
+    "descriptionHtml": "…",
+    "seo": { "title": "…", "description": "…" },
+    "productType": "…",
+    "tags": ["…"],
+    "status": "DRAFT",
+    "productOptions": [{ "name": "Color", "values": [{ "name": "Plata" }] }],
+    "variants": [
+      { "optionValues": [{ "optionName": "Color", "name": "Plata" }],
+        "price": "120.00", "sku": "AX-1", "barcode": "…", "file": { "originalSource": "…" } }
+    ],
+    "files": [{ "originalSource": "…" }]
+  }
+}
+```
+
+- `status` **siempre** `"DRAFT"`.
+- **Nunca** `collections`, `metafields`, `inventoryQuantities`/`inventoryItem`, ni `id`.
+- Un producto por mutación (el guard bloquea dos operaciones de producto en el mismo pedido).
+- Si `userErrors` vuelve con algo, no inventes: contáselo al cliente en lenguaje natural y frená ese
+  producto.
+
+### 4. Registro de creación (obligatorio, apenas el alta sale OK)
+El registro es lo que habilita deshacer después. Apenas el `productSet` devuelve un `product.id`,
+escribí `clients/{slug}/backups/create/{idTail}-{YYYYMMDD-HHMMSS}.json` (donde `idTail` es la parte
+numérica del id) con exactamente:
+
+```json
+{ "kind": "create", "productId": "gid://shopify/Product/…", "handle": "…",
+  "createdBy": "subir-productos", "ts": "<ISO 8601>" }
+```
+
+Sin este registro no vas a poder archivar el producto después (el guard exige un registro de
+creación reciente para permitir el archivar).
+
+### 5. Lote parcial y ventana
+- Si el lote es grande, avisale al cliente que puede tardar y cargá de a uno.
+- Si algo falla a mitad del lote, decile **exactamente cuáles quedaron cargados y cuáles no**, para
+  que no queden dudas. No reintentes en silencio un producto que ya se creó (crearía un duplicado).
+- El registro de creación tiene una ventana (la del `create-policy.json` del cliente) dentro de la
+  cual se puede deshacer. Si el cliente quiere deshacer más tarde, avisale que quizás ya pasó la
+  ventana.
+
+### 6. Confirmar al cliente
+Cerrá con un mensaje humanizado, sin jerga, que diga:
+- Cuántos productos quedaron cargados y con qué nombre.
+- Que quedaron **como borradores: todavía no están a la venta.** Ponerlos a la venta es un paso
+  aparte que todavía no está disponible desde acá.
+- Que si se arrepiente, los puede sacar (ver abajo).
+
+Registralo en `clients/{slug}/worklog.md`, por ejemplo:
+`## YYYY-MM-DD [write] subir-productos — creé N borradores (M ya existían, K con problemas)`.
+
+## Deshacer ("sacá los que subiste" / "borralos")
+Deshacer **archiva** el producto (lo saca de la vista); no lo borra. Lleva su propio protocolo:
+1. **Gate:** confirmá con el cliente cuáles quiere sacar y avisá que van a quedar archivados (no a
+   la venta y fuera de la vitrina), no eliminados.
+2. Por cada producto a archivar que tenga un **registro de creación reciente**, corré
+   `Shopify:graphql_mutation` con `productChangeStatus(productId: …, status: ARCHIVED)`. Solo
+   ARCHIVED: el guard bloquea cualquier otro destino (poner a la venta es F3; bajar a borrador no
+   aplica).
+3. Si un producto no tiene registro de creación reciente, no lo archives por este camino: decíselo
+   al cliente ("ese no lo subí yo recién, así que desde acá no lo puedo sacar").
+4. Registralo en el worklog:
+   `## YYYY-MM-DD [write] subir-productos — archivé N borradores (undo)`.
+
+## Si el cliente pide publicar / poner a la venta
+Crear los borradores **sí** está disponible; publicarlos (ponerlos a la venta, status ACTIVE)
+todavía **no**. No lo intentes ni simules el resultado.
 
 Guion (neutro, adaptar por `store-standards §2`):
-> "Por ahora puedo revisar tu archivo y mostrarte cómo quedarían los productos. Crearlos en tu
-> tienda todavía no lo tengo disponible; en cuanto esté lo vemos."
-
-Registralo en `clients/{slug}/worklog.md` como una preparación revisada (sin write), por ejemplo:
-`## YYYY-MM-DD [preview] subir-productos — N para crear, X ya existen, Y con problemas`.
+> "Ya te dejé los productos cargados como borradores. Ponerlos a la venta todavía no lo tengo
+> disponible desde acá; en cuanto esté lo hacemos."
 
 ## Nota interna
-Nunca nombres frente al cliente el comando, el archivo de resultado ni los nombres de campo
-internos (`handle`, `sku`, `status`, `motivos`, etc.). Todo eso se traduce a lenguaje natural en el
-preview.
+Nunca nombres frente al cliente el comando, el archivo de resultado, los nombres de campo internos
+(`handle`, `sku`, `status`, `productSet`, `metafields`, etc.) ni la palabra "borrador técnico". Todo
+eso se traduce a lenguaje natural en el preview y en las confirmaciones.
