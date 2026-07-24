@@ -1598,6 +1598,45 @@ def _covering_create_record(backups_root, product_id: str, now: float, window_ho
     return True, None
 
 
+def _covering_publish_record(backups_root, product_id: str, now: float, window_hours):
+    """(hay_registro, motivo). Registro de PUBLICACIÓN (`kind:"publish"`, ruta
+    `backups/publish/`) que el skill escribe DESPUÉS de pasar el gate de
+    completitud y ANTES de los writes de publicación (F3, spec §7.2/§7.4).
+
+    Espejo EXACTO de `_covering_create_record`: discrimina por ruta Y `kind`,
+    frescura DOBLE (mtime + ts), ventana en horas, y el mismo guard de colisión
+    multi-cliente (los ids de Shopify son por tienda, y el glob barre todos los
+    clientes). Un registro `create` NO habilita publicar y viceversa: cada clase
+    tiene su ruta + kind, defensa en profundidad idéntica a oferta/cosmético."""
+    tail = product_id.split("/")[-1]
+    window_s = float(window_hours) * 3600
+    hits = []
+    for p in Path(backups_root).glob(f"**/backups/publish/{tail}-*.json"):
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if data.get("kind") != "publish":
+            continue
+        if data.get("productId") != product_id:
+            continue
+        if now - p.stat().st_mtime > window_s:
+            continue
+        if not _ts_fresh_window(data, now, window_s):
+            continue
+        hits.append(p)
+
+    if not hits:
+        return False, ("antes de publicar tengo que revisar que el producto esté completo, "
+                       "y no encuentro ese registro reciente.")
+
+    clientes = {c for c in (_client_of(p) for p in hits) if c}
+    if len(clientes) > 1:
+        return False, (f"hay registros de publicación de {sorted(clientes)} para el mismo id de "
+                       "producto. Los ids de Shopify son por tienda, así que no puedo saber cuál corresponde.")
+    return True, None
+
+
 def _call_args(text: str, open_idx: int):
     """Arg-string entre paréntesis desde `text[open_idx] == '('`, saltando string
     literals para que un `)` dentro de un string no cierre el grupo antes de
@@ -1756,19 +1795,23 @@ def _productid_arg(args: str, variables: dict):
 
 
 def _check_status_change(tool_input, backups_root, now: float):
-    """`productChangeStatus(productId, status)`. En F2 el ÚNICO destino permitido
-    es ARCHIVED (undo=archivar); publicar (ACTIVE) es F3. `status` y `productId`
-    se leen del argumento REAL de la mutación (enum inline o `$var` resuelto), no
-    de una variable señuelo que el query no referencia. Archivar exige un registro
-    de creación fresco del mismo producto. Fail-closed ante la duda."""
+    """`productChangeStatus(productId, status)`. DOS destinos permitidos:
+    - ARCHIVED (F2, undo=archivar): exige un registro `create` fresco.
+    - ACTIVE (F3, publicar): exige `allowPublish:true` + registro `create` fresco
+      (lo subió W3) + registro `publish` fresco (el skill lo escribió tras el gate
+      de completitud). DRAFT/UNLISTED u otro destino → block.
+
+    `status` y `productId` se leen del argumento REAL de la mutación por CLAVE y
+    string-aware (`_top_level_args`), nunca de una variable señuelo que el query
+    no referencia ni de un string incrustado. Fail-closed ante la duda."""
     query = _query_text(tool_input)
     clean = re.sub(r"#[^\n]*", " ", query or "")
     m = re.search(r"\bproductchangestatus\s*\(", clean, re.I)
     if not m:
-        return "block", "no pude leer la operación de archivar."
+        return "block", "no pude leer la operación de cambio de estado."
     args = _call_args(clean, m.end() - 1)
     if args is None:
-        return "block", "no pude leer la operación de archivar."
+        return "block", "no pude leer la operación de cambio de estado."
     variables = (tool_input or {}).get("variables") if isinstance(tool_input, dict) else None
     variables = variables if isinstance(variables, dict) else {}
 
@@ -1776,25 +1819,35 @@ def _check_status_change(tool_input, backups_root, now: float):
     if not isinstance(status, str) or not status.strip():
         return "block", "no pude determinar a qué estado se cambia el producto."
     dest = status.strip().upper()
-    if dest == "ACTIVE":
-        return "block", ("publicar todavía no está disponible; por ahora solo puedo "
-                         "archivar un producto que subí recién.")
-    if dest != "ARCHIVED":
-        return "block", "solo puedo archivar un producto, no cambiarlo a otro estado."
+    if dest not in ("ARCHIVED", "ACTIVE"):
+        return "block", "solo puedo archivar o publicar un producto, no cambiarlo a otro estado."
 
     product_id = _productid_arg(args, variables)
     if not (isinstance(product_id, str) and PRODUCT_GID_RE.match(product_id.strip())):
-        return "block", "no pude identificar qué producto se archiva."
+        verbo = "archiva" if dest == "ARCHIVED" else "publica"
+        return "block", f"no pude identificar qué producto se {verbo}."
     product_id = product_id.strip()
 
     policy = load_create_policy(backups_root)
     if policy is None:
         return "block", ("no encontré una política de alta única (create-policy.json). "
-                         "Sin ella no puedo archivar productos.")
+                         "Sin ella no puedo cambiar el estado de un producto.")
+    window = policy["createRecordWindowHours"]
 
-    ok, why = _covering_create_record(backups_root, product_id, now,
-                                      policy["createRecordWindowHours"])
-    return ("allow", "ok") if ok else ("block", why)
+    if dest == "ARCHIVED":
+        ok, why = _covering_create_record(backups_root, product_id, now, window)
+        return ("allow", "ok") if ok else ("block", why)
+
+    # dest == ACTIVE: publicar (F3). Gate en tres partes, fail-closed en cada una.
+    if not policy.get("allowPublish"):
+        return "block", "publicar no está habilitado para este cliente."
+    ok, _ = _covering_create_record(backups_root, product_id, now, window)
+    if not ok:
+        return "block", "solo puedo publicar un producto que subí recién."
+    ok2, _ = _covering_publish_record(backups_root, product_id, now, window)
+    if not ok2:
+        return "block", ("antes de publicar tengo que revisar que el producto esté completo.")
+    return "allow", "ok"
 
 
 def _check_staged_upload(tool_input, backups_root, now: float):

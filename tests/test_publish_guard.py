@@ -63,3 +63,60 @@ def write_publish_record(dest, product_id=PID, slug="blunua", age_hours=0):
 def test_create_policy_has_allowed_publication_ids():
     pol = json.loads((REPO_ROOT / "clients" / "blunua" / "create-policy.json").read_text(encoding="utf-8"))
     assert isinstance(pol.get("allowedPublicationIds"), list)
+
+
+def _status_q(status, product_id=PID):
+    return f'mutation{{ productChangeStatus(productId:"{product_id}", status:{status}){{ product{{id}} }} }}'
+
+
+# --- Task 2: rama ACTIVE de _check_status_change (habilitada en F3) ---
+
+def test_active_blocked_without_allow_publish(tmp_path):
+    # allowPublish:false => block, aun con create + publish records frescos
+    write_publish_policy(tmp_path, allow_publish=False)
+    write_create_record(tmp_path); write_publish_record(tmp_path)
+    d, why = bg.evaluate(_payload(_status_q("ACTIVE")), tmp_path, time.time())
+    assert d == "block" and "publicar" in why, why
+
+
+def test_active_blocked_without_publish_record(tmp_path):
+    # create record presente, publish record ausente => block ("revisar que esté completo")
+    write_publish_policy(tmp_path); write_create_record(tmp_path)
+    d, why = bg.evaluate(_payload(_status_q("ACTIVE")), tmp_path, time.time())
+    assert d == "block" and "publicar" in why, why
+
+
+def test_active_blocked_without_create_record(tmp_path):
+    # publish record presente pero NO create record (no lo subió W3) => block
+    write_publish_policy(tmp_path); write_publish_record(tmp_path)
+    d, why = bg.evaluate(_payload(_status_q("ACTIVE")), tmp_path, time.time())
+    assert d == "block" and "publicar" in why, why
+
+
+def test_active_allowed_with_create_and_publish_records(tmp_path):
+    # allowPublish:true + create + publish records frescos => allow
+    write_publish_policy(tmp_path); write_create_record(tmp_path); write_publish_record(tmp_path)
+    d, why = bg.evaluate(_payload(_status_q("ACTIVE")), tmp_path, time.time())
+    assert d == "allow", why
+
+
+def test_archived_still_works_from_f2(tmp_path):
+    # regresión F2: ARCHIVED sigue funcionando con SOLO el create record (sin publish)
+    write_publish_policy(tmp_path); write_create_record(tmp_path)
+    d, why = bg.evaluate(_payload(_status_q("ARCHIVED")), tmp_path, time.time())
+    assert d == "allow", why
+
+
+def test_active_stale_publish_record_is_rejected(tmp_path):
+    # publish record fuera de ventana => block (frescura doble, espejo de create)
+    write_publish_policy(tmp_path); write_create_record(tmp_path)
+    write_publish_record(tmp_path, age_hours=200)
+    assert bg.evaluate(_payload(_status_q("ACTIVE")), tmp_path, time.time())[0] == "block"
+
+
+def test_covering_publish_record_multi_client_is_ambiguous(tmp_path):
+    # ids de Shopify son por tienda: dos clientes con publish record del mismo id => ambiguo
+    write_publish_record(tmp_path, slug="blunua")
+    write_publish_record(tmp_path, slug="otra")
+    ok, why = bg._covering_publish_record(tmp_path, PID, time.time(), 72)
+    assert ok is False and "por tienda" in why, why
