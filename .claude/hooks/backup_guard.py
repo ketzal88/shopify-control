@@ -105,6 +105,11 @@ FORBIDDEN_ACTIONS = {
 }
 
 # Mutaciones GraphQL prohibidas: tocan precio, stock, status, publicación o borran.
+# `publishablepublish` SE SACÓ en W3 F3: publicar al Online Store entra en alcance,
+# pero por un check propio y estrecho (`_check_publish`), no por la blocklist —
+# decisión tomada con el operador (spec §7.2). `publishableunpublish` (DESPUBLICAR)
+# SIGUE bloqueado: sacar de la venta no está en alcance. Verificado: ninguno de los
+# dos es substring del otro, así que sacar uno no destapa al otro.
 FORBIDDEN_MUTATIONS = {
     "productdelete",
     "productvariantsbulkupdate",
@@ -115,7 +120,6 @@ FORBIDDEN_MUTATIONS = {
     "inventoryactivate",
     "collectioncreate",
     "collectionupdate",
-    "publishablepublish",
     "publishableunpublish",
 }
 
@@ -149,11 +153,14 @@ DISCOUNT_BXGY = {"discountautomaticbxgycreate"}
 # `stageduploadscreate` (W3 F2): pide un destino temporal para subir los bytes de
 # una foto local. Es INERTE respecto del catálogo (no toca producto/precio/stock/
 # colección); el attach real de la imagen pasa por `productSet.files`, que
-# `_check_create` ya controla. NO empieza con product/discount/collection ni es
-# metafieldsset, así que ADEMÁS se clasifica explícitamente en el contador de
-# `asuntos` de `evaluate` (si no, se colaría como vehículo/señuelo de otra mutación).
+# `_check_create` ya controla. `publishablepublish` (W3 F3): publica al Online Store
+# bajo el check estrecho `_check_publish`. NINGUNO empieza con product/discount/
+# collection ni es metafieldsset, así que ADEMÁS se clasifican explícitamente en el
+# contador de `asuntos` de `evaluate` (si no, se colarían como vehículo/señuelo de
+# otra mutación — la clase de bug HIGH del review de BXGY).
 ROOT_FIELD_ALLOWED = (PRODUCT_WRITE_ALLOWED | DISCOUNT_CREATE | DISCOUNT_BXGY
-                      | DISCOUNT_DEACTIVATE | {"metafieldsset", "stageduploadscreate"})
+                      | DISCOUNT_DEACTIVATE
+                      | {"metafieldsset", "stageduploadscreate", "publishablepublish"})
 
 # --- Alta de producto (W3 F2, spec §7.0/§7.1) -------------------------------
 # La clase `create`: un `productSet` en status DRAFT con un set de campos CERRADO
@@ -1867,6 +1874,83 @@ def _check_staged_upload(tool_input, backups_root, now: float):
     return "allow", "ok"
 
 
+def _check_publish(tool_input, backups_root, now: float):
+    """`publishablePublish(id: ID!, input: [PublicationInput!]!)` — publicar al
+    Online Store (W3 F3, spec §7.2). `PublicationInput = {publicationId, publishDate}`.
+
+    Gate estrecho, fail-closed en cada paso:
+    1. `allowPublish: true` en la política; si no → block.
+    2. UN solo `publishablePublish` por doc; el `input:` tiene que ser una
+       referencia a variable (bloquear inline `[`, espejo de F2); el `id` se lee
+       por CLAVE del argumento real (gid inline o `$var` resuelto).
+    3. Lista de publicaciones NO vacía; cada item con `publicationId`. Se itera
+       TODOS: si ALGUNO ∉ `allowedPublicationIds` (o la allowlist está vacía) →
+       block. Validar todos —no el primero— es la lección de discount/BXGY.
+    4. Cualquier `publishDate` presente → block (v1 no hace publicación programada).
+    5. Registro `create` fresco (lo subió W3) + registro `publish` fresco (pasó el
+       gate de completitud) para ese producto → allow; si no → block.
+    """
+    policy = load_create_policy(backups_root)
+    if policy is None:
+        return "block", ("no encontré una política de alta única (create-policy.json). "
+                         "Sin ella no puedo publicar.")
+    if not policy.get("allowPublish"):
+        return "block", "publicar no está habilitado para este cliente."
+
+    query = _query_text(tool_input)
+    clean = re.sub(r"#[^\n]*", " ", query or "")
+    calls = list(re.finditer(r"\bpublishablepublish\s*\(", clean, re.I))
+    if len(calls) != 1:
+        return "block", "solo puedo verificar una publicación por pedido. Mandá una sola."
+    args = _call_args(clean, calls[0].end() - 1)
+    if args is None:
+        return "block", "no pude leer la operación de publicación."
+    variables = (tool_input or {}).get("variables") if isinstance(tool_input, dict) else None
+    variables = variables if isinstance(variables, dict) else {}
+    top = _top_level_args(args)
+
+    # El `input:` tiene que venir por variable (no inline: un `[...]` inline con un
+    # $var manso de señuelo colaría el inline, igual que en el create de F2).
+    input_tok = top.get("input")
+    if not isinstance(input_tok, str) or not input_tok:
+        return "block", ("no pude leer a qué canal se publica. "
+                         "Los datos de publicación tienen que ir en `variables`.")
+    if input_tok.startswith("["):
+        return "block", ("los datos de publicación tienen que ir en `variables`, "
+                         "no escritos dentro del pedido.")
+    if not input_tok.startswith("$"):
+        return "block", "no pude leer a qué canal se publica."
+    pubs = variables.get(input_tok[1:])
+    if not isinstance(pubs, list) or not pubs:
+        return "block", "no identifiqué el canal de publicación."
+
+    allowed = {a for a in (policy.get("allowedPublicationIds") or []) if isinstance(a, str)}
+    for item in pubs:
+        if not isinstance(item, dict):
+            return "block", "no identifiqué el canal de publicación."
+        pub_id = item.get("publicationId")
+        if not isinstance(pub_id, str) or not pub_id.strip():
+            return "block", "no identifiqué el canal de publicación."
+        if item.get("publishDate") is not None:
+            return "block", "no puedo programar la publicación para más adelante."
+        if pub_id.strip() not in allowed:
+            return "block", "solo puedo publicar al canal configurado (Online Store)."
+
+    product_id = _resolve_token(top.get("id"), variables)
+    if not (isinstance(product_id, str) and PRODUCT_GID_RE.match(product_id.strip())):
+        return "block", "no pude identificar qué producto se publica."
+    product_id = product_id.strip()
+
+    window = policy["createRecordWindowHours"]
+    ok, _ = _covering_create_record(backups_root, product_id, now, window)
+    if not ok:
+        return "block", "solo puedo publicar un producto que subí recién."
+    ok2, _ = _covering_publish_record(backups_root, product_id, now, window)
+    if not ok2:
+        return "block", ("antes de publicar tengo que revisar que el producto esté completo.")
+    return "allow", "ok"
+
+
 def evaluate(payload: dict, backups_root, now: float):
     tool_name = payload.get("tool_name", "")
     tool_input = payload.get("tool_input")
@@ -1961,6 +2045,15 @@ def evaluate(payload: dict, backups_root, now: float):
         # lo vea, que es la MISMA clase de bug que el default invertido cerró para
         # el resto del catálogo.
         has_staged = "stageduploadscreate" in roots
+        # `publishablepublish` (W3 F3): misma historia que `stageduploadscreate` —
+        # no matchea ningún prefijo de familia, así que HAY QUE contarlo a mano. Sin
+        # esta línea queda abierto un BYPASS DE CANAL ARBITRARIO: un doc con
+        # `productChangeStatus(P, ACTIVE)` + `publishablePublish(P, CANAL_MALO)` sobre
+        # un P con records válidos daría `asuntos=['cambios de producto']` (len 1, no
+        # bloquea), el status-change se aprobaría y el `publishablePublish(CANAL_MALO)`
+        # se ejecutaría SIN pasar por `_check_publish`. Contarlo obliga a mandar los
+        # dos writes por separado, y cada uno pasa por su check.
+        has_publish = "publishablepublish" in roots
 
         asuntos = []
         if discount_roots:
@@ -1971,6 +2064,8 @@ def evaluate(payload: dict, backups_root, now: float):
             asuntos.append("cambios de producto")
         if has_staged:
             asuntos.append("staged-upload")
+        if has_publish:
+            asuntos.append("publicación")
         if len(asuntos) > 1:
             return "block", (f"esta operación mezcla {' y '.join(asuntos)} en un mismo pedido "
                              "y no puedo verificar las dos cosas juntas. Mandalas por separado.")
@@ -1991,6 +2086,14 @@ def evaluate(payload: dict, backups_root, now: float):
         # ANTES de la rama de producto.
         if has_staged:
             return _check_staged_upload(tool_input, backups_root, now)
+
+        # Publicación (F3): va ANTES de la rama de producto a propósito. Un
+        # `publishablePublish` solo trae un gid de Product en `id:`, así que si
+        # cayera a la rama de producto, el fallthrough por GID_RE lo tomaría como
+        # write de producto y bloquearía por el motivo equivocado. Acá lo agarra su
+        # check propio, ya garantizado como único asunto por el contador de arriba.
+        if has_publish:
+            return _check_publish(tool_input, backups_root, now)
 
         # Familia de producto: whitelist CERRADA, desde `roots`. Tras el gate de
         # `desconocidas` el único root de producto posible es `productupdate`, así

@@ -120,3 +120,84 @@ def test_covering_publish_record_multi_client_is_ambiguous(tmp_path):
     write_publish_record(tmp_path, slug="otra")
     ok, why = bg._covering_publish_record(tmp_path, PID, time.time(), 72)
     assert ok is False and "por tienda" in why, why
+
+
+# --- Task 3: reabrir publishablePublish con _check_publish ---
+
+def _publish_payload(pubs, product_id=PID, var="p"):
+    q = (f'mutation(${var}:[PublicationInput!]!){{ publishablePublish(id:"{product_id}", '
+         f'input:${var}){{ publishable {{ availablePublicationsCount {{ count }} }} userErrors {{ message }} }} }}')
+    return _payload(q, {var: pubs})
+
+
+def _records(tmp_path):
+    write_publish_policy(tmp_path); write_create_record(tmp_path); write_publish_record(tmp_path)
+
+
+def test_publish_allows_online_store_with_records(tmp_path):
+    _records(tmp_path)
+    d, why = bg.evaluate(_publish_payload([{"publicationId": PUB_ONLINE}]), tmp_path, time.time())
+    assert d == "allow", why
+
+
+def test_publish_blocks_channel_not_in_allowlist(tmp_path):
+    _records(tmp_path)
+    d, why = bg.evaluate(_publish_payload([{"publicationId": PUB_EVIL}]), tmp_path, time.time())
+    assert d == "block" and "canal" in why, why
+
+
+def test_publish_blocks_when_allowlist_empty(tmp_path):
+    write_publish_policy(tmp_path, allowed=[]); write_create_record(tmp_path); write_publish_record(tmp_path)
+    d, why = bg.evaluate(_publish_payload([{"publicationId": PUB_ONLINE}]), tmp_path, time.time())
+    assert d == "block", why
+
+
+def test_publish_blocks_without_allow_publish(tmp_path):
+    write_publish_policy(tmp_path, allow_publish=False); write_create_record(tmp_path); write_publish_record(tmp_path)
+    d, why = bg.evaluate(_publish_payload([{"publicationId": PUB_ONLINE}]), tmp_path, time.time())
+    assert d == "block", why
+
+
+def test_publish_blocks_scheduled_publishdate(tmp_path):
+    _records(tmp_path)
+    d, why = bg.evaluate(_publish_payload([{"publicationId": PUB_ONLINE, "publishDate": "2027-01-01T00:00:00Z"}]),
+                         tmp_path, time.time())
+    assert d == "block", why
+
+
+def test_publish_blocks_without_create_or_publish_record(tmp_path):
+    # allowlist ok pero SIN records => block
+    write_publish_policy(tmp_path)
+    assert bg.evaluate(_publish_payload([{"publicationId": PUB_ONLINE}]), tmp_path, time.time())[0] == "block"
+    # con create pero sin publish record => block
+    write_create_record(tmp_path)
+    assert bg.evaluate(_publish_payload([{"publicationId": PUB_ONLINE}]), tmp_path, time.time())[0] == "block"
+
+
+def test_publish_blocks_if_any_channel_not_allowed(tmp_path):
+    # input:[{ALLOWED},{EVIL}] => block: valida TODOS los publicationId, no el primero
+    _records(tmp_path)
+    d, why = bg.evaluate(_publish_payload([{"publicationId": PUB_ONLINE}, {"publicationId": PUB_EVIL}]),
+                         tmp_path, time.time())
+    assert d == "block", why
+
+
+def test_publish_blocks_empty_input_or_missing_publication_id(tmp_path):
+    _records(tmp_path)
+    assert bg.evaluate(_publish_payload([]), tmp_path, time.time())[0] == "block"                 # lista vacía
+    assert bg.evaluate(_publish_payload([{"foo": "bar"}]), tmp_path, time.time())[0] == "block"    # sin publicationId
+
+
+def test_publish_inline_decoy_blocked(tmp_path):
+    # input inline [{EVIL}] + variable señuelo mansa => block (el input tiene que ir por variable)
+    _records(tmp_path)
+    q = (f'mutation($p:[PublicationInput!]!){{ publishablePublish(id:"{PID}", '
+         f'input:[{{publicationId:"{PUB_EVIL}"}}]){{ userErrors {{ message }} }} }}')
+    d, why = bg.evaluate(_payload(q, {"p": [{"publicationId": PUB_ONLINE}]}), tmp_path, time.time())
+    assert d == "block", why
+
+
+def test_publishableunpublish_still_forbidden():
+    q = ('mutation{ publishableUnpublish(id:"gid://shopify/Product/1", '
+         'input:[{publicationId:"gid://shopify/Publication/1"}]){ shop{id} } }')
+    assert bg.evaluate(_payload(q), root, now)[0] == "block"
