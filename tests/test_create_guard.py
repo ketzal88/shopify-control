@@ -164,6 +164,12 @@ def test_create_price_rounds_not_truncates():
     assert bg._check_create(_create_ti(_price_product("1.15")), root, now)[0] == "allow"
 
 
+def test_create_price_round_vs_int_at_floor():
+    # "0.999" -> round(99.9)=100 (== minPriceCents, ALLOW); int(99.9)=99 (bloquearía).
+    # Una regresión de round() a int() volvería este test ROJO.
+    assert bg._check_create(_create_ti(_price_product("0.999")), root, now)[0] == "allow"
+
+
 def test_load_create_policy_excludes_template():
     # REGRESIÓN issue-3: con blunua Y _template presentes, el loader devuelve UNA
     # política (no None). Contra el REPO ROOT real, no tmp_path.

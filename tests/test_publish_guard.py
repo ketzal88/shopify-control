@@ -201,3 +201,61 @@ def test_publishableunpublish_still_forbidden():
     q = ('mutation{ publishableUnpublish(id:"gid://shopify/Product/1", '
          'input:[{publicationId:"gid://shopify/Publication/1"}]){ shop{id} } }')
     assert bg.evaluate(_payload(q), root, now)[0] == "block"
+
+
+# --- Task 4: anti-bypass de la clase publish ---
+
+def test_bypass_publish_mixed_with_active_status_blocks_by_asuntos(tmp_path):
+    """EL bypass de canal arbitrario. Setup REAL: create+publish records frescos,
+    allowPublish:true, y el Online Store en la allowlist — así la mitad benigna
+    (productChangeStatus ACTIVE) pasaría SOLA. El publishablePublish apunta a
+    CANAL_MALO. Que bloquee por 'mezcla...publicación' prueba que el corte viene
+    del contador `asuntos` (has_publish), no de un record faltante que bloquearía
+    por otro motivo. Sin el fix, el status-change se aprobaría y el
+    publishablePublish(CANAL_MALO) se ejecutaría sin pasar por _check_publish."""
+    _records(tmp_path)
+    q = (f'mutation($p:[PublicationInput!]!){{ '
+         f'productChangeStatus(productId:"{PID}", status:ACTIVE){{ product{{id}} }} '
+         f'publishablePublish(id:"{PID}", input:$p){{ userErrors{{ message }} }} }}')
+    d, why = bg.evaluate(_payload(q, {"p": [{"publicationId": PUB_EVIL}]}), tmp_path, time.time())
+    assert d == "block" and "mezcla" in why and "publicación" in why, why
+
+
+def test_bypass_publish_plus_staged_upload_blocks_by_asuntos(tmp_path):
+    """publishablePublish + stagedUploadsCreate en un doc => block por asuntos."""
+    _records(tmp_path)
+    q = (f'mutation($p:[PublicationInput!]!, $i:[StagedUploadInput!]!){{ '
+         f'publishablePublish(id:"{PID}", input:$p){{ userErrors{{ message }} }} '
+         f'stagedUploadsCreate(input:$i){{ stagedTargets{{ url }} }} }}')
+    d, why = bg.evaluate(_payload(q, {"p": [{"publicationId": PUB_ONLINE}], "i": [{"resource": "IMAGE"}]}),
+                         tmp_path, time.time())
+    assert d == "block" and "mezcla" in why, why
+
+
+def test_publish_variable_decoy_validates_referenced_input(tmp_path):
+    """El query referencia `$p`; un `$decoy` manso NO cambia que se valide `$p` (lo
+    que el server ejecuta). Con `$p` = CANAL_MALO bloquea, aunque el decoy traiga
+    el canal permitido."""
+    _records(tmp_path)
+    q = (f'mutation($p:[PublicationInput!]!){{ publishablePublish(id:"{PID}", input:$p)'
+         '{ userErrors{ message } } }')
+    variables = {"p": [{"publicationId": PUB_EVIL}], "decoy": [{"publicationId": PUB_ONLINE}]}
+    assert bg.evaluate(_payload(q, variables), tmp_path, time.time())[0] == "block"
+
+
+def test_status_change_to_draft_or_unlisted_blocks(tmp_path):
+    """Destinos no permitidos: solo ARCHIVED (undo) y ACTIVE (publicar)."""
+    write_publish_policy(tmp_path); write_create_record(tmp_path); write_publish_record(tmp_path)
+    for st in ("DRAFT", "UNLISTED"):
+        assert bg.evaluate(_payload(_status_q(st)), tmp_path, time.time())[0] == "block", st
+
+
+def test_two_publishablepublish_in_one_doc_blocks(tmp_path):
+    """Dos publishablePublish en un doc: el input validado sale de la variable del
+    PRIMERO; el segundo viajaría sin control => block ('una publicación por pedido')."""
+    _records(tmp_path)
+    q = (f'mutation($p:[PublicationInput!]!, $q:[PublicationInput!]!){{ '
+         f'publishablePublish(id:"{PID}", input:$p){{ userErrors{{ message }} }} '
+         f'b: publishablePublish(id:"{PID}", input:$q){{ userErrors{{ message }} }} }}')
+    variables = {"p": [{"publicationId": PUB_ONLINE}], "q": [{"publicationId": PUB_EVIL}]}
+    assert bg.evaluate(_payload(q, variables), tmp_path, time.time())[0] == "block"
