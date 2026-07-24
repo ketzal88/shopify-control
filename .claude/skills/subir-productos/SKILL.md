@@ -1,11 +1,11 @@
 ---
 name: subir-productos
-description: Sube productos nuevos a partir de un archivo que entrega el cliente (más una carpeta de fotos), cumpliendo los estándares de la tienda. Primero prepara y muestra un preview producto por producto en el chat (F1); con la confirmación del cliente, los crea en Shopify como BORRADORES inertes (todavía no a la venta), con variantes, precio e imágenes, y permite deshacerlos (archivarlos). Publicarlos (ponerlos a la venta) es un paso aparte. Usar cuando el cliente quiere subir productos nuevos desde un archivo, cargar un catálogo, o dice que tiene una lista de productos para agregar.
+description: Sube productos nuevos a partir de un archivo que entrega el cliente (más una carpeta de fotos), cumpliendo los estándares de la tienda. Primero prepara y muestra un preview producto por producto en el chat (F1); con la confirmación del cliente, los crea en Shopify como BORRADORES con variantes, precio e imágenes (F2); y —si el cliente lo pide y pasan un chequeo de completitud— los publica al Online Store para que queden a la venta (F3). También permite deshacer (archivar). Usar cuando el cliente quiere subir productos nuevos desde un archivo, cargar un catálogo, o dice que tiene una lista de productos para agregar (o para publicar los que ya cargó).
 ---
 
-# Subir productos nuevos (F1 preparar · F2 crear borradores)
+# Subir productos nuevos (F1 preparar · F2 crear borradores · F3 publicar)
 
-Skill de dos fases sobre datos que el cliente entrega.
+Skill de tres fases sobre datos que el cliente entrega.
 
 - **F1 — preparar y revisar (no escribe nada):** lee el archivo, lo agrupa en productos, lo valida,
   chequea contra la tienda viva cuáles ya existen, genera la descripción y el SEO de cada uno con el
@@ -13,10 +13,12 @@ Skill de dos fases sobre datos que el cliente entrega.
 - **F2 — crear borradores (escribe, con protocolo):** con la confirmación explícita del cliente,
   crea los productos que quedaron listos como **borradores inertes** en la tienda real —con
   variantes, precio e imágenes—, deja un registro de cada alta, y permite deshacerlas (archivarlas).
+- **F3 — publicar (escribe, con protocolo y gate de completitud):** opcional y aparte. Pone el
+  producto ACTIVO y lo muestra en el Online Store para que quede a la venta, solo si pasó un chequeo
+  de completitud y el cliente lo confirmó.
 
-> **Los productos quedan como borradores: todavía NO están a la venta.** Ponerlos a la venta
-> (publicarlos) es un paso aparte que todavía no está disponible desde acá. Decíselo al cliente con
-> todas las letras al terminar.
+> **Al crear, los productos quedan como borradores: NO están a la venta.** Publicarlos es una fase
+> aparte (F3), con su propio chequeo y su propia confirmación. Nunca publiques como parte del alta.
 
 ## Reglas duras (no negociables)
 - **F1 no escribe nada. F2 escribe SOLO borradores, y solo por el camino permitido.** El alta va
@@ -30,8 +32,14 @@ Skill de dos fases sobre datos que el cliente entrega.
   todo esto: si mandás un campo fuera de ese set, o un status distinto de DRAFT, o un precio fuera
   del techo del cliente, te bloquea. No hay que pelearle al guard: hay que mandar exactamente el set
   permitido.
-- **Siempre en borrador.** `status: "DRAFT"`, sin excepción. Publicar (status ACTIVE) no está
-  disponible en esta fase.
+- **El alta es siempre en borrador.** `status: "DRAFT"`, sin excepción. Publicar (poner ACTIVO y
+  mostrar en el Online Store) es la fase F3, aparte, con su propio gate; nunca se hace como parte del
+  alta.
+- **Publicar (F3) tiene su propio alcance cerrado.** Solo `productChangeStatus` a `ACTIVE` y
+  `publishablePublish` al canal de la política (`allowedPublicationIds`, el Online Store). NUNCA a
+  otro canal, NUNCA con fecha programada (`publishDate`), y **despublicar** (`publishableUnpublish`)
+  sigue prohibido. Los dos writes van en **pedidos separados** (el guard no deja mezclarlos). El
+  guard enforcea todo esto: no le pelees, mandá exactamente eso.
 - **Sin jerga con el cliente:** todo lo que ve es lenguaje natural. Nunca nombres de archivo
   técnico, de campo, de comando, de skill, ni las palabras "CSV", "JSON", "productSet", "borrador
   técnico" ni "CLI". Al cliente se le habla de "tu archivo", "tu carpeta de fotos", y de que los
@@ -212,9 +220,10 @@ creación reciente para permitir el archivar).
 ### 6. Confirmar al cliente
 Cerrá con un mensaje humanizado, sin jerga, que diga:
 - Cuántos productos quedaron cargados y con qué nombre.
-- Que quedaron **como borradores: todavía no están a la venta.** Ponerlos a la venta es un paso
-  aparte que todavía no está disponible desde acá.
-- Que si se arrepiente, los puede sacar (ver abajo).
+- Que quedaron **como borradores: todavía no están a la venta.**
+- Que, si quiere, en un paso aparte los puedo **publicar** (dejarlos a la venta), y que antes de eso
+  reviso que estén completos (ver F3, abajo).
+- Que si se arrepiente, los puede sacar (archivar; ver abajo).
 
 Registralo en `clients/{slug}/worklog.md`, por ejemplo:
 `## YYYY-MM-DD [write] subir-productos — creé N borradores (M ya existían, K con problemas)`.
@@ -232,15 +241,70 @@ Deshacer **archiva** el producto (lo saca de la vista); no lo borra. Lleva su pr
 4. Registralo en el worklog:
    `## YYYY-MM-DD [write] subir-productos — archivé N borradores (undo)`.
 
-## Si el cliente pide publicar / poner a la venta
-Crear los borradores **sí** está disponible; publicarlos (ponerlos a la venta, status ACTIVE)
-todavía **no**. No lo intentes ni simules el resultado.
+## Fase F3 — Publicar (opcional, después de crear)
+Publicar de verdad son **dos** cosas: poner el producto ACTIVO y **mostrarlo en el Online Store**. Un
+producto activo no aparece solo en la tienda; hay que publicarlo al canal. Por eso son dos escrituras
+separadas, cada una con su gate. Solo se publica lo que ya existe como borrador creado por acá.
 
-Guion (neutro, adaptar por `store-standards §2`):
-> "Ya te dejé los productos cargados como borradores. Ponerlos a la venta todavía no lo tengo
-> disponible desde acá; en cuanto esté lo hacemos."
+### 1. Gate de completitud (código, ANTES del gate humano)
+Antes de ofrecer publicar, revisá cada producto candidato y dejá afuera los que no estén completos.
+Por cada uno:
+- Tiene al menos una imagen (si la política del cliente pide imagen).
+- La descripción llega al mínimo de palabras de la política.
+- El precio es sano (dentro del techo del cliente).
+- La descripción pasa `description_lint` (igual que en F1).
+
+Los que no pasan **quedan como borradores** y se lo decís al cliente con el motivo, en lenguaje
+natural ("a ese le falta una foto, lo dejo en borrador hasta que la sumemos").
+
+### 2. Gate humano (explícito, sí/no)
+Preguntá en natural: "¿Publico estos M?" y esperá el sí. Publicás **solo** los que pasaron el gate de
+completitud y que el cliente confirmó.
+
+### 3. Registro de publicación (obligatorio, ANTES de los writes)
+Por cada producto que va a publicarse, tras pasar el gate de completitud y ANTES de escribir nada,
+escribí `clients/{slug}/backups/publish/{idTail}-{YYYYMMDD-HHMMSS}.json` con exactamente:
+
+```json
+{ "kind": "publish", "productId": "gid://shopify/Product/…", "ts": "<ISO 8601>" }
+```
+
+El guard exige este registro (y el de creación de F2) para dejar publicar. Sin él, los dos writes de
+abajo se bloquean.
+
+### 4. Publicar (dos writes gateados, en DOS pedidos SEPARADOS)
+No se pueden mezclar en un mismo pedido (el guard los separa a propósito). Uno por vez:
+1. `Shopify:graphql_mutation` con `productChangeStatus(productId: …, status: ACTIVE)`.
+2. `Shopify:graphql_mutation` con `publishablePublish(id: <productId>, input: $pubs)`, con `$pubs` en
+   `variables` (**no** inline): `[{ "publicationId": "<gid del Online Store>" }]`.
+
+El gid del Online Store lo sacás con una consulta de **solo lectura** de las publicaciones de la
+tienda (`publications`) y **tiene que estar** en `allowedPublicationIds` de la política; si no
+coincide, el guard bloquea. **Sin `publishDate`** (no hay publicación programada). Validá ambas
+mutaciones con `Shopify:validate_graphql_codeblocks` antes.
+
+### 5. Falla parcial de los dos writes
+Si (1) ACTIVE sale bien pero (2) `publishablePublish` falla (por ejemplo, canal mal configurado), el
+producto queda **activo pero sin mostrarse**. Detectá ese medio-estado y decíselo al cliente en
+natural ("quedó listo pero no llegó a mostrarse en la tienda; lo reviso"), nunca lo dejes ambiguo —
+igual que el lote parcial de F2.
+
+### 6. Confirmar y registrar
+Al cliente, en natural: "quedó publicado / a la venta". Registralo en el worklog:
+`## YYYY-MM-DD [write] subir-productos — publiqué N productos`.
+
+### Si publicar todavía no está configurado
+Si `allowedPublicationIds` está vacío (el operador aún no cargó el canal), publicar no está
+disponible: decíselo al cliente en natural ("todavía no puedo dejarlos a la venta desde acá; lo dejo
+anotado para el equipo") y anotalo para el operador. No expliques el detalle técnico ni fuerces otro
+camino.
+
+### Despublicar / sacar de la venta
+"Despublicá" o "sacá de la venta" **no está en alcance** (esa operación sigue bloqueada). Lo que sí
+podés es **archivar** el producto (el "deshacer" de más arriba), que lo saca de la vista. Aclarale al
+cliente esa diferencia si lo pide.
 
 ## Nota interna
 Nunca nombres frente al cliente el comando, el archivo de resultado, los nombres de campo internos
-(`handle`, `sku`, `status`, `productSet`, `metafields`, etc.) ni la palabra "borrador técnico". Todo
-eso se traduce a lenguaje natural en el preview y en las confirmaciones.
+(`handle`, `sku`, `status`, `productSet`, `publishablePublish`, `metafields`, etc.) ni la palabra
+"borrador técnico". Todo eso se traduce a lenguaje natural en el preview y en las confirmaciones.
