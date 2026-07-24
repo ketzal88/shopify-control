@@ -1,4 +1,4 @@
-import sys, json, time, importlib.util
+import sys, os, json, time, importlib.util
 from datetime import datetime
 from pathlib import Path
 
@@ -21,6 +21,34 @@ def _payload(query, variables=None):
     if variables is not None:
         ti["variables"] = variables
     return {"tool_name": T_GQL, "tool_input": ti}
+
+
+PID = "gid://shopify/Product/1"
+
+
+def write_create_policy(dest, slug="blunua", **over):
+    d = Path(dest) / "clients" / slug
+    d.mkdir(parents=True, exist_ok=True)
+    data = {"maxProductsPerBatch": 50, "minPriceCents": 100, "maxPriceCents": 100000000,
+            "allowPublish": True, "requireImage": True, "requireDescriptionMinWords": 40,
+            "createRecordWindowHours": 72}
+    data.update(over)
+    (d / "create-policy.json").write_text(json.dumps(data), encoding="utf-8")
+    return d / "create-policy.json"
+
+
+def write_create_record(dest, product_id=PID, slug="blunua", kind="create", age_hours=0):
+    d = Path(dest) / "clients" / slug / "backups" / "create"
+    d.mkdir(parents=True, exist_ok=True)
+    tail = product_id.split("/")[-1]
+    p = d / f"{tail}-20260724-120000.json"
+    ts = datetime.fromtimestamp(time.time() - age_hours * 3600).isoformat()
+    p.write_text(json.dumps({"kind": kind, "productId": product_id, "handle": "anillo-x",
+                             "createdBy": "subir-productos", "ts": ts}), encoding="utf-8")
+    if age_hours:
+        old = time.time() - age_hours * 3600
+        os.utime(p, (old, old))
+    return p
 
 
 def _create_ti(product):
@@ -134,3 +162,49 @@ def test_evaluate_blocks_productset_mixed_with_discount():
     q = ("mutation($p:ProductSetInput!){ productSet(input:$p){product{id}} "
          "discountAutomaticDeactivate(id:\"gid://shopify/DiscountAutomaticNode/1\"){ automaticDiscountId } }")
     assert bg.evaluate(_payload(q, {"p": _ok_product()}), root, now)[0] == "block"   # asuntos mixtos
+
+
+# --- Task 4: _check_status_change — rama ARCHIVED (undo) ---
+
+def test_status_change_blocks_active_in_f2(tmp_path):
+    write_create_policy(tmp_path)
+    q = f'mutation{{ productChangeStatus(productId:"{PID}", status:ACTIVE){{ product{{id}} }} }}'
+    d, why = bg.evaluate(_payload(q), tmp_path, time.time())
+    assert d == "block" and "publicar" in why.lower()
+
+
+def test_status_change_archive_needs_create_record(tmp_path):
+    write_create_policy(tmp_path)
+    q = f'mutation{{ productChangeStatus(productId:"{PID}", status:ARCHIVED){{ product{{id}} }} }}'
+    # sin registro create => block
+    assert bg.evaluate(_payload(q), tmp_path, time.time())[0] == "block"
+
+
+def test_status_change_archive_allows_with_fresh_create_record(tmp_path):
+    write_create_policy(tmp_path); write_create_record(tmp_path, PID)
+    q = f'mutation{{ productChangeStatus(productId:"{PID}", status:ARCHIVED){{ product{{id}} }} }}'
+    d, why = bg.evaluate(_payload(q), tmp_path, time.time())
+    assert d == "allow", why
+
+
+def test_status_change_archive_via_variable_ref_allows(tmp_path):
+    # status: $s resuelto a ARCHIVED contra variables => allow (con registro fresco)
+    write_create_policy(tmp_path); write_create_record(tmp_path, PID)
+    q = f'mutation($s: ProductStatus!){{ productChangeStatus(productId:"{PID}", status:$s){{ product{{id}} }} }}'
+    d, why = bg.evaluate(_payload(q, {"s": "ARCHIVED"}), tmp_path, time.time())
+    assert d == "allow", why
+
+
+def test_status_change_active_arg_with_archived_decoy_var_blocks(tmp_path):
+    # bypass de señuelo: status:ACTIVE inline + $s="ARCHIVED" en variables => block
+    # (lee el ARGUMENTO real, no la variable no referenciada)
+    write_create_policy(tmp_path); write_create_record(tmp_path, PID)
+    q = f'mutation($s: ProductStatus!){{ productChangeStatus(productId:"{PID}", status:ACTIVE){{ product{{id}} }} }}'
+    assert bg.evaluate(_payload(q, {"s": "ARCHIVED"}), tmp_path, time.time())[0] == "block"
+
+
+def test_status_change_stale_create_record_is_rejected(tmp_path):
+    # registro de creación fuera de la ventana (createRecordWindowHours=72) => block
+    write_create_policy(tmp_path); write_create_record(tmp_path, PID, age_hours=200)
+    q = f'mutation{{ productChangeStatus(productId:"{PID}", status:ARCHIVED){{ product{{id}} }} }}'
+    assert bg.evaluate(_payload(q), tmp_path, time.time())[0] == "block"
