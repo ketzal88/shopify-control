@@ -208,3 +208,52 @@ def test_status_change_stale_create_record_is_rejected(tmp_path):
     write_create_policy(tmp_path); write_create_record(tmp_path, PID, age_hours=200)
     q = f'mutation{{ productChangeStatus(productId:"{PID}", status:ARCHIVED){{ product{{id}} }} }}'
     assert bg.evaluate(_payload(q), tmp_path, time.time())[0] == "block"
+
+
+# --- Task 5: anti-bypass de la clase create ---
+
+def test_bypass_malicious_referenced_variable_blocks_despite_manso_decoy(tmp_path):
+    """Señuelo: dos objetos ProductSetInput, uno manso y uno con status:ACTIVE.
+    El que se valida es el REFERENCIADO por el query (`$p`); si el payload malo
+    está ahí, bloquea aunque haya un decoy manso al lado. No se puede esconder el
+    payload malo detrás del nombre de la variable ejecutada."""
+    write_create_policy(tmp_path)
+    q = "mutation($p: ProductSetInput!){ productSet(input:$p){product{id}} }"
+    variables = {"p": _ok_product(status="ACTIVE", collections=["gid://shopify/Collection/1"]),
+                 "manso": _ok_product()}
+    assert bg.evaluate(_payload(q, variables), tmp_path, time.time())[0] == "block"
+
+
+def test_bypass_two_productset_roots_block_by_router(tmp_path):
+    """Un productSet DRAFT válido adelante y un productSet con metafields atrás:
+    dos product roots => block por Task 3 (una operación de producto por pedido),
+    antes de que ninguno llegue a _check_create."""
+    write_create_policy(tmp_path)
+    q = ("mutation($p: ProductSetInput!, $q: ProductSetInput!){ "
+         "productSet(input:$p){product{id}} productSet(input:$q){product{id}} }")
+    variables = {"p": _ok_product(),
+                 "q": _ok_product(metafields=[{"namespace": "worker", "key": "deal", "value": "{}"}])}
+    assert bg.evaluate(_payload(q, variables), tmp_path, time.time())[0] == "block"
+
+
+def test_bypass_productset_with_id_disguised_as_create_blocks(tmp_path):
+    """productSet con `id` presente es un UPDATE disfrazado de alta => block."""
+    write_create_policy(tmp_path)
+    q = "mutation($p: ProductSetInput!){ productSet(input:$p){product{id}} }"
+    assert bg.evaluate(_payload(q, {"p": _ok_product(id=PID)}), tmp_path, time.time())[0] == "block"
+
+
+def test_bypass_productchangestatus_to_draft_blocks(tmp_path):
+    """Bajar de estado (destino DRAFT) no está permitido: solo ARCHIVED (undo)."""
+    write_create_policy(tmp_path); write_create_record(tmp_path, PID)
+    q = f'mutation{{ productChangeStatus(productId:"{PID}", status:DRAFT){{ product{{id}} }} }}'
+    assert bg.evaluate(_payload(q), tmp_path, time.time())[0] == "block"
+
+
+def test_bypass_create_still_forbidden_mutation_wins(tmp_path):
+    """Defensa en profundidad: un productSet manso adelante NO puede vehiculizar
+    una mutación de la blocklist (productDelete) en el mismo documento."""
+    write_create_policy(tmp_path)
+    q = ("mutation($p: ProductSetInput!){ productSet(input:$p){product{id}} "
+         'productDelete(input:{id:"' + PID + '"}){deletedProductId} }')
+    assert bg.evaluate(_payload(q, {"p": _ok_product()}), tmp_path, time.time())[0] == "block"
