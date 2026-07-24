@@ -78,3 +78,27 @@ def extract_variants(group_rows):
             })
     options = [{"name": name, "values": values_by_opt[i]} for i, name in option_names]
     return options, variants
+
+
+def extract_images(group_rows):
+    """Imágenes que el CSV YA TRAE (con URL). Image Src → imagen de producto;
+    Variant Image → imagen de esa variante (por su SKU). F1 solo REPORTA lo que el
+    archivo tiene; NO marca variantes 'sin foto local' — resolver la carpeta local
+    por SKU es trabajo de F2. Marcar cada variante sin Variant Image como
+    'necesita local' daba un falso 'sin foto' casi universal (el export casi nunca
+    llena Variant Image aunque el producto tenga galería en Image Src)."""
+    images = []
+    for row in group_rows:
+        src = (row.get("Image Src") or "").strip()
+        if src:
+            images.append({
+                "url": src,
+                "position": (row.get("Image Position") or "").strip(),
+                "alt": (row.get("Image Alt Text") or "").strip(),
+                "variantSku": None,
+            })
+        vimg = (row.get("Variant Image") or "").strip()
+        if vimg:
+            vsku = (row.get("Variant SKU") or "").strip()
+            images.append({"url": vimg, "position": "", "alt": "", "variantSku": vsku or None})
+    return images

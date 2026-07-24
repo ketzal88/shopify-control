@@ -36,3 +36,14 @@ def test_extract_variants_and_options():
     assert options and options[0]["name"]              # ej. "Color"
     assert len(variants) == 2
     assert all("sku" in v and "optionValues" in v for v in variants)
+
+
+def test_extract_images_url_and_variant():
+    rows, _ = pc.read_rows(FIX / "w3_mini.csv")
+    groups = pc.group_products(rows)
+    handle = next(h for h, g in groups.items() if len(g) == 2)
+    images = pc.extract_images(groups[handle])
+    assert isinstance(images, list)
+    for img in images:
+        assert set(img) >= {"url", "position", "alt", "variantSku"}
+        assert img["url"]   # F1 solo reporta imágenes que el CSV trae (con URL)
