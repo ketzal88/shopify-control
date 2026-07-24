@@ -102,3 +102,21 @@ def extract_images(group_rows):
             vsku = (row.get("Variant SKU") or "").strip()
             images.append({"url": vimg, "position": "", "alt": "", "variantSku": vsku or None})
     return images
+
+
+def price_to_cents(raw):
+    """'12.50' -> 1250. El export usa punto decimal (formato Shopify). Formatos
+    ambiguos (coma decimal, miles) -> None: no adivinamos precio, se rechaza el
+    producto y el cliente lo corrige. Vacío/no numérico -> None."""
+    if not isinstance(raw, str):
+        return None
+    s = raw.strip()
+    if not s:
+        return None
+    try:
+        # solo dígitos y un punto decimal; nada de comas ni separadores de miles
+        if not all(c.isdigit() or c == "." for c in s) or s.count(".") > 1:
+            return None
+        return round(float(s) * 100)
+    except (TypeError, ValueError):
+        return None

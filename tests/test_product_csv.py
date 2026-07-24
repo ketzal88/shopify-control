@@ -1,5 +1,6 @@
 import sys, json, subprocess, importlib.util
 from pathlib import Path
+import pytest
 
 HOOKS = Path(__file__).resolve().parents[1] / ".claude" / "hooks"
 FIX = Path(__file__).resolve().parent / "fixtures"
@@ -47,3 +48,11 @@ def test_extract_images_url_and_variant():
     for img in images:
         assert set(img) >= {"url", "position", "alt", "variantSku"}
         assert img["url"]   # F1 solo reporta imágenes que el CSV trae (con URL)
+
+
+@pytest.mark.parametrize("raw,cents", [
+    ("12.50", 1250), ("1000", 100000), ("1.234,56", None), ("", None),
+    ("abc", None), ("0", 0), ("9.9", 990),
+])
+def test_price_to_cents(raw, cents):
+    assert pc.price_to_cents(raw) == cents
