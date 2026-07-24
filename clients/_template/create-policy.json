@@ -1,0 +1,9 @@
+{
+  "maxProductsPerBatch": 50,
+  "minPriceCents": 100,
+  "maxPriceCents": 100000000,
+  "allowPublish": true,
+  "requireImage": true,
+  "requireDescriptionMinWords": 40,
+  "createRecordWindowHours": 72
+}
