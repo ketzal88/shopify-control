@@ -4,6 +4,29 @@ Append-only. Cada write deja una entrada: `## YYYY-MM-DD [write] producto — ba
 
 <!-- nuevas entradas arriba -->
 
+## 2026-07-24 [sizechart] Pulsera Savia — backup: sizechart/10211725803841-20260724-100228.json
+Tabla de talles (`worker.sizechart`), medidas reales confirmadas por el cliente: largo base 17.5 cm +
+extensión de +4 cm aprox. `previous: null` (no había tabla antes).
+
+## 2026-07-24 [oferta] [trust] Pulsera Savia — backup: trust/10211725803841-20260724-100015.json
+Sellos de confianza (`worker.trust`), solo en esta ficha (owner = producto, no shop). `previous: null`
+(no había ninguno antes). 4 ítems: badge de cuotas (confirmado por el cliente: hasta 3 cuotas sin
+interés con ADDI) + 3 mensajes cortos (apta para piel sensible, a prueba de agua, empaque listo para
+regalar). Pendiente: tabla de talles (talla única) — el cliente pidió mostrarla junto con este sello,
+queda para el siguiente paso.
+
+## 2026-07-24 [write] Pulsera Savia — backup: 10211725803841-20260724-094416.json
+Producto detectado sin ventas en los últimos 15 días, con el meta título de Google vacío y
+descripción sin bloque de beneficios ni preguntas frecuentes. Se aplicó el molde canónico
+(hook + 3 beneficios + material/garantía + 3 preguntas frecuentes) y se completó el SEO.
+- **Descripción:** reescrita con viñetas de beneficios y bloque GEO.
+- **SEO:** título completado (antes vacío) — "Pulsera Savia en acero quirúrgico hipoalergénico | blunua";
+  resumen reescrito.
+- **Qué NO cambió:** precio ($92.000), stock (96 u.), estado (ACTIVE), tags, handle. No verificado
+  con lectura posterior en esta sesión — recomendable confirmar en el próximo `get-product`.
+- **Pendiente (fuera de alcance de este skill):** foto genérica de caja de regalo en la galería,
+  imágenes sin alt text — no tocables por este flujo (solo descripción + SEO).
+
 ## 2026-07-22 [merge] [test-devstore] Unificación BXGY+Pack LatAm + E2E de FAQ
 Tienda: **Testing StandAlone Framework** (dev store, USD). **Nada escrito en blunua producción.**
 
