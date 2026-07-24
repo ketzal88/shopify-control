@@ -13,6 +13,15 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 root = str(REPO_ROOT)
 now = time.time()
 
+T_GQL = "mcp__claude_ai_Shopify__graphql_mutation"
+
+
+def _payload(query, variables=None):
+    ti = {"query": query}
+    if variables is not None:
+        ti["variables"] = variables
+    return {"tool_name": T_GQL, "tool_input": ti}
+
 
 def _create_ti(product):
     """tool_input de un productSet cuyo input viaja por `variables` (patrón F2)."""
@@ -100,3 +109,28 @@ def test_create_blocks_inline_payload_with_decoy_variable():
     ti = {"query": 'mutation($p: ProductSetInput!){ productSet(input: {status: ACTIVE, id: "gid://shopify/Product/1"}){ product{id} } }',
           "variables": {"p": _ok_product()}}
     assert bg._check_create(ti, root, now)[0] == "block"
+
+
+# --- Task 3: router rutea productset/productchangestatus por nombre ---
+
+def test_evaluate_routes_productset_create_allow():
+    # productSet DRAFT válido, end-to-end por evaluate (el camino real del hook)
+    d, _ = bg.evaluate(_payload(_create_ti(_ok_product())["query"], _create_ti(_ok_product())["variables"]), root, now)
+    assert d == "allow"
+
+
+def test_evaluate_blocks_two_product_mutations_one_doc():
+    q = ("mutation($p:ProductSetInput!){ a: productSet(input:$p){product{id}} "
+         "b: productChangeStatus(productId:\"gid://shopify/Product/1\", status:ACTIVE){product{id}} }")
+    assert bg.evaluate(_payload(q, {"p": _ok_product()}), root, now)[0] == "block"   # len(product_roots)!=1
+
+
+def test_evaluate_blocks_bare_productset_no_variables_not_fail_open():
+    # el fail-open histórico: productSet sin id no lo ve GID_RE; el ruteo por nombre lo agarra
+    assert bg.evaluate(_payload("mutation{ productSet(input:{title:\"x\"}){product{id}} }"), root, now)[0] == "block"
+
+
+def test_evaluate_blocks_productset_mixed_with_discount():
+    q = ("mutation($p:ProductSetInput!){ productSet(input:$p){product{id}} "
+         "discountAutomaticDeactivate(id:\"gid://shopify/DiscountAutomaticNode/1\"){ automaticDiscountId } }")
+    assert bg.evaluate(_payload(q, {"p": _ok_product()}), root, now)[0] == "block"   # asuntos mixtos

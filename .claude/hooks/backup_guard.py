@@ -37,10 +37,14 @@ GUARDED_PRODUCT_ACTIONS = {"update-product"}
 ALLOWED_UPDATE_KEYS = {"id", "descriptionhtml"}
 # Lo único que puede tocar un productUpdate en el v1 (keys de primer nivel):
 ALLOWED_PRODUCT_INPUT_KEYS = {"id", "descriptionhtml", "seo"}
-# Única mutación de producto del v1: la descripción y el SEO. Lo demás se
-# bloquea por no estar acá, no por estar en una lista de prohibidos —el
-# catálogo de Shopify tiene 26 mutaciones `product*` y crece.
-PRODUCT_WRITE_ALLOWED = {"productupdate"}
+# Mutaciones de producto permitidas. `productupdate` escribe la descripción y el
+# SEO (v1). W3 F2 suma el alta (`productset`, en status DRAFT y con campos
+# cerrados) y el undo=archivar (`productchangestatus`, solo destino ARCHIVED);
+# ambas se rutean por NOMBRE en `evaluate` a `_check_create`/`_check_status_change`,
+# nunca al control de campos de `productupdate`. Lo demás se bloquea por no estar
+# acá, no por estar en una lista de prohibidos —el catálogo de Shopify tiene 26
+# mutaciones `product*` y crece.
+PRODUCT_WRITE_ALLOWED = {"productupdate", "productset", "productchangestatus"}
 # El v1 no escribe colecciones. Vacío a propósito: se bloquea por NO estar acá,
 # no por estar en una lista de prohibidos. La familia crece y la blocklist no.
 COLLECTION_WRITE_ALLOWED = set()
@@ -1525,6 +1529,151 @@ def _check_create(tool_input, backups_root, now: float):
     return "allow", "ok"
 
 
+def _ts_fresh_window(data: dict, now: float, window_s: float) -> bool:
+    """Como `_ts_fresh` pero con ventana parametrizable (la clase create la mide
+    en horas, no en los 900s de descripción/oferta). Frescura por el `ts` del
+    CONTENIDO: git no reescribe el ts, así que sobrevive a un pull/checkout que
+    sí toca el mtime."""
+    raw = data.get("ts")
+    if not isinstance(raw, str) or not raw.strip():
+        return False
+    try:
+        stamp = datetime.fromisoformat(raw.strip().replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return False
+    age = now - stamp
+    return -60 <= age <= window_s
+
+
+def _covering_create_record(backups_root, product_id: str, now: float, window_hours):
+    """(hay_registro, motivo). Registro de CREACIÓN (`kind:"create"`, ruta
+    `backups/create/`) que habilita el undo=archivar de F2.
+
+    Espejo de `_covering_deal_backup`: discrimina por ruta (`backups/create/`) Y
+    `kind == "create"` —las dos, para que un backup de otra clase no habilite un
+    archivar—, con frescura DOBLE (mtime + ts). La única diferencia es la
+    ventana: en horas (`createRecordWindowHours`), no los 900s de las otras
+    clases; un alta se puede deshacer más tarde, no en 15 minutos."""
+    tail = product_id.split("/")[-1]
+    window_s = float(window_hours) * 3600
+    for p in Path(backups_root).glob(f"**/backups/create/{tail}-*.json"):
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if data.get("kind") != "create":
+            continue
+        if data.get("productId") != product_id:
+            continue
+        if now - p.stat().st_mtime > window_s:
+            continue
+        if not _ts_fresh_window(data, now, window_s):
+            continue
+        return True, None
+    return False, ("solo puedo archivar un producto que subí recién, y no encuentro "
+                   "su registro de creación reciente.")
+
+
+def _call_args(text: str, open_idx: int):
+    """Arg-string entre paréntesis desde `text[open_idx] == '('`, saltando string
+    literals para que un `)` dentro de un string no cierre el grupo antes de
+    tiempo. None si no cierra."""
+    depth, i, n = 0, open_idx, len(text)
+    while i < n:
+        c = text[i]
+        if c == '"':
+            i += 1
+            while i < n:
+                if text[i] == "\\":
+                    i += 2
+                    continue
+                if text[i] == '"':
+                    i += 1
+                    break
+                i += 1
+            continue
+        if c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0:
+                return text[open_idx + 1:i]
+        i += 1
+    return None
+
+
+def _status_arg(args: str, variables: dict):
+    """Valor del argumento `status:` de la mutación (enum literal o `$var`
+    resuelto contra `variables`). Se lee del argumento REAL —no de una variable
+    suelta que el query no referencia—: eso cierra el mismo señuelo que el
+    create. `status: ACTIVE` inline con un `$s = "ARCHIVED"` de señuelo NO puede
+    colar un publish leyendo la variable. None si no está."""
+    m = re.search(r'\bstatus\s*:\s*(\$\w+|[A-Za-z_][A-Za-z0-9_]*|"(?:[^"\\]|\\.)*")',
+                  args, re.I)
+    if not m:
+        return None
+    tok = m.group(1)
+    if tok.startswith("$"):
+        return variables.get(tok[1:])
+    if tok.startswith('"'):
+        return tok[1:-1]
+    return tok
+
+
+def _productid_arg(args: str, variables: dict):
+    """Valor del argumento `productId:` (string literal o `$var` resuelto). None
+    si no está."""
+    m = re.search(r'\bproductid\s*:\s*(\$\w+|"(?:[^"\\]|\\.)*")', args, re.I)
+    if not m:
+        return None
+    tok = m.group(1)
+    if tok.startswith("$"):
+        return variables.get(tok[1:])
+    return tok[1:-1]
+
+
+def _check_status_change(tool_input, backups_root, now: float):
+    """`productChangeStatus(productId, status)`. En F2 el ÚNICO destino permitido
+    es ARCHIVED (undo=archivar); publicar (ACTIVE) es F3. `status` y `productId`
+    se leen del argumento REAL de la mutación (enum inline o `$var` resuelto), no
+    de una variable señuelo que el query no referencia. Archivar exige un registro
+    de creación fresco del mismo producto. Fail-closed ante la duda."""
+    query = _query_text(tool_input)
+    clean = re.sub(r"#[^\n]*", " ", query or "")
+    m = re.search(r"\bproductchangestatus\s*\(", clean, re.I)
+    if not m:
+        return "block", "no pude leer la operación de archivar."
+    args = _call_args(clean, m.end() - 1)
+    if args is None:
+        return "block", "no pude leer la operación de archivar."
+    variables = (tool_input or {}).get("variables") if isinstance(tool_input, dict) else None
+    variables = variables if isinstance(variables, dict) else {}
+
+    status = _status_arg(args, variables)
+    if not isinstance(status, str) or not status.strip():
+        return "block", "no pude determinar a qué estado se cambia el producto."
+    dest = status.strip().upper()
+    if dest == "ACTIVE":
+        return "block", ("publicar todavía no está disponible; por ahora solo puedo "
+                         "archivar un producto que subí recién.")
+    if dest != "ARCHIVED":
+        return "block", "solo puedo archivar un producto, no cambiarlo a otro estado."
+
+    product_id = _productid_arg(args, variables)
+    if not (isinstance(product_id, str) and PRODUCT_GID_RE.match(product_id.strip())):
+        return "block", "no pude identificar qué producto se archiva."
+    product_id = product_id.strip()
+
+    policy = load_create_policy(backups_root)
+    if policy is None:
+        return "block", ("no encontré una política de alta única (create-policy.json). "
+                         "Sin ella no puedo archivar productos.")
+
+    ok, why = _covering_create_record(backups_root, product_id, now,
+                                      policy["createRecordWindowHours"])
+    return ("allow", "ok") if ok else ("block", why)
+
+
 def evaluate(payload: dict, backups_root, now: float):
     tool_name = payload.get("tool_name", "")
     tool_input = payload.get("tool_input")
@@ -1649,6 +1798,29 @@ def evaluate(payload: dict, backups_root, now: float):
         if col:
             return "block", (f"la mutación '{col[0]}' está fuera del alcance del v1: "
                              "las colecciones no se tocan desde acá.")
+
+        # W3 F2: alta (`productset`) y undo=archivar (`productchangestatus`) se
+        # rutean por NOMBRE a su propio check, ANTES del control de campos de
+        # `productupdate`. Va acá arriba a propósito: un `productSet` de alta no
+        # trae id ni "productupdate" en el texto, así que el fallthrough por
+        # GID_RE de abajo lo dejaría pasar (el fail-open histórico). El ruteo por
+        # nombre lo agarra.
+        create_or_status = [m for m in product_roots
+                            if m in ("productset", "productchangestatus")]
+        if create_or_status:
+            # UNA sola operación de producto por pedido: el input que se valida
+            # sale de `variables` y es UNO; con dos, la segunda viajaría sin
+            # control. ACOTADO a productset/productchangestatus a PROPÓSITO: un
+            # documento con dos `productUpdate` NO cae acá, tiene que seguir al
+            # control de campos de abajo (regresión de `_product_input_keys`, que
+            # une las keys de TODOS los objetos input).
+            if len(product_roots) != 1:
+                return "block", ("solo puedo verificar una operación de producto por pedido. "
+                                 "Mandá el alta (o el archivar) sola.")
+            only = product_roots[0]
+            if only == "productset":
+                return _check_create(tool_input, backups_root, now)
+            return _check_status_change(tool_input, backups_root, now)
 
         # El gid suelto sigue siendo señal de write de producto: cubre una
         # mutación parametrizada cuyo nombre no reconocemos. Queda acá abajo, y
