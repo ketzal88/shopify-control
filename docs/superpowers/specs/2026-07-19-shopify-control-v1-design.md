@@ -445,7 +445,7 @@ Ordenado por valor/proximidad estimada:
 
 - **W1.5 — Input del Brain (enriquecimiento):** alimentar descripciones y combos con señales de performance (Google Ads, Search Console, `get_seo_gaps`, `get_creative_intelligence`, `get_customer_intelligence`). Las reglas siguen en `store-standards.md`; el Brain aporta la evidencia. Opt-in, no cambia el core. Se ejecuta dentro del **ritual de refresh trimestral** (§8.1), que es donde la parte viva de los estándares se actualiza.
 - **W2 — Imágenes:** generar/variar imágenes de producto desde plantillas (sección 7 de standards). Referencia técnica: `miller-joe/shopify-mcp` ya combina productos + imágenes IA.
-- **W3 — Subir productos nuevos** cumpliendo estándares (status `draft` por defecto, gate estructural).
+- ~~**W3 — Subir productos nuevos** cumpliendo estándares (status `draft` por defecto, gate estructural).~~ **CONSTRUIDO 2026-07-24** (F1 parser+preview, F2 crear borradores, F3 publicar): ver `docs/superpowers/specs/2026-07-24-subir-productos-w3-design.md` y los planes F1/F2/F3. Pendiente: smoke e2e manual del operador contra la dev store.
 - **Combos como write:** crear el bundle en Shopify (hoy `armar-combo` solo propone).
 - **D2 — Empaquetado para el hand-off:** shopify-control como plugin/connector propio para el cliente en la app de Claude (candidato: patrón tipo ShopMCP). Incluye **empaquetar los skills reutilizados imprescindibles** para el runtime del cliente (§7.1), no solo los skills nuevos.
 - **Onboarding y refresh como skills:** `onboardear-cliente` (llena los inputs de §16 una vez) y `refrescar-estandares` (corre el ritual trimestral de §8.1). En v1 son tareas manuales de Gabriel.
