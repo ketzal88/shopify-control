@@ -12,6 +12,7 @@ now = time.time()
 
 T_GQL = "mcp__claude_ai_Shopify__graphql_mutation"
 PID = "gid://shopify/Product/1"
+OTHER = "gid://shopify/Product/2"                # un producto DISTINTO (para el cross-product)
 PUB_ONLINE = "gid://shopify/Publication/1"      # el canal permitido (Online Store)
 PUB_EVIL = "gid://shopify/Publication/999"       # un canal fuera de la allowlist
 
@@ -111,7 +112,16 @@ def test_active_stale_publish_record_is_rejected(tmp_path):
     # publish record fuera de ventana => block (frescura doble, espejo de create)
     write_publish_policy(tmp_path); write_create_record(tmp_path)
     write_publish_record(tmp_path, age_hours=200)
-    assert bg.evaluate(_payload(_status_q("ACTIVE")), tmp_path, time.time())[0] == "block"
+    d, why = bg.evaluate(_payload(_status_q("ACTIVE")), tmp_path, time.time())
+    assert d == "block" and "completo" in why, why
+
+
+def test_active_records_for_other_product_do_not_authorize_pid(tmp_path):
+    # M6: create+publish records de OTHER NO autorizan publicar PID (sin records)
+    write_publish_policy(tmp_path)
+    write_create_record(tmp_path, product_id=OTHER); write_publish_record(tmp_path, product_id=OTHER)
+    d, why = bg.evaluate(_payload(_status_q("ACTIVE")), tmp_path, time.time())  # target = PID
+    assert d == "block" and "publicar un producto" in why, why
 
 
 def test_covering_publish_record_multi_client_is_ambiguous(tmp_path):
@@ -149,7 +159,7 @@ def test_publish_blocks_channel_not_in_allowlist(tmp_path):
 def test_publish_blocks_when_allowlist_empty(tmp_path):
     write_publish_policy(tmp_path, allowed=[]); write_create_record(tmp_path); write_publish_record(tmp_path)
     d, why = bg.evaluate(_publish_payload([{"publicationId": PUB_ONLINE}]), tmp_path, time.time())
-    assert d == "block", why
+    assert d == "block" and "canal" in why, why
 
 
 def test_publish_blocks_without_allow_publish(tmp_path):
@@ -162,7 +172,7 @@ def test_publish_blocks_scheduled_publishdate(tmp_path):
     _records(tmp_path)
     d, why = bg.evaluate(_publish_payload([{"publicationId": PUB_ONLINE, "publishDate": "2027-01-01T00:00:00Z"}]),
                          tmp_path, time.time())
-    assert d == "block", why
+    assert d == "block" and "programar" in why, why
 
 
 def test_publish_blocks_without_create_or_publish_record(tmp_path):
@@ -201,6 +211,29 @@ def test_publishableunpublish_still_forbidden():
     q = ('mutation{ publishableUnpublish(id:"gid://shopify/Product/1", '
          'input:[{publicationId:"gid://shopify/Publication/1"}]){ shop{id} } }')
     assert bg.evaluate(_payload(q), root, now)[0] == "block"
+
+
+def test_publish_records_for_other_product_do_not_authorize_pid(tmp_path):
+    # M6: create+publish records de OTHER NO autorizan publicar PID (que no tiene records)
+    write_publish_policy(tmp_path)
+    write_create_record(tmp_path, product_id=OTHER); write_publish_record(tmp_path, product_id=OTHER)
+    d, why = bg.evaluate(_publish_payload([{"publicationId": PUB_ONLINE}], product_id=PID), tmp_path, time.time())
+    assert d == "block" and "publicar un producto" in why, why
+
+
+def test_publish_allowlist_gid_with_trailing_space_still_matches(tmp_path):
+    # M4: un espacio al costado del gid en la política no debe fallar-cerrado en silencio.
+    write_publish_policy(tmp_path, allowed=[PUB_ONLINE + " "])
+    write_create_record(tmp_path); write_publish_record(tmp_path)
+    d, why = bg.evaluate(_publish_payload([{"publicationId": PUB_ONLINE}]), tmp_path, time.time())
+    assert d == "allow", why
+
+
+def test_publish_blocks_unknown_key_in_publication_input(tmp_path):
+    # M3: set de claves CERRADO en cada PublicationInput — una key extra bloquea.
+    _records(tmp_path)
+    d, why = bg.evaluate(_publish_payload([{"publicationId": PUB_ONLINE, "foo": "bar"}]), tmp_path, time.time())
+    assert d == "block" and "desconocido" in why, why
 
 
 # --- Task 4: anti-bypass de la clase publish ---

@@ -1924,10 +1924,19 @@ def _check_publish(tool_input, backups_root, now: float):
     if not isinstance(pubs, list) or not pubs:
         return "block", "no identifiqué el canal de publicación."
 
-    allowed = {a for a in (policy.get("allowedPublicationIds") or []) if isinstance(a, str)}
+    # Se compara con `.strip()` en LAS DOS puntas: el gid de la política lo carga el
+    # operador a mano, y un espacio al costado no puede hacer que un canal legítimo
+    # falle-cerrado en silencio.
+    allowed = {a.strip() for a in (policy.get("allowedPublicationIds") or []) if isinstance(a, str)}
     for item in pubs:
         if not isinstance(item, dict):
             return "block", "no identifiqué el canal de publicación."
+        # Set de claves CERRADO, igual que `_check_create` (defensa en profundidad y
+        # canario si Shopify agrega un campo a PublicationInput). Hoy el schema tiene
+        # exactamente estas dos; cualquier otra key bloquea.
+        extra = {str(k).lower() for k in item.keys()} - {"publicationid", "publishdate"}
+        if extra:
+            return "block", f"campo desconocido en la publicación: {sorted(extra)[0]}."
         pub_id = item.get("publicationId")
         if not isinstance(pub_id, str) or not pub_id.strip():
             return "block", "no identifiqué el canal de publicación."
