@@ -69,6 +69,8 @@ def test_create_policy_exists_and_has_ceilings(tmp_path):
 ```
 `clients/_template/create-policy.json`: idéntico (es el scaffold del próximo cliente).
 
+> ⚠️ **Load-bearing:** como ahora hay DOS archivos (`blunua` y `_template`), el `load_create_policy` de Task 2 **tiene que excluir `_template`** igual que `deal_policy.load_policy` (`deal_policy.py:20-23` dropea `_template` y devuelve `None` salvo que quede exactamente uno). Si el loader copia el glob sin ese filtro, ve 2 archivos → `None` → `_check_create` bloquea TODO create (fail-closed, "seguro" pero la feature queda muerta y la causa no es obvia). Task 2 lleva un test contra el **repo root real** (no `tmp_path`) que lo garantiza.
+
 - [ ] **Step 4: Verificar que pasa** → PASS.
 - [ ] **Step 5: Commit** → `git add clients/blunua/create-policy.json clients/_template/create-policy.json tests/test_create_guard.py && git commit -m "feat(w3): create-policy.json por cliente (F2)"`
 
@@ -85,10 +87,13 @@ def test_create_policy_exists_and_has_ceilings(tmp_path):
 - Por variante permitidos: `{optionvalues, price, sku, barcode, file}` (lowercase).
 - **Prohibidos explícitos aunque `ProductSetInput` los acepte** (romperían el alcance): `collections`, `metafields` (producto y variante → escribiría `worker.deal`), `inventoryquantities`/`inventoryitem` (stock), `id` (un `productSet` con id es UPDATE, no create), `claimownership`, `combinedlistingrole`. Todos caen por NO estar en el allowed-set.
 
+> **`sku` confirmado como campo DIRECTO de `ProductVariantSetInput`** (introspección real): `{"name":"sku","description":"The SKU for the variant. Case-sensitive string."}`. Por eso excluir `inventoryItem` **no** pierde el SKU (que es la clave de dedup de F1). No hace falta abrir `inventoryItem`.
+
 **Reglas de `_check_create(tool_input, backups_root, now)`** (recibe el `graphql_mutation` tool_input; el input del producto viene en `variables`):
-1. Cargar `create-policy` (nuevo `load_create_policy`, o reusar el patrón de `load_policy` con otro nombre de archivo). Si no está → block (fail-closed).
-2. Encontrar el objeto de producto en `variables`: exactamente UNO con forma de `ProductSetInput` (tiene `variants` o `title` y NO tiene `customerGets`). Más de uno → block. Ninguno (o inline en el query) → block ("los datos del producto tienen que ir en `variables`").
-3. `id` presente en el objeto → block ("un productSet con id edita un producto existente; el alta va sin id").
+1. Cargar `create-policy` con `load_create_policy` (mismo patrón que `deal_policy.load_policy`: globea `clients/*/create-policy.json` y **excluye `_template`**, ver Task 1). Si no hay exactamente una → block (fail-closed).
+2. **El argumento `input:` del `productSet` tiene que ser una referencia a variable (`$nombre`), NO un objeto inline.** Parsear del query el nombre de la variable que referencia `productSet(input: $NOMBRE)`. Si tras `input:` viene un `{` (payload inline) → block ("los datos del producto tienen que ir en `variables`, no escritos dentro del pedido"). Esto cierra el **bypass inline+señuelo**: sin él, un `input:{status:ACTIVE, id:…, collections:…}` inline + un `$p` manso en variables pasaría (el guard valida `$p`, el server ejecuta el inline).
+2b. Resolver **esa** variable (`variables[$NOMBRE]`): tiene que existir y ser un dict. Se valida SOLO esa, se ignoran las demás variables (señuelos). Si no existe / no es dict → block.
+3. `id` presente en el objeto (producto o cualquier variante) → block ("un productSet con id edita un producto existente; el alta va sin id").
 4. `status` PRESENTE y == `"DRAFT"` (case-insensitive). Ausente u otro (ACTIVE/ARCHIVED/UNLISTED) → block ("el alta tiene que ser en borrador").
 5. Keys de primer nivel ⊆ allowed top-level; si hay extra → block nombrando la primera (`collections`, `metafields`, etc.).
 6. `variants` es lista no vacía; cada variante: keys ⊆ allowed-variant; `price` presente y, convertido a centavos (int(float(price)*100)), en `[minPriceCents, maxPriceCents]`; fuera de rango → block.
@@ -146,6 +151,18 @@ def test_create_blocks_inline_payload_no_variables():
 def test_create_blocks_missing_policy(tmp_path):
     # backups_root sin create-policy.json → block fail-closed
     assert bg._check_create(_create_ti(_ok_product()), str(tmp_path), now)[0] == "block"
+
+def test_load_create_policy_excludes_template():
+    # REGRESIÓN issue-3: con blunua Y _template presentes, el loader devuelve UNA política
+    # (no None). Contra el REPO ROOT real, no tmp_path.
+    root = str(Path(__file__).resolve().parents[1])
+    assert bg.load_create_policy(root) is not None
+
+def test_create_blocks_inline_payload_with_decoy_variable():
+    # bypass inline+señuelo: input inline ACTIVE/id + $p manso en variables → block
+    ti = {"query": 'mutation($p: ProductSetInput!){ productSet(input: {status: ACTIVE, id: "gid://shopify/Product/1"}){ product{id} } }',
+          "variables": {"p": _ok_product()}}
+    assert bg._check_create(ti, root, now)[0] == "block"
 ```
 (El implementer resuelve el `root con policy`: crear un `create-policy.json` bajo un `tmp_path` y pasar ese root, o apuntar al de blunua vía el repo root. Seguir cómo `test_backup_guard_deals.py` monta `deal-policy.json` para sus tests.)
 
@@ -191,8 +208,10 @@ def test_evaluate_blocks_productset_mixed_with_discount():
 
 - [ ] **Step 2: Verificar que fallan** (hoy `productset` no está en `ROOT_FIELD_ALLOWED` → bloquea por "fuera de alcance", así que algunos "block" pasan por el motivo equivocado y el `allow` falla) → FAIL.
 - [ ] **Step 3: Implementar la restructura** (spec §7.0.1):
-  - Agregar `productset` y `productchangestatus` a `ROOT_FIELD_ALLOWED` y `PRODUCT_WRITE_ALLOWED`.
-  - En la rama de producto de `evaluate()`, ANTES del chequeo de campos de `productupdate`: si `len(product_roots) != 1` → block ("una sola operación de producto por pedido"). Después rutear por nombre: `productset` → `_check_create`; `productchangestatus` → `_check_status_change` (Task 4); `productupdate` → el camino existente de descripción/SEO. Ningún `productset`/`productchangestatus` llega al `return "allow"` final.
+  - Agregar `productset` y `productchangestatus` a `PRODUCT_WRITE_ALLOWED` (que ya se une a `ROOT_FIELD_ALLOWED` en la línea 145, así que con eso alcanza; no tocar `ROOT_FIELD_ALLOWED` aparte).
+  - En la rama de producto de `evaluate()`, ANTES del chequeo de campos de `productupdate`: **si `product_roots` contiene algún `productset` o `productchangestatus` Y `len(product_roots) != 1` → block** ("una sola operación de producto por pedido").
+    - ⚠️ **La condición se acota a productset/productchangestatus A PROPÓSITO.** Un documento con dos `productUpdate` NO debe caer acá: tiene que seguir al chequeo de campos existente (`_product_input_keys` con `finditer`-union), porque `test_backup_guard_deals.py:668` (`test_segundo_product_update_no_escapa_al_control_de_campos`) y `:680` (`test_el_orden_de_los_objetos_no_cambia_la_decision`) verifican que dos `productUpdate` bloquean **por alcance de campo**, con el motivo nombrando `status`/`handle` (regresión c9b2dea). Si la regla nueva dispara sobre multi-`productUpdate`, esos tests fallan porque el motivo cambia. NO se resuelve guteando esas aserciones.
+  - Después rutear por nombre: `productset` → `_check_create`; `productchangestatus` → `_check_status_change` (Task 4); `productupdate` → el camino existente de descripción/SEO. Ningún `productset`/`productchangestatus` llega al `return "allow"` final.
 - [ ] **Step 4: Verificar que pasan** (y correr TODA la suite de guard existente: `python -m pytest tests/test_backup_guard*.py tests/test_create_guard.py -q` — la restructura NO debe romper ofertas/cosméticos/descripción) → PASS.
 - [ ] **Step 5: Commit** → `git add -A && git commit -m "feat(w3): router rutea productset/productchangestatus por nombre, una op de producto por doc (F2)"`
 
@@ -205,8 +224,8 @@ def test_evaluate_blocks_productset_mixed_with_discount():
 - Test: `tests/test_create_guard.py`
 
 `productChangeStatus(productId, status)`. En F2 solo se permite el destino **ARCHIVED** (publicar=ACTIVE es F3). Reglas:
-1. Leer `status` destino y `productId` (de `variables` o del query). Un solo `productchangestatus` por doc (ya garantizado por Task 3).
-2. `status` destino == `ARCHIVED` → seguir; == `ACTIVE` → block con "publicar todavía no está disponible" (F3 lo habilita); otro → block.
+1. Leer `status` y `productId` **del argumento REAL de la mutación `productChangeStatus(...)` en el query** — no de una variable suelta que el query no referencia. Si el argumento es un literal enum (`status: ARCHIVED`) se usa ese; si es una referencia `status: $s`, se resuelve `variables[$s]`. Mismo criterio para `productId`. Esto cierra el mismo **bypass de señuelo** que en el create: un `status: ACTIVE` inline con un `$s = "ARCHIVED"` de señuelo en variables NO puede colar un publish leyendo la variable. Si no se puede determinar un único destino atado al argumento ejecutado → block.
+2. `status` destino == `ARCHIVED` → seguir; == `ACTIVE` → block con "publicar todavía no está disponible" (F3 lo habilita); otro (DRAFT/UNLISTED) → block.
 3. Existe un registro de creación (`kind:"create"`, ruta `backups/create/`) para ese `productId`, fresco dentro de `createRecordWindowHours` → allow; si no → block ("solo puedo archivar un producto que subí recién").
 
 `_covering_create_record(backups_root, product_id, now, window_hours)`: espejo de `_covering_deal_backup` pero ruta `backups/create/`, `kind=="create"`, y ventana en horas (no los 900s). Frescura doble mtime+ts.
