@@ -48,11 +48,11 @@ Hoy `armar-combo` (R2) **solo propone** combos como texto, leyendo la co-compra 
 
 - **Descuento:** `discountAutomaticBxgyCreate` con `customerBuys` = producto A (comprado), `customerGets` = producto B con `discountOnQuantity.effect.percentage` en (0, 1) (o sea 1%–99%, nunca 100% = gratis).
 - **Metafield:** `worker.deal` sobre el producto A (el comprado), `type:"combo"`, con la forma del combo (buy/get, %, cantidades) — espejo del `type:"bxgy"` del regalo, para el registro y un widget futuro.
-- **Política** (`deal-policy.json`), claves nuevas:
+- **Política** (`deal-policy.json`), claves nuevas y **OPCIONALES** (⚠️ NO agregarlas a `deal_policy.REQUIRED_KEYS`: si no, todo `deal-policy.json` existente —el de blunua incluido— fallaría el `issubset` de `load_policy` y se caerían escalones y regalos):
   ```json
-  { "maxComboPct": 25, "allowCombo": true }
+  { "allowCombo": true, "maxComboPct": 25, "maxComboGetQty": 2 }
   ```
-  `allowCombo:false` o `maxComboPct` ausente ⇒ **no se crean combos** (fail-closed), igual que el resto.
+  El guard gatea vía un helper **`_combo_ceilings(policy)`** (espejo de `_gift_ceilings`) que devuelve `(maxComboPct, maxComboGetQty)` **solo si** `allowCombo is True` y los dos techos son `int` reales; si no → `None` → **no se crean combos** (fail-closed, sin caer en `pct <= None`). `allowCombo:false`, o cualquier techo ausente/malformado ⇒ combos apagados.
 
 ---
 
@@ -65,13 +65,15 @@ El combo reusa `discountAutomaticBxgyCreate`, así que pasa por `_check_bxgy` (d
 En vez de un marcador frágil (que el server ignoraría), el guard acepta el `discountAutomaticBxgyCreate` si satisface **una de las dos cajas**, cada una completa por sí sola:
 
 - **Caja regalo** (la actual, sin cambios): `pct ≤ maxGiftPct`, y si es cruzado, `allowCrossProductGift` + `get ∈ giftableProducts`, `get_qty ≤ maxGetQty`, ratio de mismo-producto, `usesPerOrderLimit:1`, `endsAt`, backup, `productId == buy_gid`.
-- **Caja combo** (nueva): `allowCombo:true` **y** `0 < pct ≤ maxComboPct` **y** `pct < 100` (nunca gratis) **y** el "get" es un producto explícito que existe (misma validación de `_bxgy_single_product`) **sin** exigir `giftableProducts` **y** `endsAt` **y** backup **y** `productId == buy_gid`.
+- **Caja combo** (nueva): `_combo_ceilings(policy)` no es `None` **y** `0 < pct ≤ maxComboPct` **y** `pct < 100` (nunca gratis) **y** el **buy** es un producto explícito único (`_bxgy_single_product`: no `all`, no colección, no variante) **y** el **get** es un producto explícito único **sin** exigir `giftableProducts` **y** `get_qty ≤ maxComboGetQty` **y** `usesPerOrderLimit == 1` **y** `endsAt` **y** backup **y** `productId == buy_gid`.
 
-Aceptar por OR es seguro y no necesita marcador: la caja combo es **más estricta** en el %, así que "hacerse pasar por combo" solo consigue MENOS descuento; y para un gratis (100%) hay que pasar por la caja regalo (giftable). Un cruzado a un producto no-regalable al 25% **falla regalo** (no giftable) pero **pasa combo** (≤25%, no exige giftable) → permitido, que es lo deseado. Un 100% a un no-regalable falla las dos → bloqueado.
+> **INVARIANTE DE SEGURIDAD (el review lo pidió explícito):** la caja combo tiene que ser **estricta-o-igual que la caja regalo en TODA dimensión que no relaje conscientemente.** La única relajación deliberada es **el giftable** (un combo apunta a un producto de co-compra, no a un regalable curado). Todo lo demás se mantiene acotado: `get_qty` (por `maxComboGetQty`), `usesPerOrderLimit == 1`, buy/get explícitos, `endsAt`, backup, `productId == buy_gid`. El % es MÁS bajo, no más alto.
 
-### 4.2 Metafield (`_check_bxgy_metafield`) — ruteo por `type`
+Aceptar por OR es seguro **solo con ese invariante**: cada caja se evalúa **COMPLETA por sí sola** (nunca se mezclan dimensiones de una y otra). "Hacerse pasar por combo" solo consigue MENOS: menor %, cantidad acotada, una vez por orden. Para un gratis (100%) hay que pasar por la caja regalo (giftable). Un cruzado a un no-regalable al 25%, get_qty ≤ tope, una vez por orden → **falla regalo** (no giftable) pero **pasa combo** → permitido (deseado). Un "comprá 1, llevate 1000 al 25%" → falla regalo (get_qty > tope) **y** falla combo (get_qty > `maxComboGetQty`) → bloqueado. Un 100% a un no-regalable → falla las dos → bloqueado.
 
-`_check_metafield` ya ramifica por `data.get("type")`. Se agrega `type:"combo"` → un `_check_combo_metafield` con las reglas de §4.1 caja combo (pct en (0,100), ≤ `maxComboPct`, get explícito sin giftable, cantidades válidas). `type:"bxgy"` sigue yendo al del regalo, `tiers` a escalones.
+### 4.2 Metafield (`_check_metafield`) — ruteo por `type`
+
+`_check_metafield` ya ramifica por `data.get("type")`. Se agrega `type:"combo"` → un **`_check_combo_metafield` PROPIO** (⚠️ NO se puede reusar `_check_bxgy_metafield`: ese termina en `_bxgy_scope_ok`, que exige `giftableProducts` para el cruzado y usa `_gift_ceilings` para el techo). `_check_combo_metafield` aplica las **mismas caps que la caja combo del discount** (§4.1): pct en (0,100) ≤ `maxComboPct`, **`get_qty ≤ maxComboGetQty`**, buy y get explícitos, sin giftable. Que las caps del metafield y del discount sean **idénticas** es lo que evita la divergencia widget↔carrito — el motivo por el que existe el check de metafield de BXGY. `type:"bxgy"` sigue yendo al del regalo, `tiers` a escalones; el fallthrough de `type` desconocido sigue fallando cerrado.
 
 ### 4.3 Lo que NO cambia
 - La whitelist de mutaciones de descuento, el "un asunto por documento", el "un solo create/metafield por doc", `endsAt` obligatorio, el backup de oferta (`_covering_deal_backup`), y `_percentage_int`/unidades — todo se reusa igual.
@@ -108,7 +110,9 @@ Mismo protocolo que todo write (spec v1 §6, §9):
 
 ## 6. Testing
 
-- **pytest de la caja combo** (`_check_bxgy`): permite un BXGY cruzado a un producto **no** regalable al ≤`maxComboPct` con `endsAt`+backup; bloquea > `maxComboPct`; bloquea `pct == 100` (gratis, no es combo); bloquea con `allowCombo:false`; bloquea sin backup; bloquea `productId != buy_gid`. Y confirma que la **caja regalo sigue intacta** (un regalo gratis a un giftable sigue pasando; un cruzado no-giftable al 100% sigue bloqueado).
+- **pytest de la caja combo** (`_check_bxgy`): permite un BXGY cruzado a un producto **no** regalable al ≤`maxComboPct`, `get_qty ≤ maxComboGetQty`, `usesPerOrderLimit:1`, con `endsAt`+backup; bloquea `> maxComboPct`; bloquea `pct == 100` (gratis); bloquea `allowCombo:false` y `maxComboPct`/`maxComboGetQty` ausente (fail-closed vía `_combo_ceilings`); **bloquea `get_qty > maxComboGetQty`** (el hueco del OR: "comprá 1, llevate 1000 al 25%"); **bloquea `usesPerOrderLimit != 1`**; **bloquea el buy como colección / `all` / variante** ("comprá cualquier cosa, llevate B"); bloquea sin backup; bloquea `productId != buy_gid`.
+- **pytest de regresión de la caja regalo:** un regalo gratis a un giftable sigue pasando; un cruzado no-giftable al 100% sigue bloqueado; un cruzado no-giftable al 25% con get_qty alto se bloquea por `maxComboGetQty`.
+- **pytest anti mix-and-match** (invariante de §4.1): un documento que NO satisface **ninguna caja COMPLETA** bloquea, aunque cada dimensión suelta la cubra alguna caja — ej: `pct 100` + no-giftable no puede tomar "no-giftable OK" de la caja combo y "pct ≤ maxGiftPct(=100)" de la caja regalo. Las cajas se evalúan completas, en secuencia.
 - **pytest del metafield combo** (`_check_bxgy_metafield`/`_check_combo_metafield`): `type:"combo"` con pct (0,100) ≤ techo pasa; pct 100 o > techo bloquea; get sin producto explícito bloquea.
 - **Anti-bypass:** combo mezclado con otra mutación → block (un asunto por doc, ya existe); señuelo en variables; un combo que intenta 100% para colar un gratis a un no-giftable → block por las dos cajas.
 - **Regresión:** toda la suite de ofertas (escalones, BXGY/regalo) verde.
@@ -127,4 +131,5 @@ Mismo protocolo que todo write (spec v1 §6, §9):
 
 ## 8. Preguntas abiertas para el plan
 - La forma exacta del `worker.deal` `type:"combo"` (¿reusa el schema del `type:"bxgy"` con otro `type`, o agrega campos?). Se decide leyendo `_check_bxgy_metafield` y el spec de BXGY.
-- Si `_check_combo_metafield` puede reusar `_check_bxgy_metafield` con un ceiling parametrizado, o conviene una función propia.
+- **Resuelto por el review:** `_check_combo_metafield` es función **propia** (no reusa `_check_bxgy_metafield`, que exige giftable y usa `_gift_ceilings`).
+- **`maxComboGetQty` default = 2** (un combo suele ser "llevate 1 B"; puede ser MÁS chico que `maxGetQty`). A calibrar con el cliente.
