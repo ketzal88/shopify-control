@@ -257,6 +257,7 @@ def test_extract_images_url_and_variant():
     assert isinstance(images, list)
     for img in images:
         assert set(img) >= {"url", "position", "alt", "variantSku"}
+        assert img["url"]   # F1 solo reporta imágenes que el CSV trae (con URL)
 ```
 
 - [ ] **Step 2: Verificar que falla** → FAIL.
@@ -265,9 +266,12 @@ def test_extract_images_url_and_variant():
 
 ```python
 def extract_images(group_rows):
-    """Imágenes del producto. Image Src → imagen de producto; Variant Image →
-    imagen de la variante de esa fila (por su SKU). url=None marca 'buscar local
-    por SKU' (lo resuelve F2). No sube nada."""
+    """Imágenes que el CSV YA TRAE (con URL). Image Src → imagen de producto;
+    Variant Image → imagen de esa variante (por su SKU). F1 solo REPORTA lo que el
+    archivo tiene; NO marca variantes 'sin foto local' — resolver la carpeta local
+    por SKU es trabajo de F2. Marcar cada variante sin Variant Image como
+    'necesita local' daba un falso 'sin foto' casi universal (el export casi nunca
+    llena Variant Image aunque el producto tenga galería en Image Src)."""
     images = []
     for row in group_rows:
         src = (row.get("Image Src") or "").strip()
@@ -279,14 +283,13 @@ def extract_images(group_rows):
                 "variantSku": None,
             })
         vimg = (row.get("Variant Image") or "").strip()
-        vsku = (row.get("Variant SKU") or "").strip()
         if vimg:
+            vsku = (row.get("Variant SKU") or "").strip()
             images.append({"url": vimg, "position": "", "alt": "", "variantSku": vsku or None})
-        elif vsku:
-            # sin URL: F2 la buscará en la carpeta local por SKU
-            images.append({"url": None, "position": "", "alt": "", "variantSku": vsku})
     return images
 ```
+
+> El estado de fotos que muestra el preview F1 es a nivel producto ("tiene / no tiene fotos en el archivo"). El match fino por variante contra la carpeta local llega en F2.
 
 - [ ] **Step 4: Verificar que pasa** → PASS.
 
@@ -389,6 +392,8 @@ def _validate(prod, seen_skus):
             motivos.append("hay una variante sin código (SKU)")
         elif v["sku"] in seen_skus:
             motivos.append(f"el código {v['sku']} está repetido en el archivo")
+        else:
+            seen_skus.add(v["sku"])   # acumular ACÁ: agarra repetidos intra- y entre-producto
         # consistencia de opciones: cada variante con un valor por opción declarada
         if n_opts and len([x for x in v.get("optionValues", []) if x]) < n_opts:
             motivos.append(f"a la variante {v.get('sku') or '—'} le falta una opción")
@@ -415,10 +420,7 @@ def build_products(groups):
             "csvSeoTitle": (head.get("SEO Title") or "").strip(),
             "csvSeoDescription": (head.get("SEO Description") or "").strip(),
         }
-        motivos = _validate(prod, seen_skus)
-        for v in variants:
-            if v.get("sku"):
-                seen_skus.add(v["sku"])
+        motivos = _validate(prod, seen_skus)   # _validate ya acumula en seen_skus
         prod["status"] = "rechazado" if motivos else "crear"
         prod["motivos"] = motivos
         products.append(prod)
@@ -469,6 +471,12 @@ def main(argv=None):
     args = ap.parse_args(argv)
     rows, _cols = read_rows(Path(args.csv_path))
     products = build_products(group_products(rows))
+    # En Windows el stdout de un pipe es cp1252; el JSON lleva comillas curvas, '…',
+    # acentos y demás que revientan con UnicodeEncodeError. Forzar UTF-8 antes de imprimir.
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except AttributeError:
+        pass
     print(json.dumps(summarize(products), ensure_ascii=False, indent=2))
     return 0
 
@@ -540,4 +548,5 @@ Expected: todos PASS (o el smoke se SKIPea si el archivo no está).
 
 - [ ] Correr toda la suite del repo: `python -m pytest -q` (F1 no debe romper ningún test existente).
 - [ ] Confirmar que F1 no tocó `backup_guard.py`, `settings.json` ni creó ningún producto: es 100% lectura + preview.
+- [ ] **Tope de lote diferido:** `maxProductsPerBatch` (spec §3 paso 3d) vive en `create-policy.json`, que recién existe en F2. F1 no lo enforcea; el preview F1 muestra el conteo total pero el mensaje de "se creará en tandas" se implementa cuando llegue F2. Anotarlo para no olvidarlo.
 - [ ] F2 (clase `create` + imágenes + `backup_guard`) y F3 (clase `publish`) son planes separados, cada uno con su spec-section (§7) como referencia.
