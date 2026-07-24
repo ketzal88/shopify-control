@@ -168,6 +168,13 @@ CREATE_ALLOWED_TOP = {"title", "handle", "descriptionhtml", "seo", "producttype"
 # excluir `inventoryItem` NO pierde el SKU (clave de dedup de F1).
 CREATE_ALLOWED_VARIANT = {"optionvalues", "price", "sku", "barcode", "file"}
 # Claves que la política de alta tiene que traer (mismo criterio que deal_policy).
+# HARD (las enforcea el guard): `minPriceCents`/`maxPriceCents` (techo de precio en
+# `_check_create`) y `createRecordWindowHours` (ventana del undo en
+# `_covering_create_record`). ADVISORY (las cumple el SKILL, el guard no las mira):
+# `requireImage`, `requireDescriptionMinWords`, `maxProductsPerBatch`.
+# `allowPublish` está RESERVADA para F3: hoy publicar (status ACTIVE) está
+# HARD-bloqueado en `_check_status_change` pase lo que pase, así que este flag NO
+# es un toggle vivo —no lo leas como "enforced pero roto"—; recién F3 lo consulta.
 CREATE_POLICY_KEYS = {"maxProductsPerBatch", "minPriceCents", "maxPriceCents",
                       "allowPublish", "requireImage", "requireDescriptionMinWords",
                       "createRecordWindowHours"}
@@ -368,16 +375,11 @@ def _ts_fresh(data: dict, now: float) -> bool:
     branch toca todos los archivos del checkout, y eso resucitaba backups viejos
     (una ventana en la que el guard quedaba efectivamente desactivado). El `ts`
     viaja dentro del archivo y git no lo reescribe, así que exigimos los dos.
+
+    Delega en `_ts_fresh_window` con la ventana de 15 min: eran byte-idénticas
+    salvo la ventana. Tolera un minuto de desfase de reloj.
     """
-    raw = data.get("ts")
-    if not isinstance(raw, str) or not raw.strip():
-        return False
-    try:
-        stamp = datetime.fromisoformat(raw.strip().replace("Z", "+00:00")).timestamp()
-    except ValueError:
-        return False
-    age = now - stamp
-    return -60 <= age <= RECENT_WINDOW_SECONDS   # tolera un minuto de desfase de reloj
+    return _ts_fresh_window(data, now, RECENT_WINDOW_SECONDS)
 
 
 def _covering_backup(backups_root: Path, product_id: str, now: float):
@@ -1525,7 +1527,10 @@ def _check_create(tool_input, backups_root, now: float):
         if "price" not in v:
             return "block", "cada variante tiene que traer un precio."
         try:
-            cents = int(float(v.get("price")) * 100)
+            # round(), no int(): int() TRUNCA (int(float("1.15")*100) == 114 por
+            # el error de coma flotante), mismo criterio que `_percentage_int` y
+            # `_gift_effect_pct_int`. Trunca hacia abajo justo en el borde del techo.
+            cents = round(float(v.get("price")) * 100)
         except (TypeError, ValueError, OverflowError):
             return "block", "no pude leer el precio de una variante."
         if cents < lo or cents > hi:
@@ -1562,6 +1567,7 @@ def _covering_create_record(backups_root, product_id: str, now: float, window_ho
     clases; un alta se puede deshacer más tarde, no en 15 minutos."""
     tail = product_id.split("/")[-1]
     window_s = float(window_hours) * 3600
+    hits = []
     for p in Path(backups_root).glob(f"**/backups/create/{tail}-*.json"):
         try:
             data = json.loads(p.read_text(encoding="utf-8"))
@@ -1575,9 +1581,21 @@ def _covering_create_record(backups_root, product_id: str, now: float, window_ho
             continue
         if not _ts_fresh_window(data, now, window_s):
             continue
-        return True, None
-    return False, ("solo puedo archivar un producto que subí recién, y no encuentro "
-                   "su registro de creación reciente.")
+        hits.append(p)
+
+    if not hits:
+        return False, ("solo puedo archivar un producto que subí recién, y no encuentro "
+                       "su registro de creación reciente.")
+
+    # Mismo guard de colisión que `_covering_backup`: los ids numéricos de Shopify
+    # son POR TIENDA, y el glob de registros de creación barre TODOS los clientes.
+    # Si hay registros válidos bajo más de un cliente para el mismo id, no puedo
+    # saber cuál corresponde al archivar. Ante la duda, bloqueo.
+    clientes = {c for c in (_client_of(p) for p in hits) if c}
+    if len(clientes) > 1:
+        return False, (f"hay registros de creación de {sorted(clientes)} para el mismo id de "
+                       "producto. Los ids de Shopify son por tienda, así que no puedo saber cuál corresponde.")
+    return True, None
 
 
 def _call_args(text: str, open_idx: int):
@@ -1608,17 +1626,113 @@ def _call_args(text: str, open_idx: int):
     return None
 
 
-def _status_arg(args: str, variables: dict):
-    """Valor del argumento `status:` de la mutación (enum literal o `$var`
-    resuelto contra `variables`). Se lee del argumento REAL —no de una variable
-    suelta que el query no referencia—: eso cierra el mismo señuelo que el
-    create. `status: ACTIVE` inline con un `$s = "ARCHIVED"` de señuelo NO puede
-    colar un publish leyendo la variable. None si no está."""
-    m = re.search(r'\bstatus\s*:\s*(\$\w+|[A-Za-z_][A-Za-z0-9_]*|"(?:[^"\\]|\\.)*")',
-                  args, re.I)
-    if not m:
+def _skip_string(text: str, i: int) -> int:
+    """Índice justo después del string literal que arranca en `text[i] == '"'`
+    (respeta `\\"`). Si el string no cierra, consume hasta el final."""
+    i += 1
+    n = len(text)
+    while i < n:
+        if text[i] == "\\":
+            i += 2
+            continue
+        if text[i] == '"':
+            return i + 1
+        i += 1
+    return i
+
+
+def _skip_balanced(text: str, i: int) -> int:
+    """Índice justo después del grupo balanceado `{..}`/`[..]`/`(..)` que arranca
+    en `text[i]`, saltando string literals (un `}` dentro de un string no cierra)."""
+    pairs = {"{": "}", "[": "]", "(": ")"}
+    stack = [pairs[text[i]]]
+    i += 1
+    n = len(text)
+    while i < n and stack:
+        c = text[i]
+        if c == '"':
+            i = _skip_string(text, i)
+            continue
+        if c in pairs:
+            stack.append(pairs[c])
+        elif c == stack[-1]:
+            stack.pop()
+        i += 1
+    return i
+
+
+def _read_value(text: str, j: int):
+    """(token, fin) de UN valor de argumento GraphQL desde `text[j]` (ya sin
+    espacios delante): string literal (con comillas), `$variable`, objeto/lista
+    balanceada, o token simple (enum/número). `('', j)` si no hay nada legible."""
+    n = len(text)
+    if j >= n:
+        return "", j
+    c = text[j]
+    if c == '"':
+        end = _skip_string(text, j)
+        return text[j:end], end
+    if c in "{[":
+        end = _skip_balanced(text, j)
+        return text[j:end], end
+    m = re.match(r"\$[A-Za-z_][A-Za-z0-9_]*|[A-Za-z_][A-Za-z0-9_]*|[-+]?[0-9][0-9_.eE+\-]*",
+                 text[j:])
+    if m:
+        return m.group(0), j + m.end()
+    return "", j
+
+
+_AMBIGUOUS_ARG = object()
+
+
+def _top_level_args(args: str) -> dict:
+    """Args de una llamada GraphQL leídos a NIVEL SUPERIOR y string-aware:
+    `{nombre_lower: token_de_valor}`.
+
+    La clave del arreglo #1: cada valor se consume ENTERO (string, objeto, lista,
+    $var o token) antes de seguir escaneando, así que un `status:` que viva DENTRO
+    del valor de otro argumento —p. ej. un string señuelo `note: "status:
+    ARCHIVED"`— NO se confunde con el argumento real. Un `re.search` global sobre
+    el texto crudo sí caía en ese señuelo (leía ARCHIVED del string mientras el
+    status ejecutado era ACTIVE). Un argumento REPETIDO al tope se marca ambiguo
+    (`_AMBIGUOUS_ARG`) para fallar cerrado en vez de adivinar cuál gana."""
+    out = {}
+    word = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+    i, n = 0, len(args)
+    while i < n:
+        c = args[i]
+        if c == '"':
+            i = _skip_string(args, i)
+            continue
+        if c in "{[(":
+            i = _skip_balanced(args, i)
+            continue
+        m = word.match(args, i)
+        if m:
+            name = m.group(0).lower()
+            j = m.end()
+            while j < n and args[j].isspace():
+                j += 1
+            if j < n and args[j] == ":":
+                j += 1
+                while j < n and args[j].isspace():
+                    j += 1
+                val, j = _read_value(args, j)
+                out[name] = _AMBIGUOUS_ARG if name in out else val
+                i = j
+                continue
+            i = j
+            continue
+        i += 1
+    return out
+
+
+def _resolve_token(tok, variables: dict):
+    """Resuelve un token de valor de argumento: `$x` → `variables["x"]`; `"..."` →
+    string sin comillas; enum/número → tal cual. None si falta, está vacío o es
+    ambiguo (arg repetido) — todos fallan cerrado en `_check_status_change`."""
+    if tok is None or tok is _AMBIGUOUS_ARG or tok == "":
         return None
-    tok = m.group(1)
     if tok.startswith("$"):
         return variables.get(tok[1:])
     if tok.startswith('"'):
@@ -1626,16 +1740,19 @@ def _status_arg(args: str, variables: dict):
     return tok
 
 
+def _status_arg(args: str, variables: dict):
+    """Valor del argumento `status:` REAL de la mutación (enum literal o `$var`
+    resuelto contra `variables`), leído por CLAVE y string-aware (`_top_level_args`),
+    no por un `re.search` global. Cierra dos señuelos a la vez: la variable no
+    referenciada (`$s = "ARCHIVED"` con `status: ACTIVE` inline) y el string
+    incrustado (`note: "status: ARCHIVED"`). None si no está."""
+    return _resolve_token(_top_level_args(args).get("status"), variables)
+
+
 def _productid_arg(args: str, variables: dict):
-    """Valor del argumento `productId:` (string literal o `$var` resuelto). None
-    si no está."""
-    m = re.search(r'\bproductid\s*:\s*(\$\w+|"(?:[^"\\]|\\.)*")', args, re.I)
-    if not m:
-        return None
-    tok = m.group(1)
-    if tok.startswith("$"):
-        return variables.get(tok[1:])
-    return tok[1:-1]
+    """Valor del argumento `productId:` REAL (string literal o `$var` resuelto),
+    leído por CLAVE y string-aware. None si no está."""
+    return _resolve_token(_top_level_args(args).get("productid"), variables)
 
 
 def _check_status_change(tool_input, backups_root, now: float):

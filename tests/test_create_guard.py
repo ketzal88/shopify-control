@@ -87,43 +87,81 @@ def test_create_blocks_status_active():
 
 def test_create_blocks_status_missing():
     prod = _ok_product(); prod.pop("status")
-    assert bg._check_create(_create_ti(prod), root, now)[0] == "block"
+    d, why = bg._check_create(_create_ti(prod), root, now)
+    assert d == "block" and "borrador" in why, why
 
 
 def test_create_blocks_id_present():
-    assert bg._check_create(_create_ti(_ok_product(id="gid://shopify/Product/1")), root, now)[0] == "block"
+    d, why = bg._check_create(_create_ti(_ok_product(id="gid://shopify/Product/1")), root, now)
+    assert d == "block" and "id" in why, why
 
 
 def test_create_blocks_collections():
-    assert bg._check_create(_create_ti(_ok_product(collections=["gid://shopify/Collection/1"])), root, now)[0] == "block"
+    d, why = bg._check_create(_create_ti(_ok_product(collections=["gid://shopify/Collection/1"])), root, now)
+    assert d == "block" and "fuera de alcance" in why and "collections" in why, why
 
 
 def test_create_blocks_product_metafields():
-    assert bg._check_create(_create_ti(_ok_product(metafields=[{"namespace": "worker", "key": "deal", "value": "{}"}])), root, now)[0] == "block"
+    d, why = bg._check_create(_create_ti(_ok_product(metafields=[{"namespace": "worker", "key": "deal", "value": "{}"}])), root, now)
+    assert d == "block" and "fuera de alcance" in why and "metafields" in why, why
 
 
 def test_create_blocks_variant_metafields_and_inventory():
     v = _ok_product(variants=[{"sku": "X", "price": "120.00", "optionValues": [],
                                "inventoryQuantities": [{"locationId": "gid://shopify/Location/1", "name": "available", "quantity": 10}]}])
-    assert bg._check_create(_create_ti(v), root, now)[0] == "block"
+    d, why = bg._check_create(_create_ti(v), root, now)
+    assert d == "block" and "fuera de alcance" in why, why
 
 
 def test_create_blocks_price_over_ceiling():
-    assert bg._check_create(_create_ti(_ok_product(variants=[{"sku": "X", "price": "9999999999.00", "optionValues": []}])), root, now)[0] == "block"
+    d, why = bg._check_create(_create_ti(_ok_product(variants=[{"sku": "X", "price": "9999999999.00", "optionValues": []}])), root, now)
+    assert d == "block" and "precio" in why, why
 
 
 def test_create_blocks_price_under_floor():
-    assert bg._check_create(_create_ti(_ok_product(variants=[{"sku": "X", "price": "0.50", "optionValues": []}])), root, now)[0] == "block"
+    d, why = bg._check_create(_create_ti(_ok_product(variants=[{"sku": "X", "price": "0.50", "optionValues": []}])), root, now)
+    assert d == "block" and "precio" in why, why
 
 
 def test_create_blocks_inline_payload_no_variables():
     ti = {"query": "mutation{ productSet(input:{title:\"X\", status:DRAFT}){ product{id} } }"}
-    assert bg._check_create(ti, root, now)[0] == "block"
+    d, why = bg._check_create(ti, root, now)
+    assert d == "block" and "variables" in why, why
 
 
 def test_create_blocks_missing_policy(tmp_path):
     # backups_root sin create-policy.json => block fail-closed
-    assert bg._check_create(_create_ti(_ok_product()), str(tmp_path), now)[0] == "block"
+    d, why = bg._check_create(_create_ti(_ok_product()), str(tmp_path), now)
+    assert d == "block" and "política" in why, why
+
+
+# --- #4: bordes exactos del techo de precio (round, no truncar) ---
+# create-policy de blunua: minPriceCents=100 ($1.00), maxPriceCents=100000000 ($1M).
+
+def _price_product(price):
+    return _ok_product(variants=[{"sku": "X", "price": price, "optionValues": []}])
+
+
+def test_create_price_exactly_at_floor_allows():
+    assert bg._check_create(_create_ti(_price_product("1.00")), root, now)[0] == "allow"
+
+
+def test_create_price_exactly_at_ceiling_allows():
+    assert bg._check_create(_create_ti(_price_product("1000000.00")), root, now)[0] == "allow"
+
+
+def test_create_price_one_cent_under_floor_blocks():
+    assert bg._check_create(_create_ti(_price_product("0.99")), root, now)[0] == "block"
+
+
+def test_create_price_one_cent_over_ceiling_blocks():
+    assert bg._check_create(_create_ti(_price_product("1000000.01")), root, now)[0] == "block"
+
+
+def test_create_price_rounds_not_truncates():
+    # int(float("1.15")*100)==114 truncaría; round da 115. Ambos están dentro del
+    # rango, así que el test asegura que el precio se lee sin perder el centavo.
+    assert bg._check_create(_create_ti(_price_product("1.15")), root, now)[0] == "allow"
 
 
 def test_load_create_policy_excludes_template():
@@ -203,11 +241,31 @@ def test_status_change_active_arg_with_archived_decoy_var_blocks(tmp_path):
     assert bg.evaluate(_payload(q, {"s": "ARCHIVED"}), tmp_path, time.time())[0] == "block"
 
 
+def test_status_change_string_decoy_arg_read_as_active_blocks(tmp_path):
+    # #1: un string señuelo `note: "status: ARCHIVED"` NO puede hacer que el guard
+    # lea ARCHIVED mientras el status ejecutado es ACTIVE. El parser string-aware
+    # por clave lee el status REAL (ACTIVE) => block (publicar es F3).
+    write_create_policy(tmp_path); write_create_record(tmp_path, PID)
+    q = (f'mutation{{ productChangeStatus(note: "status: ARCHIVED", productId: "{PID}", '
+         f'status: ACTIVE){{ product{{id}} }} }}')
+    d, why = bg.evaluate(_payload(q), tmp_path, time.time())
+    assert d == "block" and "publicar" in why, why
+
+
 def test_status_change_stale_create_record_is_rejected(tmp_path):
     # registro de creación fuera de la ventana (createRecordWindowHours=72) => block
     write_create_policy(tmp_path); write_create_record(tmp_path, PID, age_hours=200)
     q = f'mutation{{ productChangeStatus(productId:"{PID}", status:ARCHIVED){{ product{{id}} }} }}'
     assert bg.evaluate(_payload(q), tmp_path, time.time())[0] == "block"
+
+
+def test_covering_create_record_multi_client_is_ambiguous(tmp_path):
+    # #3: dos clientes con un registro de creación para el MISMO id numérico
+    # (los ids de Shopify son por tienda) => ambiguo => block, como _covering_backup.
+    write_create_record(tmp_path, PID, slug="blunua")
+    write_create_record(tmp_path, PID, slug="otra")
+    ok, why = bg._covering_create_record(tmp_path, PID, time.time(), 72)
+    assert ok is False and "por tienda" in why, why
 
 
 # --- Task 5: anti-bypass de la clase create ---
