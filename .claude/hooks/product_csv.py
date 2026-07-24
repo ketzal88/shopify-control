@@ -48,3 +48,33 @@ def group_products(rows):
             groups[current].append(row)
         # handle vacío sin current previo: se ignora
     return groups
+
+
+def extract_variants(group_rows):
+    """(options, variants). options = [{name, values[]}] de Option1/2/3 Name/Value.
+    Una variante por fila que traiga Variant SKU o algún Option Value."""
+    option_names = []
+    for i in (1, 2, 3):
+        name = (group_rows[0].get(f"Option{i} Name") or "").strip()
+        if name:
+            option_names.append((i, name))
+
+    variants, values_by_opt = [], {i: [] for i, _ in option_names}
+    for row in group_rows:
+        opt_vals = []
+        for i, _ in option_names:
+            val = (row.get(f"Option{i} Value") or "").strip()
+            opt_vals.append(val)
+            if val and val not in values_by_opt[i]:
+                values_by_opt[i].append(val)
+        sku = (row.get("Variant SKU") or "").strip()
+        if sku or any(opt_vals):
+            variants.append({
+                "sku": sku,
+                "priceRaw": (row.get("Variant Price") or "").strip(),
+                "optionValues": opt_vals,
+                "barcode": (row.get("Variant Barcode") or "").strip(),
+                "grams": (row.get("Variant Grams") or "").strip(),
+            })
+    options = [{"name": name, "values": values_by_opt[i]} for i, name in option_names]
+    return options, variants

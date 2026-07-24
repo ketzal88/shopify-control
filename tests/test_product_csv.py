@@ -26,3 +26,13 @@ def test_group_products_multirow():
     assert len(groups) == 2
     sizes = sorted(len(g) for g in groups.values())
     assert sizes == [1, 2]
+
+
+def test_extract_variants_and_options():
+    rows, _ = pc.read_rows(FIX / "w3_mini.csv")
+    groups = pc.group_products(rows)
+    handle = next(h for h, g in groups.items() if len(g) == 2)
+    options, variants = pc.extract_variants(groups[handle])
+    assert options and options[0]["name"]              # ej. "Color"
+    assert len(variants) == 2
+    assert all("sku" in v and "optionValues" in v for v in variants)
