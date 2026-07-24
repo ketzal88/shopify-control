@@ -66,7 +66,9 @@ Va **antes** de identificar el producto a propósito: la terminología del clien
    ```
    Las keys de `fields` son exactamente `descriptionHtml`, `seo_title`, `seo_description`, y **siempre los 3 juntos**. Los valores tienen que ser los REALES leídos en el paso 3: el guard rechaza un backup con los tres vacíos, justamente para que nadie se desbloquee con placeholders.
 
-   *(Nota: el campo `ts` es informativo. El guard mide frescura por la fecha de modificación del archivo, no por `ts`.)*
+   **Producto genuinamente vacío (los 3 campos en `""`):** si en el paso 3 leíste la descripción Y el meta title Y el meta description los tres vacíos, agregá `"originalEmpty": true` al tope del JSON (al lado de `productId`, no dentro de `fields`) y dejá los 3 `fields` en `""`. Esa marca le declara al guard que el producto está vacío de verdad y habilita el primer write; sin ella, el guard bloquea. Ponela **solo** cuando de verdad leíste los tres vacíos, nunca sobre un producto con contenido. El undo no cambia: para volver a vacío, backupeás el estado actual (ya con contenido, así que backup normal sin marca) y reescribís los `""`. Ver `docs/superpowers/specs/2026-07-24-editar-producto-vacio-design.md`.
+
+   *(Nota: `ts` NO es decorativo. El guard exige que el backup sea reciente por DOS medidas a la vez —la fecha de modificación del archivo Y el campo `ts` del contenido—, así que `ts` tiene que ser la hora real en que lo guardaste.)*
 10. **ESCRIBIR (son DOS writes, porque el connector separa descripción y SEO).**
     - **Descripción:** `Shopify:update-product` con **solo** `{ id: <GID>, descriptionHtml: <nuevo> }`. No agregues ningún otro campo: el guard bloquea el write si aparece cualquier otra cosa.
     - **SEO:** `Shopify:graphql_mutation` con `productUpdate(product:{ id:<GID>, seo:{ title:<nuevo>, description:<nuevo> } })`. Usá `product:`, no `input:` (deprecado). Validá antes con `Shopify:validate_graphql_codeblocks`.

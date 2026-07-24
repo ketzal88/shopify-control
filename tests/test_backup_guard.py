@@ -18,12 +18,15 @@ T_INVENTORY = "mcp__claude_ai_Shopify__set-inventory"
 T_DISCOUNT = "mcp__claude_ai_Shopify__create-discount"
 T_BULK_STATUS = "mcp__claude_ai_Shopify__bulk-update-product-status"
 
-def write_backup(root, product_id=PID, fields=None, age_seconds=0):
+def write_backup(root, product_id=PID, fields=None, age_seconds=0, extra=None):
     fields = FULL_FIELDS if fields is None else fields
     d = Path(root); d.mkdir(parents=True, exist_ok=True)
     p = d/f"{product_id.split('/')[-1]}-x.json"
     ts = datetime.fromtimestamp(time.time() - age_seconds).isoformat()
-    p.write_text(json.dumps({"productId": product_id, "fields": fields, "ts": ts}), encoding="utf-8")
+    payload = {"productId": product_id, "fields": fields, "ts": ts}
+    if extra:
+        payload.update(extra)          # marca originalEmpty y otras keys de primer nivel
+    p.write_text(json.dumps(payload), encoding="utf-8")
     if age_seconds:
         old = time.time() - age_seconds
         os.utime(p, (old, old))
@@ -178,6 +181,57 @@ def test_backup_with_seo_vacio_pero_descripcion_real_es_valido(tmp_path):
     # Un producto puede tener SEO vacío de verdad; eso no invalida el backup.
     write_backup(tmp_path/"blunua/backups",
                  fields={"descriptionHtml": "texto viejo real", "seo_title": "", "seo_description": ""})
+    d, _ = bg.evaluate(UPDATE, tmp_path, time.time())
+    assert d == "allow"
+
+
+# --- SEED: editar un producto genuinamente vacío ---------------------------
+# Un producto con los 3 campos vacíos de verdad no podía editarse (el único
+# backup honesto es all-empty, y se rechazaba). La marca `originalEmpty: true`,
+# que el skill pone tras leer el estado en vivo, lo habilita. Ver
+# docs/superpowers/specs/2026-07-24-editar-producto-vacio-design.md
+EMPTY_FIELDS = {"descriptionHtml": "", "seo_title": "", "seo_description": ""}
+
+def test_seed_backup_all_empty_con_marca_es_valido(tmp_path):
+    write_backup(tmp_path/"blunua/backups", fields=EMPTY_FIELDS,
+                 extra={"originalEmpty": True})
+    d, _ = bg.evaluate(UPDATE, tmp_path, time.time())
+    assert d == "allow"
+
+def test_seed_null_con_marca_sigue_bloqueado(tmp_path):
+    # La marca solo salva strings vacíos; null no. El skill respalda "" no None.
+    write_backup(tmp_path/"blunua/backups",
+                 fields={"descriptionHtml": None, "seo_title": None, "seo_description": None},
+                 extra={"originalEmpty": True})
+    d, _ = bg.evaluate(UPDATE, tmp_path, time.time())
+    assert d == "block"
+
+def test_seed_marca_string_true_no_cuenta(tmp_path):
+    # is True estricto: un "true" string no habilita el seed.
+    write_backup(tmp_path/"blunua/backups", fields=EMPTY_FIELDS,
+                 extra={"originalEmpty": "true"})
+    d, _ = bg.evaluate(UPDATE, tmp_path, time.time())
+    assert d == "block"
+
+def test_seed_marca_uno_no_cuenta(tmp_path):
+    # is True estricto: un 1 truthy tampoco habilita el seed.
+    write_backup(tmp_path/"blunua/backups", fields=EMPTY_FIELDS,
+                 extra={"originalEmpty": 1})
+    d, _ = bg.evaluate(UPDATE, tmp_path, time.time())
+    assert d == "block"
+
+def test_seed_con_marca_pero_vencido_es_bloqueado(tmp_path):
+    # La frescura sigue rigiendo también para el seed.
+    write_backup(tmp_path/"blunua/backups", fields=EMPTY_FIELDS,
+                 extra={"originalEmpty": True}, age_seconds=1000)   # > 900
+    d, _ = bg.evaluate(UPDATE, tmp_path, time.time())
+    assert d == "block"
+
+def test_marca_es_inerte_cuando_hay_contenido(tmp_path):
+    # originalEmpty sobre un backup con contenido no cambia nada: sigue válido.
+    write_backup(tmp_path/"blunua/backups",
+                 fields={"descriptionHtml": "texto real", "seo_title": "", "seo_description": ""},
+                 extra={"originalEmpty": True})
     d, _ = bg.evaluate(UPDATE, tmp_path, time.time())
     assert d == "allow"
 

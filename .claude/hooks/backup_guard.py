@@ -357,6 +357,7 @@ def _covering_backup(backups_root: Path, product_id: str, now: float):
     """(hay_backup_valido, motivo_si_no). Recolecta todos los candidatos válidos."""
     tail = product_id.split("/")[-1]
     hits = []
+    saw_unmarked_empty = False
     for p in Path(backups_root).glob(f"**/backups/{tail}-*.json"):
         try:
             data = json.loads(p.read_text(encoding="utf-8"))
@@ -367,20 +368,34 @@ def _covering_backup(backups_root: Path, product_id: str, now: float):
         fields = data.get("fields") or {}
         if not REQUIRED_BACKUP_FIELDS.issubset(set(fields.keys())):
             continue
-        # Los valores tienen que ser strings de verdad. Un backup de placeholders
-        # satisfacía el guard y después el "undo" restauraba vacío.
+        # Los valores tienen que ser strings de verdad. Los null NO se salvan ni con
+        # la marca de seed: el skill respalda el estado REAL de un producto vacío como
+        # "" (string), no None. Esta guarda va antes de todo lo demás, sin excepción.
         values = [fields.get(k) for k in REQUIRED_BACKUP_FIELDS]
         if any(not isinstance(v, str) for v in values):
             continue
-        if all(not v.strip() for v in values):
-            continue
+        # La frescura se evalúa ANTES que la regla de vacío: así el motivo
+        # `saw_unmarked_empty` de abajo solo se dispara con un backup reciente y
+        # accionable (poné la marca), no con uno que simplemente venció.
         if now - p.stat().st_mtime > RECENT_WINDOW_SECONDS:
             continue
         if not _ts_fresh(data, now):
             continue
+        # Un backup con los 3 campos vacíos era un placeholder que rompía el undo
+        # (restauraba vacío en vez del contenido real), así que se rechazaba SIEMPRE.
+        # Excepción: un producto genuinamente vacío. El skill lo declara con
+        # `originalEmpty: true` tras leer el estado en vivo. `is True` estricto: un
+        # "true" string o un 1 truthy no habilitan el seed.
+        if all(not v.strip() for v in values) and data.get("originalEmpty") is not True:
+            saw_unmarked_empty = True
+            continue
         hits.append(p)
 
     if not hits:
+        if saw_unmarked_empty:
+            return False, ("hay un backup del producto pero con los 3 campos vacíos y sin la "
+                           "marca originalEmpty. Si el producto está realmente vacío, el skill "
+                           "debe respaldarlo con originalEmpty:true.")
         return False, None
 
     # Los ids numéricos de Shopify son POR TIENDA: el mismo id puede existir en
