@@ -17,3 +17,12 @@ def test_read_rows_handles_cp1252_fallback():
     joined = json.dumps(rows, ensure_ascii=False)
     assert "�" not in joined
     assert any("Diseño" in (r.get("Tags","") or "") or "Diseño" in (r.get("Type","") or "") for r in rows)
+
+
+def test_group_products_multirow():
+    rows, _ = pc.read_rows(FIX / "w3_mini.csv")
+    groups = pc.group_products(rows)
+    # el producto de 2 variantes quedó en UN grupo con 2 filas
+    assert len(groups) == 2
+    sizes = sorted(len(g) for g in groups.values())
+    assert sizes == [1, 2]

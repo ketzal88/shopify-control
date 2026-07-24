@@ -31,3 +31,20 @@ def read_rows(path):
             last = e
             continue
     raise last  # solo si hasta latin-1 falló (no debería)
+
+
+def group_products(rows):
+    """dict ordenado {handle: [filas...]}. Las filas de continuación (mismo Handle,
+    Title vacío) se pegan al grupo del último Handle no vacío. Un Handle vacío sin
+    padre previo se descarta (fila corrupta)."""
+    groups = {}
+    current = None
+    for row in rows:
+        handle = (row.get("Handle") or "").strip()
+        if handle:
+            current = handle
+            groups.setdefault(handle, []).append(row)
+        elif current is not None:
+            groups[current].append(row)
+        # handle vacío sin current previo: se ignora
+    return groups
