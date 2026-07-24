@@ -71,3 +71,14 @@ def test_reject_missing_title_or_variant():
     p = pc._validate({"title": "", "variants": [{"sku": "X", "priceCents": 100, "optionValues": []}],
                       "options": []}, seen_skus=set())
     assert p and "título" in " ".join(p).lower()
+
+
+def test_cli_outputs_json():
+    out = subprocess.run(
+        [sys.executable, str(HOOKS / "product_csv.py"), str(FIX / "w3_mini.csv")],
+        capture_output=True, text=True, encoding="utf-8",
+    )
+    assert out.returncode == 0
+    data = json.loads(out.stdout)
+    assert data["counts"]["total"] == 2
+    assert {"crear", "rechazado"} >= {p["status"] for p in data["products"]} or data["products"]

@@ -173,3 +173,30 @@ def build_products(groups):
         prod["motivos"] = motivos
         products.append(prod)
     return products
+
+
+def summarize(products):
+    counts = {"total": len(products),
+              "crear": sum(1 for p in products if p["status"] == "crear"),
+              "rechazado": sum(1 for p in products if p["status"] == "rechazado")}
+    return {"counts": counts, "products": products}
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description="Parser del CSV nativo de Shopify (W3 F1, no escribe nada).")
+    ap.add_argument("csv_path")
+    args = ap.parse_args(argv)
+    rows, _cols = read_rows(Path(args.csv_path))
+    products = build_products(group_products(rows))
+    # En Windows el stdout de un pipe es cp1252; el JSON lleva comillas curvas, '…',
+    # acentos y demás que revientan con UnicodeEncodeError. Forzar UTF-8 antes de imprimir.
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except AttributeError:
+        pass
+    print(json.dumps(summarize(products), ensure_ascii=False, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
