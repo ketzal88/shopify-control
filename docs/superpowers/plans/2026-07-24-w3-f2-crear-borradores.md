@@ -16,7 +16,7 @@
 
 El router vive en `evaluate()` (`backup_guard.py:1375`). Para `graphql_mutation`:
 1. `FORBIDDEN_MUTATIONS` (substring) bloquea siempre — incluye `productdelete`, `publishablepublish`, `inventory*`. **NO se toca.** `productset`/`productchangestatus` NO están ahí.
-2. `ROOT_FIELD_ALLOWED` (allowlist, línea 145) — hay que **agregar** `productset` y `productchangestatus`.
+2. `ROOT_FIELD_ALLOWED` (allowlist, línea 145) es la **unión** de `PRODUCT_WRITE_ALLOWED` + otras — para habilitar `productset`/`productchangestatus` se agregan a `PRODUCT_WRITE_ALLOWED` (Task 3), NO sueltos a `ROOT_FIELD_ALLOWED`.
 3. Un asunto por documento (contador `asuntos`), después dispatch por familia.
 4. Rama de producto: hoy `PRODUCT_WRITE_ALLOWED = {"productupdate"}`, y todo lo demás cae a `fuera_de_alcance` (bloquea) o al `return "allow"` final (línea ~1505).
 
