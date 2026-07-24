@@ -71,14 +71,15 @@ La sesión se abre en la RAÍZ del repo, así que el contexto del cliente NO se 
    - Pasá todo por el humanizer (obligatorio): `handsOn-Worker/skills/humanizer/SKILL.md`. Hoy no es
      invocable como skill desde este repo — leé ese archivo y aplicá sus reglas a mano. Sin
      em-dashes, sin voseo si el registro es neutro, sin lenguaje promocional vacío.
-   - Corré el linter de verdad, sobre el **texto plano** (no el HTML):
+   - Corré el linter de verdad, sobre el **texto plano** (no el HTML). El texto va por entrada
+     estándar (por eso el `echo` adelante, si no el comando se queda esperando):
 
      ```
-     python .claude/hooks/description_lint.py --keywords "<keywords de la categoría>" --dialect neutro
+     echo "<texto plano de la descripción>" | python .claude/hooks/description_lint.py --keywords "<keywords de la categoría>" --dialect neutro
      ```
 
-     Si algo falla, corregí antes de seguir. **No mostrés en el preview ninguna descripción que no
-     pase el linter.**
+     Sale 0 si está limpio; 1 y explica cada issue si no. Si algo falla, corregí antes de seguir.
+     **No mostrés en el preview ninguna descripción que no pase el linter.**
 
 5. **PREVIEW.** Armá el mensaje de chat (nunca dentro de un cuadro de confirmación: eso aplasta el
    formato) con:

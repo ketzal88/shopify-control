@@ -29,12 +29,24 @@ def test_group_products_multirow():
     assert sizes == [1, 2]
 
 
+def test_group_products_drops_orphan_leading_row():
+    # fila con Handle vacío y sin padre previo (nunca hubo un Handle no vacío antes): se ignora
+    rows = [
+        {"Handle": "", "Title": ""},
+        {"Handle": "producto-x", "Title": "Producto X"},
+    ]
+    groups = pc.group_products(rows)
+    assert list(groups.keys()) == ["producto-x"]
+    assert len(groups["producto-x"]) == 1
+
+
 def test_extract_variants_and_options():
     rows, _ = pc.read_rows(FIX / "w3_mini.csv")
     groups = pc.group_products(rows)
     handle = next(h for h, g in groups.items() if len(g) == 2)
     options, variants = pc.extract_variants(groups[handle])
-    assert options and options[0]["name"]              # ej. "Color"
+    assert options and options[0]["name"] == "Color"
+    assert options[0]["values"] == ["Plateado", "Dorado"]   # los dos colores del fixture
     assert len(variants) == 2
     assert all("sku" in v and "optionValues" in v for v in variants)
 
@@ -50,22 +62,67 @@ def test_extract_images_url_and_variant():
         assert img["url"]   # F1 solo reporta imágenes que el CSV trae (con URL)
 
 
+def test_extract_images_variant_image_branch():
+    # fila sintética que SOLO trae Variant Image (no Image Src): ejercita el branch
+    # de imagen-por-variante, que el fixture w3_mini.csv no cubre por sí solo.
+    group_rows = [{
+        "Image Src": "", "Image Position": "", "Image Alt Text": "",
+        "Variant Image": "https://cdn.shopify.com/s/files/1/0000/0001/products/v1.jpg",
+        "Variant SKU": "SKU-V1",
+    }]
+    images = pc.extract_images(group_rows)
+    assert len(images) == 1
+    assert images[0]["url"] == "https://cdn.shopify.com/s/files/1/0000/0001/products/v1.jpg"
+    assert images[0]["variantSku"] == "SKU-V1"
+
+
 @pytest.mark.parametrize("raw,cents", [
     ("12.50", 1250), ("1000", 100000), ("1.234,56", None), ("", None),
     ("abc", None), ("0", 0), ("9.9", 990),
+    # edge cases que F2 va a depender de que sigan devolviendo esto:
+    (".", None), ("12.", 1200), ("-5", None), ("1.2.3", None), ("  12.50  ", 1250),
 ])
 def test_price_to_cents(raw, cents):
     assert pc.price_to_cents(raw) == cents
 
 
-def test_build_and_validate_flags_bad_price_and_dup_sku():
+def test_build_products_have_status_and_motivos():
     rows, _ = pc.read_rows(FIX / "w3_mini.csv")
     products = pc.build_products(pc.group_products(rows))
     assert all("status" in p and "motivos" in p for p in products)
-    # dedup intra-lote: dos productos con el mismo SKU -> el 2º rechazado
-    dup = pc.build_products(pc.group_products(rows + rows))
-    rechazados = [p for p in dup if p["status"] == "rechazado"]
-    assert any("repetido" in " ".join(p["motivos"]).lower() for p in rechazados)
+
+
+def test_validate_flags_sku_already_seen():
+    # unidad directa: un SKU que YA está en seen_skus (venga de donde venga) se rechaza.
+    motivos = pc._validate(
+        {"title": "T", "options": [], "variants": [{"sku": "X", "priceCents": 100, "optionValues": []}]},
+        seen_skus={"X"},
+    )
+    assert any("repetido" in m.lower() for m in motivos)
+
+
+def test_build_products_dedup_across_different_handles():
+    # dedup real: DOS productos DISTINTOS (handles distintos) que comparten un SKU.
+    # group_products los agrupa por Handle, así que quedan como dos productos separados
+    # (a diferencia de duplicar las mismas filas, que solo repite el MISMO producto).
+    rows = [
+        {"Handle": "producto-a", "Title": "Producto A", "Variant SKU": "DUP-1", "Variant Price": "10.00"},
+        {"Handle": "producto-b", "Title": "Producto B", "Variant SKU": "DUP-1", "Variant Price": "20.00"},
+    ]
+    products = pc.build_products(pc.group_products(rows))
+    assert len(products) == 2
+    by_handle = {p["handle"]: p for p in products}
+    assert by_handle["producto-a"]["status"] == "crear"
+    assert by_handle["producto-b"]["status"] == "rechazado"
+    assert any("repetido" in m.lower() for m in by_handle["producto-b"]["motivos"])
+
+
+def test_build_products_empty_input_gives_zero_counts():
+    products = pc.build_products(pc.group_products([]))
+    assert products == []
+    summary = pc.summarize(products)
+    assert summary["counts"] == {"total": 0, "crear": 0, "rechazado": 0}
+
 
 def test_reject_missing_title_or_variant():
     p = pc._validate({"title": "", "variants": [{"sku": "X", "priceCents": 100, "optionValues": []}],
@@ -81,7 +138,8 @@ def test_cli_outputs_json():
     assert out.returncode == 0
     data = json.loads(out.stdout)
     assert data["counts"]["total"] == 2
-    assert {"crear", "rechazado"} >= {p["status"] for p in data["products"]} or data["products"]
+    assert data["products"]  # no vacío: el fixture trae 2 productos
+    assert {p["status"] for p in data["products"]} <= {"crear", "rechazado"}
 
 
 REAL = Path(__file__).resolve().parents[1] / "clients" / "blunua" / "backups" / "upload" / "products_export_1 - productsUP.csv"
