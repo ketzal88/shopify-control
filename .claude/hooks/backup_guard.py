@@ -145,6 +145,23 @@ DISCOUNT_BXGY = {"discountautomaticbxgycreate"}
 ROOT_FIELD_ALLOWED = (PRODUCT_WRITE_ALLOWED | DISCOUNT_CREATE | DISCOUNT_BXGY
                       | DISCOUNT_DEACTIVATE | {"metafieldsset"})
 
+# --- Alta de producto (W3 F2, spec §7.0/§7.1) -------------------------------
+# La clase `create`: un `productSet` en status DRAFT con un set de campos CERRADO
+# y mínimo. Los sets salen de la introspección real de `ProductSetInput` y son
+# más restrictivos que el borrado del spec: EXCLUYEN a propósito `collections`
+# (colecciones), `metafields` (escribiría worker.deal sin techo),
+# `inventoryQuantities`/`inventoryItem` (stock) e `id` (un productSet con id es
+# UPDATE, no alta). Todo lo prohibido cae por NO estar en el set, no por blocklist.
+CREATE_ALLOWED_TOP = {"title", "handle", "descriptionhtml", "seo", "producttype",
+                      "tags", "status", "productoptions", "variants", "files"}
+# `sku` es campo DIRECTO de ProductVariantSetInput (introspección real), así que
+# excluir `inventoryItem` NO pierde el SKU (clave de dedup de F1).
+CREATE_ALLOWED_VARIANT = {"optionvalues", "price", "sku", "barcode", "file"}
+# Claves que la política de alta tiene que traer (mismo criterio que deal_policy).
+CREATE_POLICY_KEYS = {"maxProductsPerBatch", "minPriceCents", "maxPriceCents",
+                      "allowPublish", "requireImage", "requireDescriptionMinWords",
+                      "createRecordWindowHours"}
+
 
 def _action(tool_name: str) -> str:
     # Soporta el nombre real de MCP ("mcp__claude_ai_Shopify__update-product")
@@ -1370,6 +1387,142 @@ def _check_backup(product_id: str, backups_root, now: float):
         return "block", ambiguo
     return "block", (f"Sin backup reciente para {product_id} que cubra {sorted(REQUIRED_BACKUP_FIELDS)}. "
                      "El skill debe guardar el backup antes de escribir.")
+
+
+def load_create_policy(root):
+    """dict con la política de alta del cliente activo, o None si no hay
+    exactamente una. Espejo EXACTO de `deal_policy.load_policy`: globea
+    `clients/*/create-policy.json` y EXCLUYE `_template` (el scaffold del próximo
+    cliente, no un cliente). Con 0 o 2+ clientes → None, y `_check_create`
+    traduce ese None en BLOQUEO — falla cerrado, no abierto. El filtro de
+    `_template` es load-bearing: sin él, blunua + _template se leen como 2 → None
+    → toda alta bloqueada (la feature queda muerta y la causa no es obvia)."""
+    hits = sorted(Path(root).glob("clients/*/create-policy.json"))
+    hits = [p for p in hits if p.parent.name != "_template"]
+    if len(hits) != 1:
+        return None
+    try:
+        data = json.loads(hits[0].read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if not isinstance(data, dict) or not CREATE_POLICY_KEYS.issubset(data.keys()):
+        return None
+    return data
+
+
+def _productset_input_ref(query: str):
+    """(modo, nombre) del argumento `input:` del `productSet(...)` del documento.
+
+    modo ∈ {"var", "inline", "unknown"}. Con "var", `nombre` es la variable (sin
+    `$`) que hay que resolver en `variables`. El argumento TIENE que ser una
+    referencia a variable: un objeto inline (`input: {...}`) cierra el bypass
+    inline+señuelo — sin esto, un `input:{status:ACTIVE, id:…}` inline + un `$p`
+    manso en variables pasaría (el guard valida `$p`, el server ejecuta el inline).
+
+    Lee SOLO el argumento del productSet, acotado a su grupo de paréntesis, con
+    strings y comentarios ya borrados. Ante cualquier duda devuelve "unknown",
+    que el llamador trata como bloqueo (fail-closed).
+    """
+    clean = re.sub(r"#[^\n]*", " ", query or "")
+    clean = re.sub(r'"""(?:.|\n)*?"""', ' "" ', clean)
+    clean = re.sub(r'"(?:[^"\\]|\\.)*"', ' "" ', clean)
+    m = re.search(r"\bproductset\s*\(", clean, re.I)
+    if not m:
+        return "unknown", None
+    depth, args = 0, None
+    for i in range(m.end() - 1, len(clean)):
+        if clean[i] == "(":
+            depth += 1
+        elif clean[i] == ")":
+            depth -= 1
+            if depth == 0:
+                args = clean[m.end():i]
+                break
+    if args is None:
+        return "unknown", None
+    am = re.search(r"\binput\s*:\s*(\$\w+|\{)", args, re.I)
+    if not am:
+        return "unknown", None
+    tok = am.group(1)
+    if tok == "{":
+        return "inline", None
+    return "var", tok[1:]
+
+
+def _check_create(tool_input, backups_root, now: float):
+    """Alta de producto DRAFT (spec §7.0/§7.1). `productSet` con un set de campos
+    CERRADO y mínimo, status DRAFT, techo de precio por variante, política por
+    cliente. Fail-closed ante cualquier dato que no se pueda leer.
+
+    El input del producto viaja por `variables` (mismo patrón que
+    `_check_discount`): se valida SOLO la variable que el query referencia, las
+    demás se ignoran (señuelos). `_check_create` NO exige backup previo: un alta
+    no tiene estado viejo que respaldar (el registro de creación lo escribe el
+    skill DESPUÉS, y habilita el undo=archivar en `_check_status_change`).
+    `now` se recibe por uniformidad con el dispatch; el create no lo usa.
+    """
+    policy = load_create_policy(backups_root)
+    if policy is None:
+        return "block", ("no encontré una política de alta única (create-policy.json). "
+                         "Sin ella no puedo crear productos.")
+
+    mode, ref = _productset_input_ref(_query_text(tool_input))
+    if mode == "inline":
+        return "block", ("los datos del producto tienen que ir en `variables`, "
+                         "no escritos dentro del pedido.")
+    if mode != "var" or not ref:
+        return "block", ("no pude leer el alta del producto. "
+                         "Tiene que ser un productSet con `input: $variable`.")
+
+    variables = (tool_input or {}).get("variables") if isinstance(tool_input, dict) else None
+    product = variables.get(ref) if isinstance(variables, dict) else None
+    if not isinstance(product, dict):
+        return "block", ("no encontré los datos del producto en las variables del pedido. "
+                         "Tienen que ir en `variables`, no escritos dentro del pedido.")
+
+    variants = product.get("variants")
+
+    # `id` (en el producto o en cualquier variante) => es un UPDATE disfrazado.
+    def _has_id(d):
+        return isinstance(d, dict) and any(str(k).lower() == "id" for k in d)
+    if _has_id(product) or (isinstance(variants, list) and any(_has_id(v) for v in variants)):
+        return "block", ("un productSet con id edita un producto existente; "
+                         "el alta va sin id.")
+
+    # status PRESENTE y == DRAFT (case-insensitive). Ausente u otro => block.
+    status = product.get("status")
+    if not isinstance(status, str) or status.strip().upper() != "DRAFT":
+        return "block", "el alta tiene que ser en borrador (status DRAFT)."
+
+    # Keys de primer nivel dentro del set cerrado.
+    extra = {str(k).lower() for k in product.keys()} - CREATE_ALLOWED_TOP
+    if extra:
+        return "block", (f"campo fuera de alcance en el alta: {sorted(extra)[0]}. "
+                         "El alta solo escribe título, descripción, SEO, tipo, tags, "
+                         "opciones, variantes e imágenes.")
+
+    # Variantes: lista no vacía; cada una con set cerrado y precio dentro del techo.
+    if not isinstance(variants, list) or not variants:
+        return "block", "el alta tiene que traer al menos una variante."
+    lo, hi = policy["minPriceCents"], policy["maxPriceCents"]
+    for v in variants:
+        if not isinstance(v, dict):
+            return "block", "cada variante tiene que ser un objeto."
+        vextra = {str(k).lower() for k in v.keys()} - CREATE_ALLOWED_VARIANT
+        if vextra:
+            return "block", (f"campo fuera de alcance en una variante: {sorted(vextra)[0]}. "
+                             "Una variante solo lleva opciones, precio, SKU, código de barras e imagen.")
+        if "price" not in v:
+            return "block", "cada variante tiene que traer un precio."
+        try:
+            cents = int(float(v.get("price")) * 100)
+        except (TypeError, ValueError, OverflowError):
+            return "block", "no pude leer el precio de una variante."
+        if cents < lo or cents > hi:
+            return "block", ("el precio de una variante está fuera del rango permitido "
+                             "para este cliente.")
+
+    return "allow", "ok"
 
 
 def evaluate(payload: dict, backups_root, now: float):
