@@ -140,9 +140,11 @@ Por cada foto del producto:
 Cada imagen que quieras mostrar va en `files[]`. Para atar una imagen a una variante puntual, poné
 esa imagen también en `variants[].file` (y asegurate de que esté además en `files[]`).
 
-> **Si el paso de subir la foto local queda bloqueado** (el guard todavía no habilita la subida de
-> bytes por sí sola): pedile al cliente la foto como link (URL) y usala directo en `originalSource`,
-> o avisale al operador para que habilite ese paso. Nunca fuerces otro camino de escritura.
+> El pedido de subida (`stagedUploadsCreate`) va **solo**, sin ninguna otra operación en el mismo
+> pedido: el guard bloquea mezclarlo con un alta o cualquier otra mutación. Hacé la subida primero,
+> y recién después el `productSet` con la URL que te devolvió. Si por lo que sea la subida no sale,
+> pedile al cliente la foto como link (URL) y usala directo en `originalSource`. Nunca fuerces otro
+> camino de escritura.
 
 ### 3. Crear (un `productSet` en DRAFT por producto)
 Armá la mutación y **validala antes** con `Shopify:validate_graphql_codeblocks`. Después corré

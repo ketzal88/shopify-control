@@ -257,3 +257,40 @@ def test_bypass_create_still_forbidden_mutation_wins(tmp_path):
     q = ("mutation($p: ProductSetInput!){ productSet(input:$p){product{id}} "
          'productDelete(input:{id:"' + PID + '"}){deletedProductId} }')
     assert bg.evaluate(_payload(q, {"p": _ok_product()}), tmp_path, time.time())[0] == "block"
+
+
+# --- stagedUploadsCreate: subir bytes de una foto local (INERTE) ---
+# Solo devuelve un destino temporal de subida; NO toca producto/stock/colección.
+# El attach real pasa por productSet.files, que _check_create ya controla.
+
+STAGED_Q = ("mutation($i:[StagedUploadInput!]!){ stagedUploadsCreate(input:$i){ "
+            "stagedTargets{ url resourceUrl parameters{ name value } } userErrors{ message } } }")
+STAGED_VARS = {"i": [{"filename": "a.jpg", "mimeType": "image/jpeg",
+                      "resource": "IMAGE", "httpMethod": "POST"}]}
+
+
+def test_staged_upload_alone_is_allowed():
+    d, why = bg.evaluate(_payload(STAGED_Q, STAGED_VARS), root, now)
+    assert d == "allow", why
+
+
+def test_staged_upload_mixed_with_productset_blocks_by_asuntos(tmp_path):
+    # NO puede viajar junto a un productSet: el contador de asuntos lo separa.
+    write_create_policy(tmp_path)
+    q = ("mutation($i:[StagedUploadInput!]!, $p:ProductSetInput!){ "
+         "stagedUploadsCreate(input:$i){ stagedTargets{ url } } "
+         "productSet(input:$p){ product{ id } } }")
+    variables = {"i": STAGED_VARS["i"], "p": _ok_product()}
+    d, why = bg.evaluate(_payload(q, variables), tmp_path, time.time())
+    assert d == "block"
+    # bloquea por MEZCLA DE ASUNTOS, no por un error incidental
+    assert "mezcla" in why and "staged-upload" in why, why
+
+
+def test_staged_upload_mixed_with_discount_deactivate_blocks_by_asuntos(tmp_path):
+    q = ("mutation($i:[StagedUploadInput!]!){ "
+         "stagedUploadsCreate(input:$i){ stagedTargets{ url } } "
+         'discountAutomaticDeactivate(id:"gid://shopify/DiscountAutomaticNode/1"){ automaticDiscountId } }')
+    d, why = bg.evaluate(_payload(q, {"i": STAGED_VARS["i"]}), tmp_path, time.time())
+    assert d == "block"
+    assert "mezcla" in why and "staged-upload" in why, why

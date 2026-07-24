@@ -146,8 +146,14 @@ DISCOUNT_BXGY = {"discountautomaticbxgycreate"}
 #
 # La superficie de escritura del v1 es minúscula —descripción, SEO, ofertas—,
 # así que la allowlist es a la vez correcta y corta.
+# `stageduploadscreate` (W3 F2): pide un destino temporal para subir los bytes de
+# una foto local. Es INERTE respecto del catálogo (no toca producto/precio/stock/
+# colección); el attach real de la imagen pasa por `productSet.files`, que
+# `_check_create` ya controla. NO empieza con product/discount/collection ni es
+# metafieldsset, así que ADEMÁS se clasifica explícitamente en el contador de
+# `asuntos` de `evaluate` (si no, se colaría como vehículo/señuelo de otra mutación).
 ROOT_FIELD_ALLOWED = (PRODUCT_WRITE_ALLOWED | DISCOUNT_CREATE | DISCOUNT_BXGY
-                      | DISCOUNT_DEACTIVATE | {"metafieldsset"})
+                      | DISCOUNT_DEACTIVATE | {"metafieldsset", "stageduploadscreate"})
 
 # --- Alta de producto (W3 F2, spec §7.0/§7.1) -------------------------------
 # La clase `create`: un `productSet` en status DRAFT con un set de campos CERRADO
@@ -1674,6 +1680,23 @@ def _check_status_change(tool_input, backups_root, now: float):
     return ("allow", "ok") if ok else ("block", why)
 
 
+def _check_staged_upload(tool_input, backups_root, now: float):
+    """`stagedUploadsCreate`: pide un destino temporal para subir bytes (una foto
+    local) y devuelve una URL de subida. Es INERTE respecto del catálogo: no toca
+    ningún producto, precio, stock ni colección. El attach real de la imagen pasa
+    DESPUÉS por `productSet.files`, que `_check_create` ya controla (status DRAFT,
+    set de campos cerrado, techo de precio). Por eso se permite sin techo ni backup.
+
+    La disciplina de 'un asunto por documento' (contador `asuntos` en `evaluate`)
+    garantiza que llegue acá SOLO cuando es el único asunto del pedido: no puede
+    viajar como vehículo ni señuelo de otra mutación. No se restringe el `resource`
+    del input: aun con otro tipo sigue siendo inerte, y sobre-restringir solo
+    rompería la subida de imágenes legítimas —el lado equivocado para fallar en una
+    operación sin superficie peligrosa. `backups_root`/`now` van por uniformidad
+    con el resto del dispatch; este check no los usa."""
+    return "allow", "ok"
+
+
 def evaluate(payload: dict, backups_root, now: float):
     tool_name = payload.get("tool_name", "")
     tool_input = payload.get("tool_input")
@@ -1761,6 +1784,13 @@ def evaluate(payload: dict, backups_root, now: float):
         product_roots = [r for r in roots if r.startswith("product")]
         collection_roots = [r for r in roots if r.startswith("collection")]
         has_metafield = "metafieldsset" in roots
+        # `stageduploadscreate` NO empieza con product/discount/collection ni es
+        # metafieldsset, así que NINGUNA de las familias de arriba lo clasifica.
+        # Hay que contarlo como asunto propio a mano: si no, se colaría en un
+        # documento junto a otra mutación (vehículo o señuelo) sin que el contador
+        # lo vea, que es la MISMA clase de bug que el default invertido cerró para
+        # el resto del catálogo.
+        has_staged = "stageduploadscreate" in roots
 
         asuntos = []
         if discount_roots:
@@ -1769,6 +1799,8 @@ def evaluate(payload: dict, backups_root, now: float):
             asuntos.append("metafields")
         if product_roots or collection_roots:
             asuntos.append("cambios de producto")
+        if has_staged:
+            asuntos.append("staged-upload")
         if len(asuntos) > 1:
             return "block", (f"esta operación mezcla {' y '.join(asuntos)} en un mismo pedido "
                              "y no puedo verificar las dos cosas juntas. Mandalas por separado.")
@@ -1783,6 +1815,12 @@ def evaluate(payload: dict, backups_root, now: float):
         # 3. Metafield de oferta. ANTES del fallthrough por GID_RE.
         if has_metafield:
             return _check_metafield(tool_input, backups_root, now)
+
+        # Subida de bytes de una foto local: inerte, y ya garantizado como único
+        # asunto por el contador de arriba. Va junto al dispatch de oferta/metafield,
+        # ANTES de la rama de producto.
+        if has_staged:
+            return _check_staged_upload(tool_input, backups_root, now)
 
         # Familia de producto: whitelist CERRADA, desde `roots`. Tras el gate de
         # `desconocidas` el único root de producto posible es `productupdate`, así
