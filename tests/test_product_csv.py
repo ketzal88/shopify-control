@@ -82,3 +82,15 @@ def test_cli_outputs_json():
     data = json.loads(out.stdout)
     assert data["counts"]["total"] == 2
     assert {"crear", "rechazado"} >= {p["status"] for p in data["products"]} or data["products"]
+
+
+REAL = Path(__file__).resolve().parents[1] / "clients" / "blunua" / "backups" / "upload" / "products_export_1 - productsUP.csv"
+
+@pytest.mark.skipif(not REAL.exists(), reason="export real no disponible")
+def test_real_export_parses_to_678_products():
+    rows, cols = pc.read_rows(REAL)
+    assert len(cols) == 85
+    products = pc.build_products(pc.group_products(rows))
+    assert len(products) == 678
+    # el archivo no rompe el parser y ningún grupo queda sin variantes
+    assert all(p["variants"] for p in products if p["status"] == "crear")
