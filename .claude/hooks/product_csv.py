@@ -120,3 +120,56 @@ def price_to_cents(raw):
         return round(float(s) * 100)
     except (TypeError, ValueError):
         return None
+
+
+def _validate(prod, seen_skus):
+    """Lista de motivos de rechazo (vacía = ok). Estructural + dedup intra-lote.
+    Piso/techo de precio y dedup contra la tienda VIVA NO van acá (el guard y el
+    skill respectivamente); acá solo lo que se ve desde el CSV."""
+    motivos = []
+    if not (prod.get("title") or "").strip():
+        motivos.append("le falta el título")
+    variants = prod.get("variants") or []
+    if not variants:
+        motivos.append("no tiene ninguna variante")
+    n_opts = len(prod.get("options") or [])
+    for v in variants:
+        if v.get("priceCents") is None:
+            motivos.append(f"precio inválido o vacío (SKU {v.get('sku') or '—'})")
+        if not v.get("sku"):
+            motivos.append("hay una variante sin código (SKU)")
+        elif v["sku"] in seen_skus:
+            motivos.append(f"el código {v['sku']} está repetido en el archivo")
+        else:
+            seen_skus.add(v["sku"])   # acumular ACÁ: agarra repetidos intra- y entre-producto
+        # consistencia de opciones: cada variante con un valor por opción declarada
+        if n_opts and len([x for x in v.get("optionValues", []) if x]) < n_opts:
+            motivos.append(f"a la variante {v.get('sku') or '—'} le falta una opción")
+    return motivos
+
+
+def build_products(groups):
+    """Lista de productos del modelo interno, ya validados y con status."""
+    products, seen_skus = [], set()
+    for handle, group_rows in groups.items():
+        options, variants = extract_variants(group_rows)
+        for v in variants:
+            v["priceCents"] = price_to_cents(v.pop("priceRaw", ""))
+        head = group_rows[0]
+        prod = {
+            "handle": handle,
+            "title": (head.get("Title") or "").strip(),
+            "productType": (head.get("Type") or "").strip(),
+            "tags": [t.strip() for t in (head.get("Tags") or "").split(",") if t.strip()],
+            "options": options,
+            "variants": variants,
+            "images": extract_images(group_rows),
+            "csvBody": (head.get("Body (HTML)") or "").strip(),
+            "csvSeoTitle": (head.get("SEO Title") or "").strip(),
+            "csvSeoDescription": (head.get("SEO Description") or "").strip(),
+        }
+        motivos = _validate(prod, seen_skus)   # _validate ya acumula en seen_skus
+        prod["status"] = "rechazado" if motivos else "crear"
+        prod["motivos"] = motivos
+        products.append(prod)
+    return products

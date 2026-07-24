@@ -56,3 +56,18 @@ def test_extract_images_url_and_variant():
 ])
 def test_price_to_cents(raw, cents):
     assert pc.price_to_cents(raw) == cents
+
+
+def test_build_and_validate_flags_bad_price_and_dup_sku():
+    rows, _ = pc.read_rows(FIX / "w3_mini.csv")
+    products = pc.build_products(pc.group_products(rows))
+    assert all("status" in p and "motivos" in p for p in products)
+    # dedup intra-lote: dos productos con el mismo SKU -> el 2º rechazado
+    dup = pc.build_products(pc.group_products(rows + rows))
+    rechazados = [p for p in dup if p["status"] == "rechazado"]
+    assert any("repetido" in " ".join(p["motivos"]).lower() for p in rechazados)
+
+def test_reject_missing_title_or_variant():
+    p = pc._validate({"title": "", "variants": [{"sku": "X", "priceCents": 100, "optionValues": []}],
+                      "options": []}, seen_skus=set())
+    assert p and "título" in " ".join(p).lower()
