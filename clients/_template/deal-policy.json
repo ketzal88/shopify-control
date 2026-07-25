@@ -10,5 +10,9 @@
   "maxGetQty": 1,
   "minBuyGetRatio": 2,
   "allowCrossProductGift": true,
-  "giftableProducts": []
+  "giftableProducts": [],
+
+  "allowCombo": true,
+  "maxComboPct": 25,
+  "maxComboGetQty": 2
 }

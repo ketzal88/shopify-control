@@ -791,6 +791,21 @@ def _gift_ceilings(policy):
     return None
 
 
+def _combo_ceilings(policy):
+    """(maxComboPct, maxComboGetQty) o None (W4-1, spec §3). Espejo de
+    `_gift_ceilings` con un gate extra: `allowCombo is True` estricto (no un truthy),
+    y los dos techos `int` reales (int-no-bool). Claves OPCIONALES (NO están en
+    `deal_policy.REQUIRED_KEYS`): si `allowCombo` no es True, o cualquier techo
+    falta/es malformado → None → no se crean combos (fail-closed, sin caer en
+    `pct <= None`)."""
+    if policy.get("allowCombo") is not True:
+        return None
+    mp, mq = policy.get("maxComboPct"), policy.get("maxComboGetQty")
+    if all(isinstance(x, int) and not isinstance(x, bool) for x in (mp, mq)):
+        return mp, mq
+    return None
+
+
 def _bxgy_scope_ok(policy, buy_gid, get_gid, buy_qty, get_qty, min_ratio):
     """Motivo de bloqueo del alcance del regalo, o None. Compartido por el create
     (donde los gids salen de la mutación) y el metafield (donde salen del JSON)."""
