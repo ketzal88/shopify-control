@@ -101,12 +101,14 @@ def test_combo_blocks_over_maxcombopct(tmp_path):
     policy(tmp_path, **COMBO_KEYS); write_deal_backup(tmp_path)
     d, why = bg.evaluate(combo_create(pct=0.30), tmp_path, time.time())      # 30% > 25
     assert d == "block", why
+    assert "25" in why, f"tiene que bloquear por el techo de combo, no por otro motivo: {why}"
 
 
 def test_combo_blocks_free(tmp_path):
     policy(tmp_path, **COMBO_KEYS); write_deal_backup(tmp_path)
     d, why = bg.evaluate(combo_create(pct=1.0), tmp_path, time.time())       # 100% no es combo
     assert d == "block", why
+    assert "gratis" in why.lower(), f"tiene que bloquear por ser gratis (100%), no por otro motivo: {why}"
 
 
 def test_combo_blocks_when_allowcombo_false(tmp_path):
@@ -120,6 +122,7 @@ def test_combo_blocks_get_qty_over_cap(tmp_path):
     policy(tmp_path, **COMBO_KEYS); write_deal_backup(tmp_path)
     d, why = bg.evaluate(combo_create(pct=0.25, get_qty=1000), tmp_path, time.time())
     assert d == "block", why
+    assert "unidades" in why.lower(), f"tiene que bloquear por la cantidad (maxComboGetQty), no por otro motivo: {why}"
 
 
 def test_combo_blocks_uses_per_order_not_one(tmp_path):
@@ -209,18 +212,23 @@ def test_combo_metafield_free_is_blocked(tmp_path):
     policy(tmp_path, **COMBO_KEYS); write_deal_backup(tmp_path)
     d, why = bg.evaluate(combo_metafield(pct=100), tmp_path, time.time())
     assert d == "block", why
+    # el % 100 cae por el rango válido (1..99); si el ruteo type:combo regresara al
+    # camino de tiers, el motivo sería "no tiene escalones" y este assert lo atraparía.
+    assert "99" in why, f"tiene que bloquear por el % fuera de rango (1-99), no por otro motivo: {why}"
 
 
 def test_combo_metafield_pct_over_ceiling_is_blocked(tmp_path):
     policy(tmp_path, **COMBO_KEYS); write_deal_backup(tmp_path)
     d, why = bg.evaluate(combo_metafield(pct=30), tmp_path, time.time())     # 30 > 25
     assert d == "block", why
+    assert "25" in why, f"tiene que bloquear por el techo de combo (maxComboPct), no por otro motivo: {why}"
 
 
 def test_combo_metafield_get_qty_over_ceiling_is_blocked(tmp_path):
     policy(tmp_path, **COMBO_KEYS); write_deal_backup(tmp_path)
     d, why = bg.evaluate(combo_metafield(get_qty=3), tmp_path, time.time())  # 3 > 2
     assert d == "block", why
+    assert "unidades" in why.lower(), f"tiene que bloquear por la cantidad (maxComboGetQty), no por otro motivo: {why}"
 
 
 def test_combo_metafield_buy_not_explicit_is_blocked(tmp_path):
