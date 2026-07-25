@@ -90,10 +90,15 @@ def test_combo_blocks_buy_qty_zero(tmp_path):                  # buy_qty 0 = cup
 def test_combo_blocks_buy_collection(tmp_path):                # buy = colección/all → block
 def test_gift_box_still_intact(tmp_path):                      # regalo gratis a giftable sigue allow; cruzado no-giftable 100% sigue block
 def test_no_mix_and_match(tmp_path):                           # 100% + no-giftable no toma "no-giftable" del combo y "pct<=100" del regalo → block
+def test_combo_blocks_without_backup(tmp_path):                # combo sin backup de oferta reciente → block (la caja combo tiene SU PROPIO chequeo de backup)
+def test_combo_blocks_productid_mismatch(tmp_path):            # productId != buy_gid → block (no escribir worker.deal / buscar backup en el producto equivocado)
 ```
+
+> ⚠️ **Fixtures:** NO agregar las claves de combo al `write_policy`/`policy` default compartido — si no, `test_cross_not_in_allowlist_is_blocked` y `test_cross_disabled_is_blocked` podrían pasar de block→allow. Cada test de combo setea las claves per-test: `policy(tmp_path, allowCombo=True, maxComboPct=25, maxComboGetQty=2)`. Los tests existentes quedan con `_combo_ceilings → None`, así que la caja combo es inerte para ellos y el OR cae al resultado regalo sin cambios.
 
 - [ ] **Step 2: Verificar que fallan** → FAIL (hoy un cruzado no-giftable al 25% bloquea).
 - [ ] **Step 3: Implementar** las dos cajas + el OR. Reusar `_gift_effect_pct_int`, `_bxgy_single_product`, `_as_pos_int`, `_duration_days`, `_covering_deal_backup`.
+  - **Límite de la extracción:** el preámbulo a nivel documento (whitelist de mutaciones, `len(creates) > 1`, `load_policy`, parseo de `d`/chequeo inline) queda en `_check_bxgy` **antes** de las dos cajas. El chequeo `_gift_ceilings(...) is None` **se mueve ADENTRO** de `_bxgy_gift_box` (devuelve `(False, why)`, NO un block duro de preámbulo) — si no, un cliente con techo de combo pero sin techo de regalo quedaría bloqueado antes de que corra la caja combo. **Cada caja hace su PROPIO tail check** de backup (`_covering_deal_backup`) y `productId == buy_gid` (la caja combo no puede apoyarse en el de la caja regalo — regla "cada caja completa").
 - [ ] **Step 4: Verificar que pasan** + `python -m pytest tests/test_backup_guard_bxgy.py tests/test_backup_guard_deals.py -q` (regalo/escalones intactos). → PASS.
 - [ ] **Step 5: Commit** → `git add -A && git commit -m "feat(w4): caja combo en _check_bxgy (OR con la caja regalo), fail-closed (W4-1)"`
 
