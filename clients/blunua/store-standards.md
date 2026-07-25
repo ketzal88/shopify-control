@@ -69,9 +69,18 @@
 
   **Terminología confirmada en vivo:** la tienda dice **Topitos** (no "topos"), **Candongas**, **Earcuff**. Confirma §4: nunca "aros".
 
-## 7. Plantillas de imagen [ESTABLE] (placeholder para W2 futuro)
-- Colores de marca: #4B4B4B / #9CB0B1 / #CEC4BA / #E9E6DD
-- Estilo: minimalista, fondo limpio + ⚠️ (specs cuando lleguemos a imágenes).
+## 7. Plantilla de imagen de marca [ESTABLE] (la usa `mejorar-fotos`, W4-3)
+- **Colores de marca (paleta):** `#4B4B4B` (grafito) · `#9CB0B1` (verde salvia) · `#CEC4BA` (taupe) · `#E9E6DD` (crema).
+- **Regla de integridad (dura):** el realce **deriva de la foto REAL** del producto (fondo, encuadre, calidad). Nunca se cambia la forma, el color real de la pieza, ni se agregan elementos que no están. La imagen tiene que ser el producto exacto que se vende.
+- **Fondo:** limpio y liso, **uno de los 4 colores de marca** (por defecto crema `#E9E6DD` o taupe `#CEC4BA` para joyería en tono claro; grafito `#4B4B4B` solo para piezas claras que necesitan contraste). Sin texturas, sin props que compitan, sin degradés fuertes.
+- **Encuadre:** producto **centrado**, con **aire** alrededor (margen parejo, ~15-20% del lado), horizontal o cuadrado según la ficha. La pieza ocupa el centro; nada la corta.
+- **Cómo aplican los colores:** el color de marca va en el **fondo**, no en la pieza. La pieza mantiene su color real. El fondo elegido tiene que dar contraste suficiente para que se lea la joya (pieza clara → fondo taupe/grafito; pieza oscura → fondo crema/salvia).
+- **Estilo:** minimalista, luz pareja, sombra suave y realista (no dura, no inventada). Sin bordes, marcos ni texto sobre la imagen.
+- **Herramientas de realce (Higgsfield), por paso — preferir las ACOTADAS:**
+  - Quitar/limpiar el fondo original → `remove_background` (cutout de la pieza real).
+  - Poner el fondo de marca / ampliar el lienzo con el color → `outpaint_image` (fondo liso de la paleta, con aire).
+  - Subir calidad/resolución → `upscale_image`.
+  - `generate_image` con la foto real como referencia es el camino de **mayor drift** (riesgo de alejarse del producto): evitarlo salvo necesidad, y siempre con el antes/después a la vista del cliente en el gate.
 
 ## 8. Qué no tocar (alcance seguro) [ESTABLE]
 - Los skills tocan dos field sets, cada uno con su guardrail:
