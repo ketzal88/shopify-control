@@ -69,7 +69,7 @@ Adjuntar una imagen a un producto **que ya existe** es `productCreateMedia`, que
 ### 5.2 Router: rutear media POR NOMBRE (precedente W3 §7.0.1, NO publishablePublish)
 Media **empieza con `product`**, así que hoy cae automáticamente en `product_roots` → asunto `"cambios de producto"`. El precedente correcto NO es `publishablePublish`/`stagedUploadsCreate` (que no empiezan con product) sino la **restructura del router de W3 §7.0.1**.
 - **Fail-open que esto cierra:** `productCreateMedia(P) + productUpdate(P, descriptionHtml)` en un doc → hoy daría `asuntos=["cambios de producto"]` (len 1, no bloquea), `create_or_status` vacío (la regla `len(product_roots)==1` no dispara), `"productupdate" in low` → el field check ve `{id, descriptionHtml}` → **ALLOW**, y el `productCreateMedia` se ejecuta SIN el check de IMAGE/source/tope. Decoy fail-open real.
-- **Fix:** (a) rutear `productcreatemedia`→`_check_media_create` y `productdeletemedia`→`_check_media_delete` **por nombre, ANTES** del camino de campos de `productupdate`; (b) **excluir** media del bucket `product_roots` y darle su propio asunto `media` (si no, un media solo doble-contaría a `len(asuntos)==2` y moriría fail-closed).
+- **Fix:** (a) rutear `productcreatemedia`→`_check_media_create` y `productdeletemedia`→`_check_media_delete` **por nombre, ANTES** del camino de campos de `productupdate`; (b) **excluir** media del bucket `product_roots` y darle su propio asunto `media` (si no, un media solo doble-contaría a `len(asuntos)==2` y moriría fail-closed); (c) **`len(media_roots) == 1` — bloquear si hay más de una mutación de media en el documento.** ⚠️ Sin esto, un asunto `media` único NO separa `productCreateMedia` de `productDeleteMedia` entre sí: `productCreateMedia(P) + productDeleteMedia(P, originales)` → `asuntos=["media"]` (len 1, pasa), el router despacha una sola rama y la **delete corre SIN `_check_media_delete`** → borra las fotos originales del cliente montada en un create válido. Es la regla `len(product_roots)==1` de W3 §7.0.1 punto 1, que el precedente marca como **obligatoria** por esta misma razón (el contador de asuntos no distingue dos mutaciones de la misma familia). Los checks per-mutación (§5.3/§5.4 "un solo X por doc") NO lo agarran — cada uno solo cuenta lo suyo.
 
 ### 5.3 `_check_media_create` (productCreateMedia)
 `allowMedia:true` en policy; un solo `productCreateMedia` por doc; el `media` es una **referencia a variable** (no inline `[`); lista de **solo `mediaContentType: IMAGE`** (VIDEO/EXTERNAL_VIDEO/MODEL_3D → block); `productId` leído **por clave, string-aware** (`_top_level_args`/`_productid_arg`, NO `GID_RE` suelto), único; `originalSource` https válido (`_ok_url`) o staged `resourceUrl`; tope `maxImagesPerCall`; **registro de creación** (ver §5.5). `CreateMediaInput` = `{alt, mediaContentType, originalSource}` (confirmar con `graphql_schema`) — sin campo peligroso oculto.
@@ -86,7 +86,7 @@ Los media ids solo existen DESPUÉS de que `productCreateMedia` devuelve, así q
 - **Post-write:** tras el `productCreateMedia` OK, el skill lee los **media ids devueltos** y los suma al registro. `_check_media_delete` matchea contra ESOS ids, no contra un conteo.
 
 ### 5.6 Policy
-**`media-policy.json` propio** (chico) — NO reusar `deal-policy.json` (es el techo de PLATA; mezclarlo es un smell). Claves: `allowMedia` (flag), `maxImagesPerCall`. Ausente/false → fail-closed (no se adjunta).
+**`media-policy.json` propio** (chico) — NO reusar `deal-policy.json` (es el techo de PLATA; mezclarlo es un smell). Claves: `allowMedia` (flag), `maxImagesPerCall`, y **`mediaRecordWindowHours`** (default 72, como el `createRecordWindowHours` de W3 — si el delete-gate usara los 15 min de `RECENT_WINDOW_SECONDS`, "sacá esa foto" una hora después fallaría cerrado y se sentiría roto; fail-closed igual, es usabilidad). Ausente/false → fail-closed (no se adjunta).
 
 ### 5.7 Docs de alcance a actualizar en lockstep
 Una clase de write nueva (`media`) obliga a actualizar `CLAUDE.md` regla 5 y `store-standards §8` (que hoy enumeran texto/ofertas/estilo y dicen "NUNCA" lo demás), o el guard/skill diverge del alcance declarado.
@@ -115,7 +115,8 @@ Productos **nuevos** (subir-productos, F2): el realce se puede sumar ahí en el 
 ## 7. Testing
 
 - **pytest de `_check_media_create`:** permite `productCreateMedia` de una IMAGE con url https + backup `media` + productId único + allowMedia; bloquea VIDEO/3D; bloquea sin backup `media`; bloquea `allowMedia:false`/ausente (fail-closed); bloquea inline (no variable); bloquea > `maxImagesPerCall`; bloquea productId ausente/múltiple; bloquea mezclado con otra mutación (asuntos).
-- **pytest de `_check_media_delete`:** permite borrar un media id registrado en un backup `media` reciente; bloquea un delete sin backup propio (no borra fotos arbitrarias del cliente); bloquea mezclado.
+- **pytest de `_check_media_delete`:** permite borrar un media id registrado en un backup `media` reciente; bloquea un delete de un id NO registrado (no borra fotos originales del cliente); bloquea si ALGUNO de la lista `mediaIds` no está registrado (iterar todos); bloquea sin backup propio.
+- **pytest `len(media_roots) == 1` (el residual del re-review):** `productCreateMedia(P) + productDeleteMedia(P, originales)` en un doc → **block** (si no, la delete correría sin `_check_media_delete` montada en el create). Este es el test que cierra el fail-open destructivo.
 - **Regresión:** toda la suite (guard de ofertas/productos/combos/descripción) verde; `FORBIDDEN_MUTATIONS`/`permissions.deny` intactos.
 - **e2e manual (operador, dev store):** realzar la foto de un producto, adjuntar, verificar en el admin, sacar (undo). Higgsfield real.
 
@@ -129,5 +130,5 @@ Productos **nuevos** (subir-productos, F2): el realce se puede sumar ahí en el 
 
 ## 9. Preguntas abiertas para el plan
 - La forma exacta de `productCreateMedia`/`productDeleteMedia` y `CreateMediaInput`/`mediaContentType` (confirmar con `graphql_schema`).
-- ¿`media-policy.json` propio o extender `deal-policy.json`? (probablemente un archivo chico propio, o reusar `create-policy.json` con `allowMedia`).
+- **Resuelto (§5.6):** policy es un `media-policy.json` propio (no `deal-policy.json` ni `create-policy.json`).
 - Qué tools de Higgsfield exactos para "fondo de marca" (remove_background + outpaint vs generate con referencia) — decidir en el plan con una prueba.
