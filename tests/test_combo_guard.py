@@ -181,3 +181,68 @@ def test_no_mix_and_match(tmp_path):
     policy(tmp_path, giftableProducts=[], maxGiftPct=100, **COMBO_KEYS); write_deal_backup(tmp_path)
     d, why = bg.evaluate(combo_create(pct=1.0, get_pid=QID), tmp_path, time.time())
     assert d == "block", why
+
+
+# --- Task 3: _check_combo_metafield + ruteo type:"combo" ---
+
+def combo_metafield(scope="cross", buy_qty=1, get_qty=1, pct=20,
+                    buy_pid=PID, get_pid=QID, owner=PID):
+    value = json.dumps({
+        "version": 1, "type": "combo", "scope": scope,
+        "buy": {"qty": buy_qty, "product": buy_pid},
+        "get": {"qty": get_qty, "product": get_pid, "handle": "x", "pct": pct},
+        "strategy": "automatic", "usesPerOrderLimit": 1,
+        "startsAt": "2026-07-20T00:00:00Z", "endsAt": "2026-10-18T00:00:00Z"})
+    return {"tool_name": T_GQL, "tool_input": {
+        "query": "mutation ($m: [MetafieldsSetInput!]!) { metafieldsSet(metafields: $m) { metafields { id } } }",
+        "variables": {"m": [{"ownerId": owner, "namespace": "worker", "key": "deal",
+                             "type": "json", "value": value}]}}}
+
+
+def test_combo_metafield_happy_path(tmp_path):
+    policy(tmp_path, **COMBO_KEYS); write_deal_backup(tmp_path)
+    d, why = bg.evaluate(combo_metafield(pct=20, get_qty=1), tmp_path, time.time())
+    assert d == "allow", why
+
+
+def test_combo_metafield_free_is_blocked(tmp_path):
+    policy(tmp_path, **COMBO_KEYS); write_deal_backup(tmp_path)
+    d, why = bg.evaluate(combo_metafield(pct=100), tmp_path, time.time())
+    assert d == "block", why
+
+
+def test_combo_metafield_pct_over_ceiling_is_blocked(tmp_path):
+    policy(tmp_path, **COMBO_KEYS); write_deal_backup(tmp_path)
+    d, why = bg.evaluate(combo_metafield(pct=30), tmp_path, time.time())     # 30 > 25
+    assert d == "block", why
+
+
+def test_combo_metafield_get_qty_over_ceiling_is_blocked(tmp_path):
+    policy(tmp_path, **COMBO_KEYS); write_deal_backup(tmp_path)
+    d, why = bg.evaluate(combo_metafield(get_qty=3), tmp_path, time.time())  # 3 > 2
+    assert d == "block", why
+
+
+def test_combo_metafield_buy_not_explicit_is_blocked(tmp_path):
+    policy(tmp_path, **COMBO_KEYS); write_deal_backup(tmp_path)
+    d, why = bg.evaluate(combo_metafield(buy_pid="not-a-gid"), tmp_path, time.time())
+    assert d == "block", why
+
+
+def test_combo_metafield_allowcombo_false_is_blocked(tmp_path):
+    policy(tmp_path, allowCombo=False, maxComboPct=25, maxComboGetQty=2); write_deal_backup(tmp_path)
+    d, why = bg.evaluate(combo_metafield(), tmp_path, time.time())
+    assert d == "block", why
+
+
+def test_combo_metafield_without_backup_is_blocked(tmp_path):
+    policy(tmp_path, **COMBO_KEYS)   # sin backup de oferta
+    d, why = bg.evaluate(combo_metafield(), tmp_path, time.time())
+    assert d == "block", why
+
+
+def test_combo_metafield_cross_same_product_is_blocked(tmp_path):
+    # cross pero buy==get → incoherente → block
+    policy(tmp_path, **COMBO_KEYS); write_deal_backup(tmp_path)
+    d, why = bg.evaluate(combo_metafield(scope="cross", buy_pid=PID, get_pid=PID), tmp_path, time.time())
+    assert d == "block", why

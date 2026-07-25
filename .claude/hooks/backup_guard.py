@@ -1069,6 +1069,47 @@ def _check_bxgy_metafield(data, policy):
     return _bxgy_scope_ok(policy, bp, gp, bq, gq, min_ratio)
 
 
+def _check_combo_metafield(data, policy):
+    """Reglas del schema `type:"combo"` (W4-1, spec §4.2). Motivo de bloqueo, o None.
+
+    Función PROPIA (NO reusa `_check_bxgy_metafield`, que termina en
+    `_bxgy_scope_ok` exigiendo `giftableProducts` y usa `_gift_ceilings`). Aplica
+    las MISMAS caps que la caja combo del discount (§4.1): pct entero en (0,100) y
+    ≤ `maxComboPct`, `get_qty ≤ maxComboGetQty`, `buy_qty ≥ 1`, buy y get productos
+    explícitos, SIN giftable. Que las caps del metafield y del discount sean
+    idénticas es lo que evita la divergencia widget↔carrito."""
+    ceils = _combo_ceilings(policy)
+    if ceils is None:
+        return "este cliente no tiene configurado el techo de combos."
+    max_pct, max_get = ceils
+
+    scope = data.get("scope")
+    if scope not in ("same", "cross"):
+        return "el combo tiene que ser del mismo producto o cruzado."
+    buy, get = data.get("buy") or {}, data.get("get") or {}
+    bq, gq, gpct = buy.get("qty"), get.get("qty"), get.get("pct")
+    if not (isinstance(bq, int) and not isinstance(bq, bool) and bq >= 1):
+        return "la compra requerida del combo no es válida."
+    if not (isinstance(gq, int) and not isinstance(gq, bool) and gq >= 1):
+        return "la cantidad del combo no es válida."
+    if gq > max_get:
+        return f"el combo lleva {gq} unidades y el máximo es {max_get}."
+    if not (isinstance(gpct, int) and not isinstance(gpct, bool) and 0 < gpct < 100):
+        return "el porcentaje del combo tiene que ser un entero entre 1 y 99."
+    if gpct > max_pct:
+        return f"el combo descuenta {gpct}% y el máximo es {max_pct}%."
+    bp, gp = buy.get("product"), get.get("product")
+    if not (isinstance(bp, str) and PRODUCT_GID_RE.match(bp)):
+        return "falta el producto que se compra."
+    if not (isinstance(gp, str) and PRODUCT_GID_RE.match(gp)):
+        return "falta el producto que se lleva."
+    if scope == "same" and bp != gp:
+        return "un combo del mismo producto tiene que comprar y llevar el mismo producto."
+    if scope == "cross" and bp == gp:
+        return "un combo cruzado tiene que ser de otro producto."
+    return None
+
+
 def _duration_days(starts, ends):
     def parse(x):
         if not isinstance(x, str) or not x.strip():
@@ -1133,6 +1174,13 @@ def _check_metafield(tool_input, backups_root, now: float):
         # `type` estaba plantado forward-compat; este milestone por fin lo lee.
         if data.get("type") == "bxgy":
             why = _check_bxgy_metafield(data, policy)
+            if why:
+                return "block", why
+            continue
+        # Combo (W4-1): su propio check, con las caps de combo. Va ANTES del
+        # fallthrough de tiers (un combo no tiene `tiers`).
+        if data.get("type") == "combo":
+            why = _check_combo_metafield(data, policy)
             if why:
                 return "block", why
             continue
