@@ -806,6 +806,20 @@ def _combo_ceilings(policy):
     return None
 
 
+def _media_ceilings(policy):
+    """(maxImagesPerCall, mediaRecordWindowHours) o None (W4-3, spec §5.6). Espejo
+    de `_combo_ceilings`: `allowMedia is True` estricto (no un truthy) y los dos
+    techos `int` reales (int-no-bool). Vive en su PROPIO `media-policy.json` (no
+    `deal-policy.json`, que es el techo de PLATA). Ausente/false/malformado → None
+    → no se adjuntan imágenes (fail-closed)."""
+    if policy.get("allowMedia") is not True:
+        return None
+    mi, wh = policy.get("maxImagesPerCall"), policy.get("mediaRecordWindowHours")
+    if all(isinstance(x, int) and not isinstance(x, bool) for x in (mi, wh)):
+        return mi, wh
+    return None
+
+
 def _bxgy_scope_ok(policy, buy_gid, get_gid, buy_qty, get_qty, min_ratio):
     """Motivo de bloqueo del alcance del regalo, o None. Compartido por el create
     (donde los gids salen de la mutación) y el metafield (donde salen del JSON)."""
@@ -1593,6 +1607,29 @@ def load_create_policy(root):
     except Exception:
         return None
     if not isinstance(data, dict) or not CREATE_POLICY_KEYS.issubset(data.keys()):
+        return None
+    return data
+
+
+# Claves que la política de fotos (W4-3) tiene que traer. En su PROPIO archivo
+# (`media-policy.json`), no en `deal-policy.json` ni `create-policy.json`.
+MEDIA_POLICY_KEYS = {"allowMedia", "maxImagesPerCall", "mediaRecordWindowHours"}
+
+
+def load_media_policy(root):
+    """dict con la política de fotos del cliente activo, o None si no hay
+    exactamente una. Espejo EXACTO de `load_create_policy`: globea
+    `clients/*/media-policy.json` y EXCLUYE `_template`. Con 0 o 2+ → None →
+    `_check_media_*` bloquea (fail-closed)."""
+    hits = sorted(Path(root).glob("clients/*/media-policy.json"))
+    hits = [p for p in hits if p.parent.name != "_template"]
+    if len(hits) != 1:
+        return None
+    try:
+        data = json.loads(hits[0].read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if not isinstance(data, dict) or not MEDIA_POLICY_KEYS.issubset(data.keys()):
         return None
     return data
 

@@ -1,0 +1,5 @@
+{
+  "allowMedia": true,
+  "maxImagesPerCall": 6,
+  "mediaRecordWindowHours": 72
+}
