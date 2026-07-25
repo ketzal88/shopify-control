@@ -824,10 +824,177 @@ def _bxgy_scope_ok(policy, buy_gid, get_gid, buy_qty, get_qty, min_ratio):
     return None
 
 
+def _bxgy_gift_box(policy, d, tool_input, backups_root, now: float):
+    """(ok, why) de la caja REGALO. Extraída SIN cambio de comportamiento del
+    `_check_bxgy` original (los tests del regalo verifican la decisión, no el
+    motivo). El chequeo `_gift_ceilings is None` vive ACÁ adentro (no como block
+    duro de preámbulo): así un cliente con techo de combo pero sin techo de regalo
+    no queda bloqueado antes de que corra la caja combo."""
+    ceils = _gift_ceilings(policy)
+    if ceils is None:
+        return False, "este cliente no tiene configurado el techo de regalos."
+    max_gift, max_get, min_ratio = ceils
+
+    # endsAt obligatorio y duración acotada (mismo criterio que escalones)
+    starts, ends = d.get("startsAt"), d.get("endsAt")
+    if policy.get("requireEndsAt") and not ends:
+        return False, "todo regalo necesita fecha de fin."
+    if ends:
+        days = _duration_days(starts, ends)
+        if days is None:
+            return False, "no pude leer las fechas del regalo."
+        if days > policy["maxDurationDays"]:
+            return False, (f"el regalo dura {days} días y el máximo es "
+                           f"{policy['maxDurationDays']}.")
+
+    # usesPerOrderLimit forzado a 1: el regalo no se multiplica solo en el carrito.
+    if _as_pos_int(d.get("usesPerOrderLimit")) != 1:
+        return False, "el regalo tiene que limitarse a una vez por pedido (usesPerOrderLimit: 1)."
+
+    # % del regalo: solo discountOnQuantity.effect.percentage, con la trampa de unidades.
+    pct, err = _gift_effect_pct_int(d)
+    if err == "unsupported":
+        return False, ("el regalo tiene que expresarse como 'discountOnQuantity'; "
+                       "un BXGY no soporta percentage ni discountAmount al tope.")
+    if pct is None:
+        return False, "no pude leer el porcentaje del regalo."
+    if pct > max_gift:
+        return False, (f"el regalo descuenta {pct}% y el máximo para este cliente "
+                       f"es {max_gift}%.")
+
+    # Cantidad regalada
+    get_qty = _as_pos_int(((d.get("customerGets") or {}).get("value") or {})
+                          .get("discountOnQuantity", {}).get("quantity"))
+    if not get_qty or get_qty < 1:
+        return False, "no pude leer cuántas unidades regala el descuento."
+    if get_qty > max_get:
+        return False, f"el regalo es de {get_qty} unidades y el máximo es {max_get}."
+
+    # Scope: exactamente un producto explícito en la compra y en el regalo.
+    buy_gid, be = _bxgy_single_product((d.get("customerBuys") or {}).get("items"))
+    get_gid, ge = _bxgy_single_product((d.get("customerGets") or {}).get("items"))
+    if "all" in (be, ge):
+        return False, "un regalo sobre TODO el catálogo no se permite."
+    if "collections" in (be, ge):
+        return False, "un regalo a nivel colección no se permite."
+    if be or ge:
+        return False, ("el regalo tiene que apuntar a un producto explícito para comprar "
+                       "y uno para regalar.")
+
+    buy_qty = _as_pos_int((d.get("customerBuys") or {}).get("value", {}).get("quantity"))
+    if not buy_qty or buy_qty < 1:
+        return False, "no pude leer cuántas unidades hay que comprar."
+
+    why = _bxgy_scope_ok(policy, buy_gid, get_gid, buy_qty, get_qty, min_ratio)
+    if why:
+        return False, why
+
+    # El backup se busca por el producto COMPRADO (P), que es el que configura el
+    # cliente y sobre el que se escribe el metafield worker.deal.
+    product_gid = ((tool_input or {}).get("variables") or {}).get("productId")
+    if not isinstance(product_gid, str) or "/Product/" not in product_gid:
+        return False, ("la mutación tiene que traer `productId` en las variables, "
+                       "con el gid del producto de la oferta.")
+    # El `productId` —con el que se busca el backup y sobre el que se escribe el
+    # metafield worker.deal— tiene que ser EXACTAMENTE el producto comprado. Sin
+    # esta atadura, un backup fresco de cualquier producto autorizaba el write
+    # sobre otro (hallazgo MED del review de BXGY). Se compara contra el buy_gid
+    # canónico, y el backup se busca por ese, no por el productId sin validar.
+    if product_gid.strip() != buy_gid:
+        return False, ("el `productId` no coincide con el producto que se compra en el regalo. "
+                       "El respaldo y la oferta tienen que ser del mismo producto.")
+    ok, why = _covering_deal_backup(backups_root, buy_gid, now)
+    return (True, None) if ok else (False, why)
+
+
+def _bxgy_combo_box(policy, d, tool_input, backups_root, now: float):
+    """(ok, why) de la caja COMBO (W4-1, spec §4.1). Estricta-o-igual que la caja
+    regalo en TODA dimensión salvo UNA relajación deliberada: el `get` NO exige
+    `giftableProducts` (un combo apunta a un producto de co-compra, no a un
+    regalable curado). Todo lo demás sigue acotado, y el % es MÁS bajo (nunca
+    gratis). Cada caja se evalúa COMPLETA por sí sola; hace SU PROPIO chequeo de
+    backup y `productId == buy_gid` (no se apoya en la caja regalo)."""
+    ceils = _combo_ceilings(policy)
+    if ceils is None:
+        return False, "este cliente no tiene configurado el techo de combos."
+    max_pct, max_get = ceils
+
+    # endsAt obligatorio y duración acotada (mismo criterio que el regalo/escalones)
+    starts, ends = d.get("startsAt"), d.get("endsAt")
+    if policy.get("requireEndsAt") and not ends:
+        return False, "todo combo necesita fecha de fin."
+    if ends:
+        days = _duration_days(starts, ends)
+        if days is None:
+            return False, "no pude leer las fechas del combo."
+        if days > policy["maxDurationDays"]:
+            return False, (f"el combo dura {days} días y el máximo es "
+                           f"{policy['maxDurationDays']}.")
+
+    # usesPerOrderLimit == 1: el combo no se multiplica solo en el carrito.
+    if _as_pos_int(d.get("usesPerOrderLimit")) != 1:
+        return False, "el combo tiene que limitarse a una vez por pedido (usesPerOrderLimit: 1)."
+
+    # % en (0, maxComboPct] y SIEMPRE < 100 (nunca gratis — para eso está el regalo).
+    pct, err = _gift_effect_pct_int(d)
+    if err == "unsupported":
+        return False, ("el combo tiene que expresarse como 'discountOnQuantity'; "
+                       "un BXGY no soporta percentage ni discountAmount al tope.")
+    if pct is None:
+        return False, "no pude leer el porcentaje del combo."
+    if pct <= 0:
+        return False, "el combo tiene que tener un descuento mayor a cero."
+    if pct >= 100:
+        return False, "un combo no puede ser gratis (100%); para un regalo gratis está el regalo."
+    if pct > max_pct:
+        return False, (f"el combo descuenta {pct}% y el máximo para este cliente es {max_pct}%.")
+
+    # Cantidad que se lleva, acotada por maxComboGetQty (cierra "comprá 1, llevate 1000").
+    get_qty = _as_pos_int(((d.get("customerGets") or {}).get("value") or {})
+                          .get("discountOnQuantity", {}).get("quantity"))
+    if not get_qty or get_qty < 1:
+        return False, "no pude leer cuántas unidades lleva el combo."
+    if get_qty > max_get:
+        return False, f"el combo lleva {get_qty} unidades y el máximo es {max_get}."
+
+    # Scope: buy y get productos explícitos únicos. La ÚNICA relajación vs el regalo:
+    # el get NO pasa por `_bxgy_scope_ok` (no exige giftable).
+    buy_gid, be = _bxgy_single_product((d.get("customerBuys") or {}).get("items"))
+    get_gid, ge = _bxgy_single_product((d.get("customerGets") or {}).get("items"))
+    if "all" in (be, ge):
+        return False, "un combo sobre TODO el catálogo no se permite."
+    if "collections" in (be, ge):
+        return False, "un combo a nivel colección no se permite."
+    if be or ge:
+        return False, ("el combo tiene que apuntar a un producto explícito para comprar "
+                       "y uno para llevar.")
+
+    # buy_qty ≥ 1: sin compra requerida, "llevate B sin comprar nada" es un cupón.
+    buy_qty = _as_pos_int((d.get("customerBuys") or {}).get("value", {}).get("quantity"))
+    if not buy_qty or buy_qty < 1:
+        return False, "el combo requiere comprar al menos una unidad."
+
+    # backup y productId == buy_gid — SU PROPIO tail check, igual que la caja regalo.
+    product_gid = ((tool_input or {}).get("variables") or {}).get("productId")
+    if not isinstance(product_gid, str) or "/Product/" not in product_gid:
+        return False, ("la mutación tiene que traer `productId` en las variables, "
+                       "con el gid del producto del combo.")
+    if product_gid.strip() != buy_gid:
+        return False, ("el `productId` no coincide con el producto que se compra en el combo. "
+                       "El respaldo y la oferta tienen que ser del mismo producto.")
+    ok, why = _covering_deal_backup(backups_root, buy_gid, now)
+    return (True, None) if ok else (False, why)
+
+
 def _check_bxgy(names, tool_input, backups_root, now: float):
-    """Whitelist del regalo (spec §9.1). Recibe TODAS las mutaciones del documento;
-    cada una tiene que ser aceptable por sí sola (ninguna se vuelve inocente por
-    compartir documento con un deactivate)."""
+    """Whitelist BXGY (spec §9.1 regalo + W4-1 §4.1 combo). Recibe TODAS las
+    mutaciones del documento; cada una tiene que ser aceptable por sí sola.
+
+    Acepta el `discountAutomaticBxgyCreate` si satisface la caja REGALO **o** la
+    caja COMBO — cada una COMPLETA por sí sola, nunca mezclando dimensiones (el
+    invariante de §4.1). El preámbulo a nivel documento (whitelist, un solo create,
+    política, parseo de `d`/inline) queda ACÁ, antes de las dos cajas; el
+    `_gift_ceilings is None` se movió ADENTRO de la caja regalo."""
     fuera = [n for n in names if n not in DISCOUNT_BXGY | DISCOUNT_DEACTIVATE]
     if fuera:
         return "block", (f"'{fuera[0]}' no puede ir junto a un regalo en la misma operación.")
@@ -839,10 +1006,6 @@ def _check_bxgy(names, tool_input, backups_root, now: float):
     if policy is None:
         return "block", ("no encontré una política de ofertas única (deal-policy.json). "
                          "Sin techo que aplicar, no se crean regalos.")
-    ceils = _gift_ceilings(policy)
-    if ceils is None:
-        return "block", "este cliente no tiene configurado el techo de regalos."
-    max_gift, max_get, min_ratio = ceils
 
     cands = _bxgy_inputs(tool_input)
     if len(cands) > 1:
@@ -853,76 +1016,18 @@ def _check_bxgy(names, tool_input, backups_root, now: float):
         return "block", ("no encontré los datos del regalo en las variables. "
                          "Tienen que ir en `variables`, no escritos dentro del query.")
 
-    # endsAt obligatorio y duración acotada (mismo criterio que escalones)
-    starts, ends = d.get("startsAt"), d.get("endsAt")
-    if policy.get("requireEndsAt") and not ends:
-        return "block", "todo regalo necesita fecha de fin."
-    if ends:
-        days = _duration_days(starts, ends)
-        if days is None:
-            return "block", "no pude leer las fechas del regalo."
-        if days > policy["maxDurationDays"]:
-            return "block", (f"el regalo dura {days} días y el máximo es "
-                             f"{policy['maxDurationDays']}.")
-
-    # usesPerOrderLimit forzado a 1: el regalo no se multiplica solo en el carrito.
-    if _as_pos_int(d.get("usesPerOrderLimit")) != 1:
-        return "block", "el regalo tiene que limitarse a una vez por pedido (usesPerOrderLimit: 1)."
-
-    # % del regalo: solo discountOnQuantity.effect.percentage, con la trampa de unidades.
-    pct, err = _gift_effect_pct_int(d)
-    if err == "unsupported":
-        return "block", ("el regalo tiene que expresarse como 'discountOnQuantity'; "
-                         "un BXGY no soporta percentage ni discountAmount al tope.")
-    if pct is None:
-        return "block", "no pude leer el porcentaje del regalo."
-    if pct > max_gift:
-        return "block", (f"el regalo descuenta {pct}% y el máximo para este cliente "
-                         f"es {max_gift}%.")
-
-    # Cantidad regalada
-    get_qty = _as_pos_int(((d.get("customerGets") or {}).get("value") or {})
-                          .get("discountOnQuantity", {}).get("quantity"))
-    if not get_qty or get_qty < 1:
-        return "block", "no pude leer cuántas unidades regala el descuento."
-    if get_qty > max_get:
-        return "block", f"el regalo es de {get_qty} unidades y el máximo es {max_get}."
-
-    # Scope: exactamente un producto explícito en la compra y en el regalo.
-    buy_gid, be = _bxgy_single_product((d.get("customerBuys") or {}).get("items"))
-    get_gid, ge = _bxgy_single_product((d.get("customerGets") or {}).get("items"))
-    if "all" in (be, ge):
-        return "block", "un regalo sobre TODO el catálogo no se permite."
-    if "collections" in (be, ge):
-        return "block", "un regalo a nivel colección no se permite."
-    if be or ge:
-        return "block", ("el regalo tiene que apuntar a un producto explícito para comprar "
-                         "y uno para regalar.")
-
-    buy_qty = _as_pos_int((d.get("customerBuys") or {}).get("value", {}).get("quantity"))
-    if not buy_qty or buy_qty < 1:
-        return "block", "no pude leer cuántas unidades hay que comprar."
-
-    why = _bxgy_scope_ok(policy, buy_gid, get_gid, buy_qty, get_qty, min_ratio)
-    if why:
-        return "block", why
-
-    # El backup se busca por el producto COMPRADO (P), que es el que configura el
-    # cliente y sobre el que se escribe el metafield worker.deal.
-    product_gid = ((tool_input or {}).get("variables") or {}).get("productId")
-    if not isinstance(product_gid, str) or "/Product/" not in product_gid:
-        return "block", ("la mutación tiene que traer `productId` en las variables, "
-                         "con el gid del producto de la oferta.")
-    # El `productId` —con el que se busca el backup y sobre el que se escribe el
-    # metafield worker.deal— tiene que ser EXACTAMENTE el producto comprado. Sin
-    # esta atadura, un backup fresco de cualquier producto autorizaba el write
-    # sobre otro (hallazgo MED del review de BXGY). Se compara contra el buy_gid
-    # canónico, y el backup se busca por ese, no por el productId sin validar.
-    if product_gid.strip() != buy_gid:
-        return "block", ("el `productId` no coincide con el producto que se compra en el regalo. "
-                         "El respaldo y la oferta tienen que ser del mismo producto.")
-    ok, why = _covering_deal_backup(backups_root, buy_gid, now)
-    return ("allow", "ok") if ok else ("block", why)
+    # OR: alcanza con que UNA caja completa dé ok. Cada caja hace su propio tail
+    # check (scope, backup, productId), así que ninguna se apoya en la otra.
+    ok_gift, why_gift = _bxgy_gift_box(policy, d, tool_input, backups_root, now)
+    if ok_gift:
+        return "allow", "ok"
+    ok_combo, why_combo = _bxgy_combo_box(policy, d, tool_input, backups_root, now)
+    if ok_combo:
+        return "allow", "ok"
+    # Ninguna caja completa. Con el combo apagado (ceilings None) el intento es
+    # claramente un regalo → el motivo del regalo es el útil; con el combo encendido,
+    # el del combo suele ser el más específico.
+    return "block", (why_combo if _combo_ceilings(policy) is not None else why_gift)
 
 
 def _check_bxgy_metafield(data, policy):
