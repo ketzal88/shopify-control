@@ -264,3 +264,52 @@ def test_media_delete_via_variable_ids_allows(tmp_path):
     q = f'mutation($ids: [ID!]!){{ productDeleteMedia(productId:"{PID}", mediaIds:$ids){{ deletedMediaIds }} }}'
     d, why = bg.evaluate(_payload(q, {"ids": [MEDIA_ID]}), tmp_path, time.time())
     assert d == "allow", why
+
+
+# --- Task 6: anti-bypass + regresión ---
+
+def test_media_create_decoy_variable_validates_referenced(tmp_path):
+    # el query referencia $m; un decoy manso (IMAGE) NO cambia que se valide $m (VIDEO)
+    write_media_policy(tmp_path); write_media_record(tmp_path)
+    q = f'mutation($m: [CreateMediaInput!]!){{ productCreateMedia(productId:"{PID}", media:$m){{ media {{ id }} }} }}'
+    variables = {"m": [{"mediaContentType": "VIDEO", "originalSource": IMG_URL}],
+                 "decoy": [{"mediaContentType": "IMAGE", "originalSource": IMG_URL}]}
+    assert bg.evaluate(_payload(q, variables), tmp_path, time.time())[0] == "block"
+
+
+def test_media_mixed_with_metafield_blocks(tmp_path):
+    write_media_policy(tmp_path); write_media_record(tmp_path)
+    q = (f'mutation($m: [CreateMediaInput!]!){{ '
+         f'productCreateMedia(productId:"{PID}", media:$m){{ media {{ id }} }} '
+         f'metafieldsSet(metafields: [{{ownerId:"{PID}", namespace:"worker", key:"deal", value:"{{}}", type:"json"}}]){{ metafields {{ id }} }} }}')
+    d, why = bg.evaluate(_payload(q, {"m": [{"mediaContentType": "IMAGE", "originalSource": IMG_URL}]}), tmp_path, time.time())
+    assert d == "block" and "mezcla" in why, why
+
+
+def test_media_mixed_with_discount_deactivate_blocks(tmp_path):
+    write_media_policy(tmp_path); write_media_record(tmp_path)
+    q = (f'mutation($m: [CreateMediaInput!]!){{ '
+         f'productCreateMedia(productId:"{PID}", media:$m){{ media {{ id }} }} '
+         f'discountAutomaticDeactivate(id:"gid://shopify/DiscountAutomaticNode/1"){{ automaticDiscountId }} }}')
+    d, why = bg.evaluate(_payload(q, {"m": [{"mediaContentType": "IMAGE", "originalSource": IMG_URL}]}), tmp_path, time.time())
+    assert d == "block" and "mezcla" in why, why
+
+
+def test_media_create_plus_productset_blocks(tmp_path):
+    write_media_policy(tmp_path); write_media_record(tmp_path)
+    q = (f'mutation($m: [CreateMediaInput!]!, $p: ProductSetInput!){{ '
+         f'productCreateMedia(productId:"{PID}", media:$m){{ media {{ id }} }} '
+         f'productSet(input:$p){{ product {{ id }} }} }}')
+    d, why = bg.evaluate(_payload(q, {"m": [{"mediaContentType": "IMAGE", "originalSource": IMG_URL}],
+                                      "p": {"title": "x", "status": "DRAFT"}}), tmp_path, time.time())
+    assert d == "block" and "mezcla" in why, why
+
+
+def test_two_deletes_in_one_doc_blocks(tmp_path):
+    # dos productDeleteMedia en un doc → len(media_roots)!=1 → block (con registro
+    # válido para AMBOS ids, para probar que el corte viene de len==1, no de records)
+    write_media_policy(tmp_path); write_media_record(tmp_path, media_ids=[MEDIA_ID, OTHER_MEDIA])
+    q = (f'mutation{{ productDeleteMedia(productId:"{PID}", mediaIds:["{MEDIA_ID}"]){{ deletedMediaIds }} '
+         f'b: productDeleteMedia(productId:"{PID}", mediaIds:["{OTHER_MEDIA}"]){{ deletedMediaIds }} }}')
+    d, why = bg.evaluate(_payload(q), tmp_path, time.time())
+    assert d == "block", why
