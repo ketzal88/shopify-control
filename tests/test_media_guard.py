@@ -150,3 +150,73 @@ def test_lone_media_routes_not_double_count(tmp_path):
     write_media_policy(tmp_path)   # sin registro media
     d, why = bg.evaluate(media_create(), tmp_path, time.time())
     assert d == "block" and "registro" in why and "mezcla" not in why, why
+
+
+# --- Task 4: _check_media_create (solo IMAGE, source, tope, registro) ---
+
+def test_media_create_allows_image_with_record(tmp_path):
+    write_media_policy(tmp_path); write_media_record(tmp_path)
+    d, why = bg.evaluate(media_create(), tmp_path, time.time())
+    assert d == "allow", why
+
+
+def test_media_create_blocks_video(tmp_path):
+    write_media_policy(tmp_path); write_media_record(tmp_path)
+    d, why = bg.evaluate(media_create(media=[{"mediaContentType": "VIDEO", "originalSource": IMG_URL}]), tmp_path, time.time())
+    assert d == "block" and "video" in why.lower(), why
+
+
+def test_media_create_blocks_3d(tmp_path):
+    write_media_policy(tmp_path); write_media_record(tmp_path)
+    d, why = bg.evaluate(media_create(media=[{"mediaContentType": "MODEL_3D", "originalSource": IMG_URL}]), tmp_path, time.time())
+    assert d == "block", why
+
+
+def test_media_create_blocks_inline(tmp_path):
+    write_media_policy(tmp_path); write_media_record(tmp_path)
+    inline = f'[{{mediaContentType: IMAGE, originalSource: "{IMG_URL}"}}]'
+    d, why = bg.evaluate(media_create(inline_media=inline), tmp_path, time.time())
+    assert d == "block" and "variables" in why, why
+
+
+def test_media_create_blocks_when_allowmedia_false(tmp_path):
+    write_media_policy(tmp_path, allow_media=False); write_media_record(tmp_path)
+    assert bg.evaluate(media_create(), tmp_path, time.time())[0] == "block"
+
+
+def test_media_create_blocks_without_policy(tmp_path):
+    write_media_record(tmp_path)   # sin media-policy
+    assert bg.evaluate(media_create(), tmp_path, time.time())[0] == "block"
+
+
+def test_media_create_blocks_over_max_images(tmp_path):
+    write_media_policy(tmp_path, max_images=2); write_media_record(tmp_path)
+    media = [{"mediaContentType": "IMAGE", "originalSource": IMG_URL} for _ in range(3)]
+    d, why = bg.evaluate(media_create(media=media), tmp_path, time.time())
+    assert d == "block" and "hasta 2" in why, why
+
+
+def test_media_create_blocks_non_https_source(tmp_path):
+    write_media_policy(tmp_path); write_media_record(tmp_path)
+    d, why = bg.evaluate(media_create(media=[{"mediaContentType": "IMAGE", "originalSource": "http://insecure.example/x.jpg"}]),
+                         tmp_path, time.time())
+    assert d == "block" and "https" in why, why
+
+
+def test_media_create_blocks_without_media_record(tmp_path):
+    write_media_policy(tmp_path)   # policy pero SIN registro media
+    d, why = bg.evaluate(media_create(), tmp_path, time.time())
+    assert d == "block" and "registro" in why, why
+
+
+def test_media_create_blocks_missing_productid(tmp_path):
+    write_media_policy(tmp_path); write_media_record(tmp_path)
+    q = 'mutation($m: [CreateMediaInput!]!){ productCreateMedia(media:$m){ media { id } } }'
+    d, why = bg.evaluate(_payload(q, {"m": [{"mediaContentType": "IMAGE", "originalSource": IMG_URL}]}), tmp_path, time.time())
+    assert d == "block", why
+
+
+def test_media_create_blocks_stale_record(tmp_path):
+    # registro fuera de la ventana (mediaRecordWindowHours=72) → block
+    write_media_policy(tmp_path); write_media_record(tmp_path, age_hours=200)
+    assert bg.evaluate(media_create(), tmp_path, time.time())[0] == "block"
