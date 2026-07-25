@@ -123,6 +123,16 @@ FORBIDDEN_MUTATIONS = {
     "publishableunpublish",
 }
 
+# Entradas de `FORBIDDEN_MUTATIONS` que se matchean por WORD-BOUNDARY en el scan
+# (no por substring), y su regex compilado. Hoy solo `productdelete`: sin el
+# boundary, `"productdelete" in "productdeletemedia"` force-bloquearía la clase
+# `media` (W4-3). El invariante `test_forbidden_not_substring_of_allowed_...`
+# exige que TODA entrada forbidden que sea substring de un root permitido esté acá
+# —si no, sería un over-block silencioso—; y este set es la fuente de verdad que
+# ese test lee. Si se suma otra entrada, darle su propio regex de boundary.
+PRODUCT_DELETE_RE = re.compile(r"\bproductdelete\b")
+WORD_BOUNDARY_FORBIDDEN = {"productdelete"}
+
 # --- Ofertas (spec §9) ------------------------------------------------------
 # Whitelist CERRADA: toda mutación `discount*` que no esté acá se bloquea.
 DISCOUNT_CREATE = {"discountautomaticbasiccreate", "discountcodebasiccreate"}
@@ -2216,7 +2226,15 @@ def _covering_media_record(backups_root, product_id: str, now: float, window_hou
 def _media_ids_from_arg(tok, variables: dict):
     """Lista de media ids del argumento `mediaIds:` (lista inline `[...]` o `$var`
     resuelto). None si no se puede leer. Para el inline, extrae los string literals
-    del `[...]` que `_top_level_args` devolvió string-aware."""
+    del `[...]` que `_top_level_args` devolvió string-aware.
+
+    Por qué acá el inline SÍ se acepta (a diferencia del `media` de create, que lo
+    prohíbe): en el delete el token se lee TAL CUAL SE EJECUTA —los ids inline son
+    exactamente los que el server va a borrar, y CADA UNO se valida contra el
+    registro—, así que no hay brecha validar-vs-ejecutar. En el create, en cambio,
+    el payload inline abriría el bypass inline+señuelo (validar `$var` manso mientras
+    el server ejecuta el inline malicioso). NO "arreglar" esta asimetría: es
+    deliberada, y unificar rompería el delete inline (el camino de la Task 2)."""
     if not isinstance(tok, str) or not tok:
         return None
     if tok.startswith("$"):
@@ -2274,7 +2292,8 @@ def _check_media_create(tool_input, backups_root, now: float):
     for item in media:
         if not isinstance(item, dict):
             return "block", "no pude leer una de las fotos."
-        if not isinstance(item.get("mediaContentType"), str) or item.get("mediaContentType").strip().upper() != "IMAGE":
+        mct = item.get("mediaContentType")
+        if not isinstance(mct, str) or mct.strip().upper() != "IMAGE":
             return "block", "solo puedo agregar imágenes (no video ni 3D)."
         if not _ok_url(item.get("originalSource")):
             return "block", "cada foto tiene que ser una URL https válida."
@@ -2294,7 +2313,11 @@ def _check_media_delete(tool_input, backups_root, now: float):
     `mediaId` de la lista tiene que estar en los ids que la herramienta AGREGÓ para
     ese producto (registro `media` post-write). Se itera TODOS (lección validate-all
     de discount/BXGY): si ALGUNO no está registrado → block. Es lo que impide borrar
-    las fotos ORIGINALES del cliente. Sin registro → block (fail-closed)."""
+    las fotos ORIGINALES del cliente. Sin registro → block (fail-closed).
+
+    `mediaIds` inline SÍ se acepta acá (ver `_media_ids_from_arg`): se lee tal cual
+    se ejecuta y cada id se valida contra el registro, sin brecha validar-vs-ejecutar
+    —a diferencia del `media` de create, que exige variable para cerrar el señuelo."""
     policy = load_media_policy(backups_root)
     if policy is None:
         return "block", "no encontré una política de fotos única (media-policy.json)."
@@ -2372,7 +2395,8 @@ def evaluate(payload: dict, backups_root, now: float):
             # sensible del guard. `productDeleteMedia` pasa por su check propio
             # (`_check_media_delete`, acotado a ids registrados). El RESTO de la
             # blocklist sigue por substring: es el cambio más chico posible acá.
-            hit = (re.search(r"\bproductdelete\b", low) if mutation == "productdelete"
+            # El regex está hoisteado (`PRODUCT_DELETE_RE`), no recompilado por vuelta.
+            hit = (PRODUCT_DELETE_RE.search(low) if mutation in WORD_BOUNDARY_FORBIDDEN
                    else mutation in low)
             if hit:
                 return "block", (f"la mutación '{mutation}' está fuera del alcance del v1 "

@@ -133,15 +133,16 @@ def test_media_plus_productupdate_blocks(tmp_path):
 
 
 def test_create_plus_delete_media_one_doc_blocks(tmp_path):
-    # el fail-open DESTRUCTIVO: productCreateMedia + productDeleteMedia(originales) en
-    # un doc. Con registro válido (para que no bloquee por eso), el corte tiene que
-    # venir de len(media_roots)!=1, si no la delete correría sin _check_media_delete.
+    # el fail-open DESTRUCTIVO: productCreateMedia + productDeleteMedia en un doc. La
+    # delete apunta a un id RECORDED (MEDIA_ID), así que PASARÍA sola — el corte tiene
+    # que venir de len(media_roots)!=1 (no de un id faltante). Se asserta el motivo de
+    # la regla len para probar la atribución, igual que test_two_deletes_in_one_doc.
     write_media_policy(tmp_path); write_media_record(tmp_path, media_ids=[MEDIA_ID])
     q = (f'mutation($m: [CreateMediaInput!]!){{ '
          f'productCreateMedia(productId:"{PID}", media:$m){{ media {{ id }} }} '
-         f'productDeleteMedia(productId:"{PID}", mediaIds:["{OTHER_MEDIA}"]){{ deletedMediaIds }} }}')
+         f'productDeleteMedia(productId:"{PID}", mediaIds:["{MEDIA_ID}"]){{ deletedMediaIds }} }}')
     d, why = bg.evaluate(_payload(q, {"m": [{"mediaContentType": "IMAGE", "originalSource": IMG_URL}]}), tmp_path, time.time())
-    assert d == "block", why
+    assert d == "block" and "por separado" in why, why
 
 
 def test_lone_media_routes_not_double_count(tmp_path):
@@ -312,4 +313,30 @@ def test_two_deletes_in_one_doc_blocks(tmp_path):
     q = (f'mutation{{ productDeleteMedia(productId:"{PID}", mediaIds:["{MEDIA_ID}"]){{ deletedMediaIds }} '
          f'b: productDeleteMedia(productId:"{PID}", mediaIds:["{OTHER_MEDIA}"]){{ deletedMediaIds }} }}')
     d, why = bg.evaluate(_payload(q), tmp_path, time.time())
-    assert d == "block", why
+    assert d == "block" and "por separado" in why, why
+
+
+def test_media_delete_decoy_variable_validates_executed_ids(tmp_path):
+    # simétrico a test_media_create_decoy_...: mediaIds:$ids referenciado; un decoy
+    # manso (id registrado) NO cambia que se validen los ids EJECUTADOS. Con $ids = un
+    # id NO registrado, bloquea aunque el decoy sea válido.
+    write_media_policy(tmp_path); write_media_record(tmp_path, media_ids=[MEDIA_ID])
+    q = f'mutation($ids: [ID!]!){{ productDeleteMedia(productId:"{PID}", mediaIds:$ids){{ deletedMediaIds }} }}'
+    variables = {"ids": [OTHER_MEDIA], "decoy": [MEDIA_ID]}
+    assert bg.evaluate(_payload(q, variables), tmp_path, time.time())[0] == "block"
+
+
+# --- M-2(b): invariante de la blocklist vs allowlist ---
+
+def test_forbidden_not_substring_of_allowed_unless_word_boundary():
+    """Invariante del guard: ninguna entrada de FORBIDDEN_MUTATIONS puede ser
+    substring de un root de ROOT_FIELD_ALLOWED (over-block silencioso / shadow de un
+    root nuevo), SALVO que esté word-boundary-special-cased (hoy productdelete vs
+    productdeletemedia). Convierte la corrección de hoy en un invariante enforced:
+    si mañana una forbidden nueva es substring de un root permitido nuevo sin su
+    boundary, este test cae."""
+    for f in bg.FORBIDDEN_MUTATIONS:
+        for a in bg.ROOT_FIELD_ALLOWED:
+            if f in a and f != a:
+                assert f in bg.WORD_BOUNDARY_FORBIDDEN, (
+                    f"'{f}' es substring de '{a}' pero no está en WORD_BOUNDARY_FORBIDDEN")
