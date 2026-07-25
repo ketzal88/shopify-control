@@ -220,3 +220,47 @@ def test_media_create_blocks_stale_record(tmp_path):
     # registro fuera de la ventana (mediaRecordWindowHours=72) → block
     write_media_policy(tmp_path); write_media_record(tmp_path, age_hours=200)
     assert bg.evaluate(media_create(), tmp_path, time.time())[0] == "block"
+
+
+# --- Task 5: _check_media_delete (por-id, iterar todos) — la parte destructiva ---
+
+def test_media_delete_allows_recorded_id(tmp_path):
+    write_media_policy(tmp_path); write_media_record(tmp_path, media_ids=[MEDIA_ID])
+    d, why = bg.evaluate(media_delete(media_ids=[MEDIA_ID]), tmp_path, time.time())
+    assert d == "allow", why
+
+
+def test_media_delete_blocks_unrecorded_id(tmp_path):
+    # borrar un id que NO está en el registro = borrar una foto ORIGINAL del cliente → block
+    write_media_policy(tmp_path); write_media_record(tmp_path, media_ids=[MEDIA_ID])
+    d, why = bg.evaluate(media_delete(media_ids=[OTHER_MEDIA]), tmp_path, time.time())
+    assert d == "block" and "registro" in why, why
+
+
+def test_media_delete_blocks_if_any_id_unrecorded(tmp_path):
+    # iterar TODOS: uno registrado + uno original NO registrado → block
+    write_media_policy(tmp_path); write_media_record(tmp_path, media_ids=[MEDIA_ID])
+    d, why = bg.evaluate(media_delete(media_ids=[MEDIA_ID, OTHER_MEDIA]), tmp_path, time.time())
+    assert d == "block", why
+
+
+def test_media_delete_blocks_without_record(tmp_path):
+    # sin registro media propio → block (motivo media-específico "registro")
+    write_media_policy(tmp_path)
+    d, why = bg.evaluate(media_delete(media_ids=[MEDIA_ID]), tmp_path, time.time())
+    assert d == "block" and "registro" in why, why
+
+
+def test_media_delete_blocks_productid_mismatch(tmp_path):
+    # registro de PID, delete sobre OTRO producto → no hay registro para ese → block
+    write_media_policy(tmp_path); write_media_record(tmp_path, product_id=PID, media_ids=[MEDIA_ID])
+    d, why = bg.evaluate(media_delete(product_id="gid://shopify/Product/2", media_ids=[MEDIA_ID]), tmp_path, time.time())
+    assert d == "block", why
+
+
+def test_media_delete_via_variable_ids_allows(tmp_path):
+    # mediaIds por $var resuelto → allow si todos están registrados
+    write_media_policy(tmp_path); write_media_record(tmp_path, media_ids=[MEDIA_ID])
+    q = f'mutation($ids: [ID!]!){{ productDeleteMedia(productId:"{PID}", mediaIds:$ids){{ deletedMediaIds }} }}'
+    d, why = bg.evaluate(_payload(q, {"ids": [MEDIA_ID]}), tmp_path, time.time())
+    assert d == "allow", why
