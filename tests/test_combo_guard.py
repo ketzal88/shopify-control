@@ -246,3 +246,56 @@ def test_combo_metafield_cross_same_product_is_blocked(tmp_path):
     policy(tmp_path, **COMBO_KEYS); write_deal_backup(tmp_path)
     d, why = bg.evaluate(combo_metafield(scope="cross", buy_pid=PID, get_pid=PID), tmp_path, time.time())
     assert d == "block", why
+
+
+# --- Task 4: anti-bypass + regresión ---
+
+def test_combo_mixed_with_metafield_blocks(tmp_path):
+    # combo discount + metafieldsSet en un doc → asuntos mixtos (ofertas + metafields) → block
+    policy(tmp_path, **COMBO_KEYS); write_deal_backup(tmp_path)
+    p = combo_create()
+    p["tool_input"]["query"] = p["tool_input"]["query"].replace(
+        "{ discountAutomaticBxgyCreate",
+        '{ metafieldsSet(metafields: [{ownerId: "gid://shopify/Product/1", namespace: "worker", '
+        'key: "deal", value: "{}", type: "json"}]) { metafields { id } } discountAutomaticBxgyCreate', 1)
+    d, why = bg.evaluate(p, tmp_path, time.time())
+    assert d == "block", why
+
+
+def test_combo_mixed_with_product_update_blocks(tmp_path):
+    policy(tmp_path, **COMBO_KEYS); write_deal_backup(tmp_path)
+    p = combo_create()
+    p["tool_input"]["query"] = p["tool_input"]["query"].replace(
+        "{ discountAutomaticBxgyCreate",
+        '{ productUpdate(input: {id: "gid://shopify/Product/1", descriptionHtml: "<p>x</p>"}) '
+        '{ product { id } } discountAutomaticBxgyCreate', 1)
+    d, why = bg.evaluate(p, tmp_path, time.time())
+    assert d == "block", why
+
+
+def test_combo_second_bxgy_decoy_in_variables_blocks(tmp_path):
+    # un segundo objeto con forma BXGY en variables → _bxgy_inputs len>1 → block
+    policy(tmp_path, **COMBO_KEYS); write_deal_backup(tmp_path)
+    p = combo_create()
+    p["tool_input"]["variables"]["decoy"] = {
+        "customerBuys": {"value": {"quantity": "1"}, "items": {"all": True}},
+        "customerGets": {"value": {"discountOnQuantity": {"quantity": "1", "effect": {"percentage": 1.0}}},
+                         "items": {"all": True}}}
+    d, why = bg.evaluate(p, tmp_path, time.time())
+    assert d == "block", why
+
+
+def test_combo_route_cannot_smuggle_free_to_nongiftable(tmp_path):
+    # el §6: un cruzado a no-giftable al 100% falla regalo (no giftable) Y combo (pct>=100) → block
+    policy(tmp_path, giftableProducts=[], maxGiftPct=100, **COMBO_KEYS); write_deal_backup(tmp_path)
+    d, why = bg.evaluate(combo_create(pct=1.0, get_pid=QID), tmp_path, time.time())
+    assert d == "block", why
+
+
+def test_combo_deactivate_is_the_undo(tmp_path):
+    # el undo del combo es un discountAutomaticDeactivate, permitido sin condiciones (§9.8)
+    p = {"tool_name": T_GQL, "tool_input": {
+        "query": 'mutation { discountAutomaticDeactivate(id: "gid://shopify/DiscountAutomaticNode/7") '
+                 '{ automaticDiscountNode { id } } }'}}
+    d, why = bg.evaluate(p, tmp_path, time.time())
+    assert d == "allow", why
