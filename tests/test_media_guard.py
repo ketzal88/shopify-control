@@ -80,3 +80,19 @@ def test_blunua_media_policy_exists():
     assert pol.get("allowMedia") is True
     assert isinstance(pol.get("maxImagesPerCall"), int) and not isinstance(pol.get("maxImagesPerCall"), bool)
     assert isinstance(pol.get("mediaRecordWindowHours"), int) and not isinstance(pol.get("mediaRecordWindowHours"), bool)
+
+
+# --- Task 2: productdelete word-boundary (no atrapa productdeletemedia) ---
+
+def test_productdelete_still_blocked():
+    # productDelete solo SIGUE force-bloqueado por FORBIDDEN (el `(` es boundary)
+    d, why = bg.evaluate(_payload('mutation{ productDelete(input:{id:"gid://shopify/Product/1"}){ deletedProductId } }'), root, now)
+    assert d == "block" and "borra" in why.lower()
+
+
+def test_productdeletemedia_no_longer_forbidden_matched():
+    # productDeleteMedia YA NO lo agarra el scan de FORBIDDEN (word-boundary). Sigue
+    # bloqueando (no está en ROOT_FIELD_ALLOWED hasta Task 3), pero por la ALLOWLIST,
+    # NO por FORBIDDEN — se verifica que el motivo no sea el de FORBIDDEN.
+    d, why = bg.evaluate(_payload('mutation{ productDeleteMedia(productId:"gid://shopify/Product/1", mediaIds:["gid://shopify/MediaImage/9"]){ deletedMediaIds } }'), root, now)
+    assert d == "block" and ("publicación o borra" not in why.lower())

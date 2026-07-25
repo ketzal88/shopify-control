@@ -2195,7 +2195,17 @@ def evaluate(payload: dict, backups_root, now: float):
         # 1. La blocklist general SIEMPRE primero: si está en el documento
         #    bloquea, venga acompañada de lo que venga.
         for mutation in FORBIDDEN_MUTATIONS:
-            if mutation in low:
+            # `productdelete` se matchea por WORD-BOUNDARY, no por substring (W4-3):
+            # `productDelete(` bloquea (el `(` es boundary) pero `productDeleteMedia`
+            # NO (`m` es word-char, sin boundary). Con substring, `"productdelete" in
+            # "productdeletemedia"` force-bloqueaba el undo de la clase media —el
+            # delete nunca andaría—, y reabrirlo obliga a tocar esta línea, la más
+            # sensible del guard. `productDeleteMedia` pasa por su check propio
+            # (`_check_media_delete`, acotado a ids registrados). El RESTO de la
+            # blocklist sigue por substring: es el cambio más chico posible acá.
+            hit = (re.search(r"\bproductdelete\b", low) if mutation == "productdelete"
+                   else mutation in low)
+            if hit:
                 return "block", (f"la mutación '{mutation}' está fuera del alcance del v1 "
                                  "(toca precio, stock, status, publicación o borra).")
 
