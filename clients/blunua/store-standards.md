@@ -83,9 +83,10 @@
   - `generate_image` con la foto real como referencia es el camino de **mayor drift** (riesgo de alejarse del producto): evitarlo salvo necesidad, y siempre con el antes/después a la vista del cliente en el gate.
 
 ## 8. Qué no tocar (alcance seguro) [ESTABLE]
-- Los skills tocan dos field sets, cada uno con su guardrail:
+- Los skills tocan estos field sets, cada uno con su guardrail:
   - **Texto:** descripción (`descriptionHtml`, vía `update-product`) + SEO (`seo.title`/`seo.description`, vía `graphql_mutation`).
   - **Ofertas:** escalones por cantidad — descuentos nativos + metafield `worker.deal`, con el techo de §11.
+  - **Imágenes (media):** adjuntar imágenes **realzadas de la foto real** de un producto existente (`productCreateMedia`, solo IMAGE) + su undo (`productDeleteMedia`, solo los ids que la herramienta agregó — nunca las fotos originales), con techo/registro de `media-policy.json` (ver §7 para la plantilla de marca).
 - NUNCA precio de lista, stock, status ni handle/URL.
 - Star products: colección general, NUA, NEXO (cuidado extra).
 

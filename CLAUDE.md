@@ -45,6 +45,10 @@ contra `clients/{slug}/connection.md`). Si no coinciden, se aborta.
      (`maxGiftPct`/`maxGetQty`/`minBuyGetRatio` + allowlist de regalables), ver
      `docs/superpowers/specs/2026-07-22-regalo-gratis-bxgy-design.md`.
    - **Estilo del widget:** metafield `worker.style` (cosmético, sin techo, validación de set cerrado).
+   - **Imágenes (media):** adjuntar imágenes REALZADAS de la foto real de un producto existente
+     (`productCreateMedia`, **solo IMAGE**) + su undo (`productDeleteMedia`, acotado a los media ids
+     que la herramienta agregó — nunca borra las fotos originales del cliente), con techo/registro
+     por `media-policy.json`; ver `docs/superpowers/specs/2026-07-24-imagenes-realce-design.md`.
    - NUNCA precio de lista, stock, status, tags, título ni handle/URL.
    **Esto está enforced por diseño, no por prosa:** `permissions.deny` en `settings.json` bloquea
    los tools fuera de alcance (`set-inventory`, `create-product`, `create-collection`,
