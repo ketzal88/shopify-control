@@ -11,7 +11,7 @@
 **Spec:** `docs/superpowers/specs/2026-07-24-imagenes-realce-design.md` §5. Reusa patrones de W3 F2/F3 (router §7.0.1, registro post-write kind:create, `_top_level_args`).
 
 ## Contexto del guard (leer antes de tocar)
-- El scan de `FORBIDDEN_MUTATIONS` (líneas ~1992-1995): `for m in FORBIDDEN_MUTATIONS: if m in low` (substring). `productdelete` ⊂ `productdeletemedia`.
+- El scan de `FORBIDDEN_MUTATIONS` (líneas ~2160-2163): `for m in FORBIDDEN_MUTATIONS: if m in low` (substring). `productdelete` ⊂ `productdeletemedia`.
 - El router de producto (W3 §7.0.1): `product_roots`, `create_or_status`, `len(product_roots)==1`, dispatch por nombre.
 - `_top_level_args`/`_productid_arg` (string-aware, por clave). `_covering_create_record` (kind+ruta+ventana en horas, dos fases post-write). `load_create_policy` (excluye `_template`).
 
@@ -40,14 +40,17 @@ def test_productdelete_still_blocked():
     # productDelete solo sigue force-bloqueado por FORBIDDEN
     assert bg.evaluate(_payload('mutation{ productDelete(input:{id:"gid://shopify/Product/1"}){ deletedProductId } }'), root, now)[0] == "block"
 
-def test_productdeletemedia_not_forcedblocked_by_forbidden():
-    # productDeleteMedia YA NO lo agarra el scan de FORBIDDEN (pasa a la clase media;
-    # sin registro va a bloquear igual, pero por _check_media_delete, no por FORBIDDEN)
+def test_productdeletemedia_no_longer_forbidden_matched():
+    # En Task 2 (SOLO el word-boundary, sin Tasks 3-5): productDeleteMedia YA NO lo agarra
+    # el scan de FORBIDDEN. Sigue bloqueando (no está en ROOT_FIELD_ALLOWED hasta Task 3),
+    # pero por la ALLOWLIST, no por FORBIDDEN. Se verifica que el motivo NO sea el de
+    # FORBIDDEN (que termina en "...publicación o borra."). El motivo media-específico
+    # ("sacá"/"registro") se testea en Task 5, cuando exista _check_media_delete.
     d, why = bg.evaluate(_payload('mutation{ productDeleteMedia(productId:"gid://shopify/Product/1", mediaIds:["gid://shopify/MediaImage/9"]){ deletedMediaIds } }'), root, now)
-    assert d == "block" and "sacá" in why.lower() or "registr" in why.lower()   # bloquea por media, no por "fuera de alcance"
+    assert d == "block" and ("publicación o borra" not in why.lower())   # cayó a la allowlist, no a FORBIDDEN
 ```
 
-- [ ] **Impl:** word-boundary para `productdelete`. Correr TODA la suite de guard (los tests de FORBIDDEN deben seguir verdes).
+- [ ] **Impl (opción A, mínima):** special-casear `productdelete` con match **word-boundary** (`\bproductdelete\b`), dejando los DEMÁS entries de `FORBIDDEN_MUTATIONS` como substring — el cambio más chico a la línea más sensible. (Opción B —todo word-boundary— también es segura porque cualquier superstring des-bloqueado igual lo agarra la allowlist; si se toma, decirlo explícito.) Correr TODA la suite de guard (los tests de FORBIDDEN deben seguir verdes).
 - [ ] **Commit** → `feat(w4): productdelete match por word-boundary (no atrapa productdeletemedia) (W4-3)`
 
 ---
@@ -89,7 +92,7 @@ def test_lone_media_routes_not_double_count():        # productCreateMedia solo 
 
 Spec §5.4/§5.5: `productDeleteMedia(productId, mediaIds:[ID!])`. `productId` por clave string-aware; **cada `mediaId`** de la lista tiene que estar en los ids que la herramienta creó para ese producto (registro `media` post-write, §5.5); **iterar TODOS** — si alguno no está registrado → block. Sin registro → block. Es lo que impide borrar las fotos originales del cliente.
 
-- [ ] **Tests:** allow borrar un id registrado; **block si algún id de la lista NO está registrado** (borrar original montado en uno propio); block sin registro; block productId mismatch.
+- [ ] **Tests:** allow borrar un id registrado; **block si algún id de la lista NO está registrado** (borrar original montado en uno propio); block sin registro (acá SÍ asertar el motivo media-específico "sacá"/"registro" — el que se movió de Task 2, ahora que `_check_media_delete` existe); block productId mismatch.
 - [ ] **Impl** `_check_media_delete` (matchea contra los ids del registro post-write).
 - [ ] **Commit** → `feat(w4): _check_media_delete acotado a ids registrados (undo), iterando todos (W4-3)`
 
