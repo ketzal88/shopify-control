@@ -158,8 +158,13 @@ DISCOUNT_BXGY = {"discountautomaticbxgycreate"}
 # collection ni es metafieldsset, así que ADEMÁS se clasifican explícitamente en el
 # contador de `asuntos` de `evaluate` (si no, se colarían como vehículo/señuelo de
 # otra mutación — la clase de bug HIGH del review de BXGY).
+# `productcreatemedia`/`productdeletemedia` (W4-3, clase `media`): adjuntar una foto
+# realzada a un producto existente y su undo. EMPIEZAN con `product`, así que el
+# router los SACA del bucket `product_roots` y les da un asunto `media` propio (ver
+# `evaluate`). Van en su propio set para clasificarlos por nombre.
+MEDIA_WRITE = {"productcreatemedia", "productdeletemedia"}
 ROOT_FIELD_ALLOWED = (PRODUCT_WRITE_ALLOWED | DISCOUNT_CREATE | DISCOUNT_BXGY
-                      | DISCOUNT_DEACTIVATE
+                      | DISCOUNT_DEACTIVATE | MEDIA_WRITE
                       | {"metafieldsset", "stageduploadscreate", "publishablepublish"})
 
 # --- Alta de producto (W3 F2, spec §7.0/§7.1) -------------------------------
@@ -2165,6 +2170,170 @@ def _check_publish(tool_input, backups_root, now: float):
     return "allow", "ok"
 
 
+def _covering_media_record(backups_root, product_id: str, now: float, window_hours):
+    """(ok, why, media_ids). Registro de MEDIA (`kind:"media"`, ruta `backups/media/`)
+    de W4-3, en DOS FASES (los media ids solo existen DESPUÉS de crear):
+    - pre-write: `productId` (habilita adjuntar + marca el punto de undo).
+    - post-write: el skill suma los `mediaIds` que devolvió `productCreateMedia`.
+
+    Espejo de `_covering_create_record`: discrimina por ruta Y `kind`, frescura
+    DOBLE (mtime + ts), ventana en horas (`mediaRecordWindowHours`), y el guard de
+    colisión multi-cliente. Devuelve además la UNIÓN de los `mediaIds` registrados
+    frescos, contra los que `_check_media_delete` valida CADA id a borrar (así solo
+    se borran fotos que la herramienta agregó, nunca las originales del cliente)."""
+    tail = product_id.split("/")[-1]
+    window_s = float(window_hours) * 3600
+    hits = []
+    media_ids = set()
+    for p in Path(backups_root).glob(f"**/backups/media/{tail}-*.json"):
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if data.get("kind") != "media":
+            continue
+        if data.get("productId") != product_id:
+            continue
+        if now - p.stat().st_mtime > window_s:
+            continue
+        if not _ts_fresh_window(data, now, window_s):
+            continue
+        hits.append(p)
+        ids = data.get("mediaIds")
+        if isinstance(ids, list):
+            media_ids |= {x for x in ids if isinstance(x, str)}
+
+    if not hits:
+        return False, ("solo puedo tocar las fotos que agregué recién, y no encuentro "
+                       "su registro reciente."), set()
+    clientes = {c for c in (_client_of(p) for p in hits) if c}
+    if len(clientes) > 1:
+        return False, (f"hay registros de fotos de {sorted(clientes)} para el mismo id de "
+                       "producto. Los ids de Shopify son por tienda, no sé cuál corresponde."), set()
+    return True, None, media_ids
+
+
+def _media_ids_from_arg(tok, variables: dict):
+    """Lista de media ids del argumento `mediaIds:` (lista inline `[...]` o `$var`
+    resuelto). None si no se puede leer. Para el inline, extrae los string literals
+    del `[...]` que `_top_level_args` devolvió string-aware."""
+    if not isinstance(tok, str) or not tok:
+        return None
+    if tok.startswith("$"):
+        v = variables.get(tok[1:])
+        return v if isinstance(v, list) else None
+    if tok.startswith("["):
+        return re.findall(r'"((?:[^"\\]|\\.)*)"', tok)
+    return None
+
+
+def _check_media_create(tool_input, backups_root, now: float):
+    """`productCreateMedia(productId, media: [CreateMediaInput!])` — adjuntar una
+    foto realzada a un producto existente (W4-3, spec §5.3). `CreateMediaInput =
+    {alt, mediaContentType, originalSource}` (sin campo peligroso). Fail-closed:
+    `allowMedia`; un solo `productCreateMedia`; `media` por VARIABLE (inline `[`
+    bloquea, espejo de F2); cada item `mediaContentType == IMAGE` (VIDEO/3D
+    bloquean); `originalSource` https/staged (`_ok_url`); `≤ maxImagesPerCall`;
+    `productId` por CLAVE string-aware, único; registro `kind:"media"` pre-write."""
+    policy = load_media_policy(backups_root)
+    if policy is None:
+        return "block", ("no encontré una política de fotos única (media-policy.json). "
+                         "Sin ella no puedo adjuntar fotos.")
+    ceils = _media_ceilings(policy)
+    if ceils is None:
+        return "block", "adjuntar fotos no está habilitado para este cliente."
+    max_images, window = ceils
+
+    query = _query_text(tool_input)
+    clean = re.sub(r"#[^\n]*", " ", query or "")
+    calls = list(re.finditer(r"\bproductcreatemedia\s*\(", clean, re.I))
+    if len(calls) != 1:
+        return "block", "solo puedo adjuntar fotos de a una operación por pedido."
+    args = _call_args(clean, calls[0].end() - 1)
+    if args is None:
+        return "block", "no pude leer la operación de adjuntar la foto."
+    variables = (tool_input or {}).get("variables") if isinstance(tool_input, dict) else None
+    variables = variables if isinstance(variables, dict) else {}
+    top = _top_level_args(args)
+
+    # `media` tiene que venir por variable (no inline: un `[...]` inline con un $var
+    # manso de señuelo colaría el inline, igual que el create de F2).
+    media_tok = top.get("media")
+    if not isinstance(media_tok, str) or not media_tok:
+        return "block", "no pude leer qué fotos se agregan. Tienen que ir en `variables`."
+    if media_tok.startswith("["):
+        return "block", ("las fotos tienen que ir en `variables`, no escritas dentro del pedido.")
+    if not media_tok.startswith("$"):
+        return "block", "no pude leer qué fotos se agregan."
+    media = variables.get(media_tok[1:])
+    if not isinstance(media, list) or not media:
+        return "block", "no encontré ninguna foto para agregar."
+    if len(media) > max_images:
+        return "block", f"puedo agregar hasta {max_images} fotos por vez, y me pediste {len(media)}."
+
+    for item in media:
+        if not isinstance(item, dict):
+            return "block", "no pude leer una de las fotos."
+        if not isinstance(item.get("mediaContentType"), str) or item.get("mediaContentType").strip().upper() != "IMAGE":
+            return "block", "solo puedo agregar imágenes (no video ni 3D)."
+        if not _ok_url(item.get("originalSource")):
+            return "block", "cada foto tiene que ser una URL https válida."
+
+    product_id = _resolve_token(top.get("productid"), variables)
+    if not (isinstance(product_id, str) and PRODUCT_GID_RE.match(product_id.strip())):
+        return "block", "no pude identificar a qué producto se le agrega la foto."
+    product_id = product_id.strip()
+
+    ok, why, _ = _covering_media_record(backups_root, product_id, now, window)
+    return ("allow", "ok") if ok else ("block", why)
+
+
+def _check_media_delete(tool_input, backups_root, now: float):
+    """`productDeleteMedia(productId, mediaIds: [ID!])` — el UNDO, la parte
+    destructiva (W4-3, spec §5.4). `productId` por CLAVE string-aware; CADA
+    `mediaId` de la lista tiene que estar en los ids que la herramienta AGREGÓ para
+    ese producto (registro `media` post-write). Se itera TODOS (lección validate-all
+    de discount/BXGY): si ALGUNO no está registrado → block. Es lo que impide borrar
+    las fotos ORIGINALES del cliente. Sin registro → block (fail-closed)."""
+    policy = load_media_policy(backups_root)
+    if policy is None:
+        return "block", "no encontré una política de fotos única (media-policy.json)."
+    ceils = _media_ceilings(policy)
+    if ceils is None:
+        return "block", "tocar las fotos no está habilitado para este cliente."
+    _, window = ceils
+
+    query = _query_text(tool_input)
+    clean = re.sub(r"#[^\n]*", " ", query or "")
+    calls = list(re.finditer(r"\bproductdeletemedia\s*\(", clean, re.I))
+    if len(calls) != 1:
+        return "block", "solo puedo sacar fotos de a una operación por pedido."
+    args = _call_args(clean, calls[0].end() - 1)
+    if args is None:
+        return "block", "no pude leer la operación de sacar la foto."
+    variables = (tool_input or {}).get("variables") if isinstance(tool_input, dict) else None
+    variables = variables if isinstance(variables, dict) else {}
+    top = _top_level_args(args)
+
+    product_id = _resolve_token(top.get("productid"), variables)
+    if not (isinstance(product_id, str) and PRODUCT_GID_RE.match(product_id.strip())):
+        return "block", "no pude identificar de qué producto se saca la foto."
+    product_id = product_id.strip()
+
+    ids = _media_ids_from_arg(top.get("mediaids"), variables)
+    if not ids:
+        return "block", "no identifiqué qué fotos sacar."
+
+    ok, why, recorded = _covering_media_record(backups_root, product_id, now, window)
+    if not ok:
+        return "block", why
+    for mid in ids:
+        if not isinstance(mid, str) or mid.strip() not in recorded:
+            return "block", ("solo puedo sacar las fotos que agregué yo; esa no está en mi "
+                             "registro, así que no la toco (podría ser una foto original tuya).")
+    return "allow", "ok"
+
+
 def evaluate(payload: dict, backups_root, now: float):
     tool_name = payload.get("tool_name", "")
     tool_input = payload.get("tool_input")
@@ -2259,9 +2428,15 @@ def evaluate(payload: dict, backups_root, now: float):
         # escalones por igual (los dos usan este router). El defecto era mantener
         # dos formas de leer el documento y confiar la decisión final a la débil.
         discount_roots = [r for r in roots if r.startswith("discount")]
-        product_roots = [r for r in roots if r.startswith("product")]
+        # Media (W4-3) EMPIEZA con `product`, así que se EXCLUYE del bucket
+        # `product_roots` para darle su propio asunto: si contara como "cambios de
+        # producto", un `productCreateMedia` solo doble-contaría (o se camuflaría con
+        # un `productUpdate` sin que el contador lo separe).
+        media_roots = [r for r in roots if r in MEDIA_WRITE]
+        product_roots = [r for r in roots if r.startswith("product") and r not in MEDIA_WRITE]
         collection_roots = [r for r in roots if r.startswith("collection")]
         has_metafield = "metafieldsset" in roots
+        has_media = bool(media_roots)
         # `stageduploadscreate` NO empieza con product/discount/collection ni es
         # metafieldsset, así que NINGUNA de las familias de arriba lo clasifica.
         # Hay que contarlo como asunto propio a mano: si no, se colaría en un
@@ -2290,6 +2465,8 @@ def evaluate(payload: dict, backups_root, now: float):
             asuntos.append("staged-upload")
         if has_publish:
             asuntos.append("publicación")
+        if has_media:
+            asuntos.append("media")
         if len(asuntos) > 1:
             return "block", (f"esta operación mezcla {' y '.join(asuntos)} en un mismo pedido "
                              "y no puedo verificar las dos cosas juntas. Mandalas por separado.")
@@ -2318,6 +2495,21 @@ def evaluate(payload: dict, backups_root, now: float):
         # check propio, ya garantizado como único asunto por el contador de arriba.
         if has_publish:
             return _check_publish(tool_input, backups_root, now)
+
+        # Media (W4-3): rutear por NOMBRE, ANTES de la rama de producto. Se exige
+        # `len(media_roots) == 1` — el asunto único "media" NO separa create de
+        # delete entre sí (regla len==1 de W3 §7.0.1): sin esto,
+        # `productCreateMedia(P) + productDeleteMedia(P, originales)` correría la
+        # delete SIN `_check_media_delete`, borrando las fotos originales del cliente
+        # montada en un create válido. Los checks per-mutación ("un solo X por doc")
+        # no lo agarran: cada uno solo cuenta lo suyo.
+        if has_media:
+            if len(media_roots) != 1:
+                return "block", ("solo puedo hacer una operación de fotos por pedido "
+                                 "(agregar y sacar van por separado).")
+            if media_roots[0] == "productcreatemedia":
+                return _check_media_create(tool_input, backups_root, now)
+            return _check_media_delete(tool_input, backups_root, now)
 
         # Familia de producto: whitelist CERRADA, desde `roots`. Tras el gate de
         # `desconocidas` el único root de producto posible es `productupdate`, así

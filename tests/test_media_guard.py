@@ -96,3 +96,57 @@ def test_productdeletemedia_no_longer_forbidden_matched():
     # NO por FORBIDDEN — se verifica que el motivo no sea el de FORBIDDEN.
     d, why = bg.evaluate(_payload('mutation{ productDeleteMedia(productId:"gid://shopify/Product/1", mediaIds:["gid://shopify/MediaImage/9"]){ deletedMediaIds } }'), root, now)
     assert d == "block" and ("publicación o borra" not in why.lower())
+
+
+# --- helpers de media create/delete (para Tasks 3-6) ---
+
+def media_create(product_id=PID, media=None, media_var="m", inline_media=None):
+    """productCreateMedia con `media` por variable (o inline si inline_media)."""
+    if inline_media is not None:
+        q = (f'mutation{{ productCreateMedia(productId:"{product_id}", media:{inline_media}){{ '
+             f'media {{ id }} mediaUserErrors {{ message }} }} }}')
+        return _payload(q)
+    media = media if media is not None else [{"mediaContentType": "IMAGE", "originalSource": IMG_URL, "alt": "foto"}]
+    q = (f'mutation(${media_var}: [CreateMediaInput!]!){{ '
+         f'productCreateMedia(productId:"{product_id}", media:${media_var}){{ media {{ id }} mediaUserErrors {{ message }} }} }}')
+    return _payload(q, {media_var: media})
+
+
+def media_delete(product_id=PID, media_ids=None):
+    ids = media_ids if media_ids is not None else [MEDIA_ID]
+    ids_str = ", ".join(f'"{i}"' for i in ids)
+    q = f'mutation{{ productDeleteMedia(productId:"{product_id}", mediaIds:[{ids_str}]){{ deletedMediaIds }} }}'
+    return _payload(q)
+
+
+# --- Task 3: router — media por nombre, asunto propio, len(media_roots)==1 ---
+
+def test_media_plus_productupdate_blocks(tmp_path):
+    # productCreateMedia + productUpdate(desc) → block por asuntos (len 2): media NO
+    # se cuenta como "cambios de producto", tiene su propio asunto.
+    write_media_policy(tmp_path); write_media_record(tmp_path)
+    q = (f'mutation($m: [CreateMediaInput!]!){{ '
+         f'productCreateMedia(productId:"{PID}", media:$m){{ media {{ id }} }} '
+         f'productUpdate(input:{{id:"{PID}", descriptionHtml:"<p>x</p>"}}){{ product {{ id }} }} }}')
+    d, why = bg.evaluate(_payload(q, {"m": [{"mediaContentType": "IMAGE", "originalSource": IMG_URL}]}), tmp_path, time.time())
+    assert d == "block" and "mezcla" in why, why
+
+
+def test_create_plus_delete_media_one_doc_blocks(tmp_path):
+    # el fail-open DESTRUCTIVO: productCreateMedia + productDeleteMedia(originales) en
+    # un doc. Con registro válido (para que no bloquee por eso), el corte tiene que
+    # venir de len(media_roots)!=1, si no la delete correría sin _check_media_delete.
+    write_media_policy(tmp_path); write_media_record(tmp_path, media_ids=[MEDIA_ID])
+    q = (f'mutation($m: [CreateMediaInput!]!){{ '
+         f'productCreateMedia(productId:"{PID}", media:$m){{ media {{ id }} }} '
+         f'productDeleteMedia(productId:"{PID}", mediaIds:["{OTHER_MEDIA}"]){{ deletedMediaIds }} }}')
+    d, why = bg.evaluate(_payload(q, {"m": [{"mediaContentType": "IMAGE", "originalSource": IMG_URL}]}), tmp_path, time.time())
+    assert d == "block", why
+
+
+def test_lone_media_routes_not_double_count(tmp_path):
+    # productCreateMedia solo → NO muere fail-closed por doble-conteo: rutea a su
+    # check (que bloquea por falta de registro, NO por "mezcla").
+    write_media_policy(tmp_path)   # sin registro media
+    d, why = bg.evaluate(media_create(), tmp_path, time.time())
+    assert d == "block" and "registro" in why and "mezcla" not in why, why
