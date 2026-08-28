@@ -4,6 +4,29 @@ Append-only. Cada write deja una entrada: `## YYYY-MM-DD [write] producto — ba
 
 <!-- nuevas entradas arriba -->
 
+## 2026-08-28 [write] Fase 1, categoría Aretes — tanda 4 (18 fichas), backups 20260828-170924
+Mismo alcance reducido que la tanda 3: solo título y descripción SEO, sin tocar la
+descripción visible ni agregar preguntas frecuentes. Tomó las 18 fichas de Aretes con el
+título y/o la descripción SEO más largos del catálogo (títulos de 65 a 75 caracteres,
+descripciones de 169 a 263). Backup de cada producto en
+`clients/blunua/backups/{id}-20260828-170924.json`.
+
+- **Fichas:** Topitos Heart-O (9328463348033), Topitos Halo (9733833032001), Aretes Purity
+  (9863459733825), Candongas Corazón Bold (9908750647617), Aretes Bodena (9805307838785),
+  Topitos de Seguridad Orión (9733832933697), Aretes Mini Love (10000335012161), Topitos de
+  Seguridad Triple (9328461250881), Candongas Cloud (9766682132801), Candongas Almond
+  (9656309907777), Candongas Perla Rosa (9850279625025), Topitos de Seguridad Circle Mini
+  (9328460726593), Candongas Destiny (9766682362177), Candongas Plum (9766684590401), Topitos
+  Amatista Square (10323713950017), Aretes Seren (10169211879745), Arete Solitario Shine
+  (10057720856897), Candongas Ether (8867943547201).
+- **Qué se escribió:** título SEO (46-60 caracteres, antes 55-75) y descripción SEO (128-144
+  caracteres, antes 169-263) en las 18. La descripción visible no cambió en ninguna.
+- **Hallazgo anotado, no corregido (fuera de alcance de esta tanda):** Candongas Corazón Bold y
+  Candongas Destiny dicen "acero inoxidable" en su descripción visible en vez de "acero
+  quirúrgico". El SEO nuevo usa el material correcto de marca; la descripción visible queda
+  pendiente para la tanda que toque body (mismo caso que Aretes Deep Sea en la tanda 3).
+- **Verificado:** las 18 mutaciones devolvieron `userErrors: []`, sin errores.
+
 ## 2026-08-28 [write] Fase 1, categoría Aretes — tanda 3 (11 fichas), backups 20260828-170444
 Primera tanda con alcance reducido a pedido del cliente: **solo campos SEO** (título y
 descripción SEO), sin tocar la descripción visible ni agregar preguntas frecuentes — eso
