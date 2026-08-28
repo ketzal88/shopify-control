@@ -4,6 +4,28 @@ Append-only. Cada write deja una entrada: `## YYYY-MM-DD [write] producto — ba
 
 <!-- nuevas entradas arriba -->
 
+## 2026-08-28 [write] Fase 1, categoría Aretes — tanda 5 (20 fichas), backups 20260828-171708
+Mismo alcance que tandas 3 y 4: solo título y descripción SEO, sin tocar la descripción visible
+ni agregar preguntas frecuentes. Tomó las 20 fichas de Aretes con el título y/o la descripción
+SEO más largos que quedaban (títulos de 67 a 76 caracteres, descripciones de 152 a 176). Backup
+de cada producto en `clients/blunua/backups/{id}-20260828-171708.json`.
+
+- **Fichas:** Topitos de Seguridad Iris (10042071023937), Candongas Deep (8867943055681),
+  Topitos Crystal Round (10323711689025), Solitario Candonga Spike (8867942891841), Aretes
+  Little Round (9908368310593), Candongas Swing Mini (9656310038849), Candongas Long Heart
+  (9328462397761), Topitos Puntico (10057120973121), Aretes Estrellita Nieve (10034644058433),
+  Aretes Grand L (9589561393473), Topitos de Seguridad Púrpura (10323790528833), Aretes Praia
+  Blanc (10169213157697), Candongas Hollow (9908368834881), Candongas Eco (9908368703809),
+  Topitos de Seguridad Ópalo (9766681936193), Aretes Drip (9686845915457), Topitos Star Shine
+  for Kids (9097951641921), Candongas Aura (8798243684673), Topitos de Seguridad Dot
+  (6830851915881), Topitos Flowers White (10323712016705).
+- **Qué se escribió:** título SEO (45-57 caracteres, antes 58-76) y descripción SEO (123-150
+  caracteres, antes 152-176) en las 20. La descripción visible no cambió en ninguna.
+- **2 correcciones de nombre encontradas al leer el texto completo:** el SEO de "Aretes Drip"
+  decía "Candongas Drip" (producto equivocado); el de "Topitos Flowers White" decía "Topitos
+  Floral White Kids". Ambos corregidos al nombre real del producto.
+- **Verificado:** las 20 mutaciones devolvieron `userErrors: []`, sin errores.
+
 ## 2026-08-28 [write] Fase 1, categoría Aretes — tanda 4 (18 fichas), backups 20260828-170924
 Mismo alcance reducido que la tanda 3: solo título y descripción SEO, sin tocar la
 descripción visible ni agregar preguntas frecuentes. Tomó las 18 fichas de Aretes con el
