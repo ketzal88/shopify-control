@@ -4,6 +4,30 @@ Append-only. Cada write deja una entrada: `## YYYY-MM-DD [write] producto — ba
 
 <!-- nuevas entradas arriba -->
 
+## 2026-08-28 [write] Fase 1, categoría Aretes — tanda 3 (11 fichas), backups 20260828-170444
+Primera tanda con alcance reducido a pedido del cliente: **solo campos SEO** (título y
+descripción SEO), sin tocar la descripción visible ni agregar preguntas frecuentes — eso
+queda para otra tanda. Tomó las 11 fichas de Aretes que no tenían nada de SEO cargado (10 sin
+título ni descripción, 1 con solo título). Backup de cada producto en
+`clients/blunua/backups/{id}-20260828-170444.json`.
+
+- **Fichas:** Topitos Cycle (10058568630593), Candongas Venus (9766683476289), Candongas Ball
+  (9686874030401), Aretes Deep Sea (8869331763521), Candongas Starfish (8867944530241), Topitos
+  de Seguridad Spike XS (8867943186753), Topitos de Seguridad Spike (8867943153985), Topitos
+  Starfish (8867943088449), Topitos de Seguridad Cruz (8047943778625), Topitos de Seguridad
+  Corazoncito (8043223187777), Topitos Corazón Definido (1653938520162).
+- **Qué se escribió:** título SEO (bajo 60 caracteres) y descripción SEO (bajo 150) en las 11.
+  La descripción visible (`descriptionHtml`) no cambió en ninguna.
+- **Corrección de estándar previa a esta tanda:** Gabriel confirmó que los productos dorados y
+  rosados sí llevan un baño de oro de 14K/18K real, así que "baño de oro" dejó de ser vocabulario
+  prohibido para esos casos (ver actualización en `store-standards.md §2`, commit `86cd723`).
+  5 de estas 11 fichas mencionan el baño de oro en su SEO nuevo porque el producto lo tiene.
+- **Hallazgo anotado, no corregido (fuera de alcance de esta tanda):** "Aretes Deep Sea" dice
+  "acero inoxidable" en su descripción visible en vez de "acero quirúrgico" (material de marca).
+  El SEO nuevo usa el material correcto; la descripción visible queda pendiente para la tanda que
+  toque body.
+- **Verificado:** las 11 mutaciones devolvieron `userErrors: []`, sin errores.
+
 ## 2026-08-28 [write] Fase 1, categoría Aretes — tanda 2 (15 fichas), backups 20260828-120420
 Segunda tanda dentro de Aretes. A diferencia de la tanda 1 (que atacaba fichas sin SEO), esta
 tomó las 15 fichas con el título SEO más largo del catálogo (77 a 86 caracteres, se cortaban en
