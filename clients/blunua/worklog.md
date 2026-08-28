@@ -4,6 +4,47 @@ Append-only. Cada write deja una entrada: `## YYYY-MM-DD [write] producto — ba
 
 <!-- nuevas entradas arriba -->
 
+## 2026-08-28 [write] Fase 0 del repaso SEO/GEO — 11 fichas, backups 20260828-110957
+Después de un repaso completo de las 710 fichas (título/descripción SEO en todo el catálogo +
+lectura profunda de 32 productos) se armó una lista de correcciones puntuales (bugs, no mejoras
+de fondo) y se aplicaron con el OK del cliente. Backup de cada producto en
+`clients/blunua/backups/{id}-20260828-110957.json` (los 3 campos, previo a escribir).
+
+- **SEO cruzado/equivocado corregido (7 fichas, solo SEO):**
+  - Collar Origen ID F (`9686848602433`): título/descripción decían "letra N" — corregido a "letra F".
+  - Collar Paua (`10172893200705`): tenía la descripción SEO de Candongas Mare (hablaba de aros y
+    piedra Jade) — reescrita para el propio producto.
+  - Collar Duo Fer (`10323710673217`): tenía la descripción de Collar Fer (no mencionaba la cadena
+    doble) — reescrita.
+  - Tobillera Figaro (`10323712278849`): la descripción SEO decía "Pulsera Figaro" — corregida a
+    tobillera.
+- **Sin título SEO + descripción genérica compartida entre pareja (4 fichas, solo SEO):**
+  Topitos Amapola (`10211817750849`), Topitos Flora (`10211818144065`), Pulsera Amapola
+  (`10211817947457`), Pulsera Flora (`10211818078529`) — cada una recibió título y descripción
+  SEO propios (antes compartían el mismo texto genérico y no tenían título).
+- **Vocabulario de marca (2 fichas):**
+  - Collar Mega (`9686853157185`): la descripción SEO nombraba "plata" como material — pasó a
+    "tono plateado"; "acero inoxidable" → "acero quirúrgico" (consistencia de término). Solo SEO.
+  - Pulsera Unicornio (`8867944005953`): "mágico"/"magia" aparecía 3 veces (título SEO,
+    descripción SEO y 2 veces en la ficha visible) — se sacó en las 3. Aprovechando el toque, la
+    ficha visible pasó de "materiales resistentes y cómodos" (vago) a nombrar el material real
+    (acero quirúrgico hipoalergénico, resistente al agua). Descripción + SEO.
+- **Nombre equivocado en la ficha visible (1 ficha):** Aretes Sutil (`9805307740481`) se llamaba
+  a sí mismo "Candongas Sutil" dos veces en el texto — corregido a "Aretes Sutil", con el ajuste
+  de género correspondiente (Fabricados/hipoalergénicos, no Fabricadas/hipoalergénicas).
+  Descripción + SEO.
+- **Qué NO se tocó:** Collar Origen ID N, Candongas Mare, Collar Fer y Pulsera Figaro — su propio
+  texto ya estaba bien, el error estaba solo en la ficha "pareja". Tampoco se tocó la reseña de
+  clienta en Candongas Imponente (usa "espectacular"): decisión explícita del cliente de no editar
+  opiniones de clientes reales, aunque la palabra esté en la lista de vocabulario prohibido de
+  marca — la regla aplica a la voz de la marca, no a citas textuales de terceros.
+- **Qué NO cambió:** precio, stock, status, tags, handle — ningún write tocó esos campos (fuera
+  de alcance de este flujo).
+- **Verificado:** los 11 `productUpdate`/`update-product` devolvieron `userErrors: []`.
+- **Pendiente:** Fase 1 (agregar bloque de preguntas frecuentes + completar SEO faltante +
+  acortar títulos largos), por categoría, empezando por Pulseras/Charms/Tobilleras — ver el
+  repaso completo más arriba en esta conversación (no queda en este worklog, es contexto de chat).
+
 ## 2026-07-24 [sizechart] Pulsera Savia — backup: sizechart/10211725803841-20260724-100228.json
 Tabla de talles (`worker.sizechart`), medidas reales confirmadas por el cliente: largo base 17.5 cm +
 extensión de +4 cm aprox. `previous: null` (no había tabla antes).
