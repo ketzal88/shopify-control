@@ -13,7 +13,8 @@
 - Tono: amigable, sobrio, sin exagerar.
 - Vocabulario SÍ: duradera, no irrita, segura, minimalista, hipoalergénico, resistente al agua, para regalar, significativa, elegante pero sencilla.
 - Vocabulario NO (curado 2026-07-19, fuente: brand-voice + anti-referencias):
-  - **Materiales que no son** (sería falso; el material es acero quirúrgico): oro, plata, oro laminado, chapado/enchapado, bañado en oro. Sí se puede describir el *acabado* ("tono dorado/plateado"), nunca como material.
+  - **Materiales que no son** (sería falso; el material base es acero quirúrgico): plata, oro laminado. Sí se puede describir el *acabado* ("tono plateado"), nunca como material.
+  - **Excepción verificada (2026-08-28):** los productos dorados y rosados sí llevan un baño de oro de 14K real. Para esos, "baño de oro de 14K" es un claim verdadero y se puede incluir en la descripción — no es el superlativo vacío que bloquea esta lista. No extender esto a "plata" ni a otros metales sin confirmar primero con Gabriel.
   - **Lujo-vacío / superlativos**: lujo, de lujo, exclusivo, glamour, deslumbrante, el/la mejor, único en el mundo, espectacular, increíble, de ensueño. (≠ "calidad premium", que la marca SÍ usa como garantía.)
   - **Claims médicos**: cura, curativo, propiedades medicinales, mágico. Sí permitido: "no irrita", "apto para pieles sensibles".
   - **Registro**: sin voseo ni argentinismos (Colombia, español neutro).
