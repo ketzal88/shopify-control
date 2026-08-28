@@ -4,6 +4,38 @@ Append-only. Cada write deja una entrada: `## YYYY-MM-DD [write] producto — ba
 
 <!-- nuevas entradas arriba -->
 
+## 2026-08-28 [write] Fase 1, categoría Aretes — tanda 2 (15 fichas), backups 20260828-120420
+Segunda tanda dentro de Aretes. A diferencia de la tanda 1 (que atacaba fichas sin SEO), esta
+tomó las 15 fichas con el título SEO más largo del catálogo (77 a 86 caracteres, se cortaban en
+Google) y les aplicó el mismo tratamiento completo: título acortado, bloque de preguntas
+frecuentes agregado, y cualquier problema de exactitud que apareciera al leer el texto completo.
+Backup de cada producto en `clients/blunua/backups/{id}-20260828-120420.json`.
+
+- **Títulos acortados:** los 15 bajaron de 76-86 caracteres a 44-62.
+- **Vocabulario prohibido sacado (2):** "mágico" en Topitos de Seguridad Unicornio,
+  "espectaculares" en Candongas Red Love.
+- **Nombre real vs. texto (1, mismo patrón que Aretes Sutil en la Fase 0):** el producto se llama
+  "Candongas Petit for Kids" pero el título SEO y la ficha decían "Candongas Mini" — corregido en
+  los dos lugares.
+- **Typo (1):** "pierdra natural Jade" → "piedra natural Jade" (Candongas Mare).
+- **Concordancia de género (3):** Candongas Mare y Candongas Praia decían "hipoalergénicos y
+  livianos" (debía ser "hipoalergénicas y livianas"); Candongas Maxi decía "hipoalergénico
+  gruesos" — las tres corregidas.
+- **Terminología de marca (1):** Candongas Re-mini for Kids decía "acero inoxidable" en vez de
+  "acero quirúrgico" (el término que usa la marca en todo el resto del catálogo).
+- **Color incompleto (1):** Topitos de Seguridad Eros For Kids solo mencionaba "plateado
+  brillante" en el SEO pero el producto también viene en dorado — corregido.
+- **Productos:** Topitos de Seguridad Unicornio, Aretes Equilibrio, Candongas Mare, Aretes Grand
+  long, Candongas Praia, Candongas Maxi, Aretes Jewel, Candongas Re-mini for Kids, Topitos
+  Básicos, Topitos de Seguridad Básicos Mini, Candongas Canal, Arete Solitario Bolitas, Topitos de
+  Seguridad Eros For Kids, Candongas Red Love, Candongas Petit for Kids.
+- **Qué NO cambió:** precio, stock, status, tags, handle.
+- **Verificado:** las 30 escrituras (15 `update-product` + 15 `productUpdate.seo`) devolvieron
+  `userErrors: []`.
+- **Van 35 de 235 fichas de Aretes tratadas** (3 en la Fase 0: Aretes Sutil, Topitos Amapola,
+  Topitos Flora + 17 en la tanda 1 + 15 en esta tanda). Quedan la mayoría de "Aretes Candongas"
+  (85) y "Aretes Topitos" (44) sin tocar todavía.
+
 ## 2026-08-28 [write] Fase 1, categoría Aretes — tanda 1 (17 fichas), backups 20260828-114753
 Primera tanda de la mejora de fondo por categoría (empezando por Aretes, a pedido del cliente).
 Se tomaron las 17 fichas de Aretes que no tenían título y/o descripción SEO (de 19 detectadas,
