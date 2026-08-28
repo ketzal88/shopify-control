@@ -4,6 +4,36 @@ Append-only. Cada write deja una entrada: `## YYYY-MM-DD [write] producto — ba
 
 <!-- nuevas entradas arriba -->
 
+## 2026-08-28 [write] Fase 1, categoría Aretes — tanda 1 (17 fichas), backups 20260828-114753
+Primera tanda de la mejora de fondo por categoría (empezando por Aretes, a pedido del cliente).
+Se tomaron las 17 fichas de Aretes que no tenían título y/o descripción SEO (de 19 detectadas,
+2 ya se habían resuelto en la Fase 0: Topitos Amapola y Topitos Flora). Backup de cada producto en
+`clients/blunua/backups/{id}-20260828-114753.json`.
+
+- **Completado en las 17:** título SEO (donde faltaba), descripción SEO (donde faltaba), y el
+  bloque de preguntas frecuentes en la ficha visible (mismo formato que ya usa Pulsera Savia:
+  "Preguntas frecuentes:" + 2-3 ítems). Las preguntas sobre color se armaron mirando las variantes
+  reales de cada producto (no se inventó ningún color).
+- **Dos correcciones de exactitud encontradas al leer el texto (no eran solo falta de SEO):**
+  - Topitos de Seguridad Star Shine: la ficha decía "en tonos dorado, plateado o negro" pero el
+    producto solo tiene variantes Plateado/Negro — se sacó "dorado" del texto.
+  - Candongas Amapola: decía "acero quirúrgico con baño dorado" — frase muy cerca de "bañado en
+    oro" (vocabulario prohibido de §2, implica un chapado que no es el material real) — se cambió
+    a "acero quirúrgico en tono dorado".
+- **Rosca de seguridad:** tratada aparte (es un repuesto, no una pieza de diseño) — se completó
+  el SEO y se sumaron preguntas frecuentes propias de un repuesto (compatibilidad, colores,
+  material), sin forzar el molde de beneficios de una joya.
+- **Productos:** Rosca de seguridad, Topitos de Seguridad Star Shine, Solitario Candonga Lek,
+  Candongas Mara, Earcuff Dan, Candongas Savia, Topitos Sara, Candongas Sara, Candongas Amapola,
+  Candongas Aire, Topitos Aire, Topitos Gaia, Aretes Petal, Aretes Mist, Candongas Mist Bold,
+  Aretes Aster, Topitos de Seguridad Glow.
+- **Qué NO cambió:** precio, stock, status, tags, handle — no tocados por este flujo.
+- **Verificado:** las 34 escrituras (17 `update-product` + 17 `productUpdate.seo`) devolvieron
+  `userErrors: []`.
+- **Pendiente dentro de Aretes:** quedan ~200 fichas más en la categoría con SEO ya completo pero
+  sin bloque de preguntas frecuentes, y con títulos SEO largos (185 de 235 superan los 60
+  caracteres) — próxima tanda.
+
 ## 2026-08-28 [write] Fase 0 del repaso SEO/GEO — 11 fichas, backups 20260828-110957
 Después de un repaso completo de las 710 fichas (título/descripción SEO en todo el catálogo +
 lectura profunda de 32 productos) se armó una lista de correcciones puntuales (bugs, no mejoras
