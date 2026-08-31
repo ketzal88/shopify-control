@@ -4,6 +4,25 @@ Append-only. Cada write deja una entrada: `## YYYY-MM-DD [write] producto — ba
 
 <!-- nuevas entradas arriba -->
 
+## 2026-08-31 [write] Fase 1, categoría Aretes — tanda de títulos SEO largos, parte 3 (30 fichas), backups 20260831-113147
+Continúa la limpieza de títulos SEO largos (52 de 104 quedaban tras las partes 1 y 2). Mismo
+alcance y mismo cuidado de mandar título + descripción juntos. Backup de cada producto en
+`clients/blunua/backups/{id}-20260831-113147.json`.
+
+- **Fichas (30):** Candongas Re-mini, Candongas Bicolor, Topitos Elipse, Topitos Drop, Candongas
+  Lyra, Candongas Alis Mini, Topitos de Seguridad Órbita, Candongas Dune, Aretes Duo Grand,
+  Candongas Grand, Aretes Eslabón Long, Candongas Mega Round, Topitos Lia, Candongas Alis,
+  Topitos de Seguridad Rosé, Candongas Swing Mini for Kids, Topitos Corazoncito for Kids,
+  Candongas Jazmine, Topitos Full, Topitos de Seguridad Eros, Topitos de Seguridad Luz,
+  Candongas Corazoncito Dot Line Kids, Topitos Praia, Topitos Stella, Candongas Selene,
+  Candongas Vita, Aretes Halo Long, Topitos de Seguridad Croquis, Topito de Seguridad Don,
+  Candongas Round-O.
+- **Títulos acortados:** de 66-69 caracteres a 40-58.
+- **1 corrección de material "acero inoxidable" → "acero quirúrgico":** en la descripción SEO
+  de **Candongas Corazoncito Dot Line Kids**.
+- **Verificado:** las 30 mutaciones devolvieron `userErrors: []`, con título y descripción
+  confirmados juntos en cada respuesta.
+
 ## 2026-08-31 [write] Fase 1, categoría Aretes — tanda de títulos SEO largos, parte 2 (26 fichas), backups 20260831-112825
 Continúa la limpieza de títulos SEO largos (78 de 104 quedaban tras la parte 1). Mismo alcance:
 título SEO acortado sin sacar producto + material + detalle distintivo; título y descripción se
