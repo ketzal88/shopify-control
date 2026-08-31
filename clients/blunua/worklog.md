@@ -4,6 +4,44 @@ Append-only. Cada write deja una entrada: `## YYYY-MM-DD [write] producto — ba
 
 <!-- nuevas entradas arriba -->
 
+## 2026-08-31 [write] Fase 1, categoría Aretes — tanda de títulos SEO largos, parte 4 y última (22 fichas), backups 20260831-113447
+Cierra la limpieza de las 104 fichas con título SEO largo (26+26+30+22 = 104). Mismo alcance:
+título acortado sin sacar producto + material + detalle distintivo, título y descripción
+siempre juntos. Backup de cada producto en `clients/blunua/backups/{id}-20260831-113447.json`.
+
+- **Fichas (22):** Topitos Lyra, Aretes Heaven, Candongas Nerea, Candongas Force XS for Him,
+  Candongas Presencia, Topitos Curvo Heart, Candongas Alba, Topito de Seguridad Bit, Candongas
+  Rim, Topitos de Seguridad Alita, Aretes Lume, Aretes Trio, Candongas Astro, Candongas Maxi
+  Pearl, Candongas Cosmos, Topitos Flowers Green, Aretes Unus, Aretes Clip, Aretes Linked,
+  Candongas Pulse, Candongas Circe Max, Candongas Ares.
+- **Títulos acortados:** de 62-69 caracteres a 42-57.
+- **2 correcciones de material "acero inoxidable" → "acero quirúrgico":** en la descripción SEO
+  de Topitos Curvo Heart y de Topitos Flowers Green.
+- **2 correcciones de nombre/contenido encontradas al leer el texto completo:** "Candongas
+  Nerea" no mencionaba el nombre del producto en su descripción SEO ("Las Candongas Blunua...",
+  faltaba "Nerea") — corregido. El SEO de "Topitos Flowers Green" decía "Topitos Floral Green"
+  (nombre equivocado, mismo patrón que Flowers White y Flowers Pink en tandas anteriores) —
+  corregido.
+- **Verificado:** las 22 mutaciones devolvieron `userErrors: []`.
+
+### Cierre de la tanda de títulos SEO largos (104 fichas, 4 partes)
+Con esta parte se completaron las **104 fichas de Aretes** que tenían el título SEO por encima
+de 60 caracteres. Resumen acumulado de las 4 partes: 143→0 títulos largos detectados en el
+reporte del 2026-08-31 (quedan 0), y de paso se corrigieron **6 casos de "acero inoxidable"**
+(Aretes Deep Sea, Candongas Destiny, Topitos de Seguridad Ether, Candongas Single Tempo,
+Candongas Corazoncito Dot Line Kids, Topitos Curvo Heart, Topitos Flowers Green — 7 en total
+contando los 2 de la tanda de body del 2026-08-31 anterior) y **5 nombres de producto mal
+puestos en el SEO** (Aretes Drip, Topitos Flowers White, Topitos Flowers Pink, Solitario
+Candonga Spark, Topitos Flowers Green) que no estaban en el radar del reporte original porque
+solo se detectan leyendo el texto completo, no por longitud de campo.
+
+**Lo que queda pendiente en Aretes** (fuera del alcance de esta serie, a definir con el
+cliente): las 28 fichas con descripción SEO larga que no tenían también título largo (o que ya
+quedaron con descripción corta al reescribir el título en esta serie — falta reverificar cuántas
+siguen), el bloque de preguntas frecuentes en las ~166 fichas que nunca lo tuvieron (pausado a
+pedido del cliente), y el caso límite de "oro rosa" sin calificar en Candongas Constelación for
+Kids.
+
 ## 2026-08-31 [write] Fase 1, categoría Aretes — tanda de títulos SEO largos, parte 3 (30 fichas), backups 20260831-113147
 Continúa la limpieza de títulos SEO largos (52 de 104 quedaban tras las partes 1 y 2). Mismo
 alcance y mismo cuidado de mandar título + descripción juntos. Backup de cada producto en
