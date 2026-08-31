@@ -4,6 +4,33 @@ Append-only. Cada write deja una entrada: `## YYYY-MM-DD [write] producto — ba
 
 <!-- nuevas entradas arriba -->
 
+## 2026-08-31 [write] Fase 1, categoría Aretes — tanda de títulos SEO largos, parte 2 (26 fichas), backups 20260831-112825
+Continúa la limpieza de títulos SEO largos (78 de 104 quedaban tras la parte 1). Mismo alcance:
+título SEO acortado sin sacar producto + material + detalle distintivo; título y descripción se
+mandan siempre juntos (aprendizaje de la parte 1). Backup de cada producto en
+`clients/blunua/backups/{id}-20260831-112825.json`.
+
+- **Fichas (26):** Candongas Tama, Topitos de Seguridad Fucsia, Aretes Nova, Candongas Fortune,
+  Topitos Corazón Chunky, Topitos de Seguridad Ether, Candongas Single Tempo, Candongas Crystal
+  Round, Candongas Drop, Candongas Cris, Topitos Sol, Topitos Nébula, Aretes Knot, Aretes Halo
+  Double, Topitos de Seguridad Icaro Mini for Kids, Topitos de Seguridad Fly, Candongas Simetría,
+  Aretes Circle Max, Aretes Grand M, Candongas Orbit, Candongas Swing, Candongas Constelación
+  for Kids, Topitos de Seguridad Mermaid, Candongas Cosmos Mini, Candongas Imponente, Candongas
+  Natural Black.
+- **Títulos acortados:** de 69-71 caracteres a 41-59.
+- **2 correcciones de material "acero inoxidable" → "acero quirúrgico":** en **Topitos de
+  Seguridad Ether** se corrigió también la descripción visible (`descriptionHtml`, vía
+  `update-product`) — era el hallazgo pendiente del reporte anterior. En **Candongas Single
+  Tempo** se corrigió en la descripción SEO.
+- **Candongas Imponente:** solo se acortó el título; el testimonio con "espectacular" sigue
+  intacto (instrucción del cliente, no se toca).
+- **Candongas Constelación for Kids:** solo se acortó el título; el "oro rosa" sin calificar
+  como "baño de" sigue como estaba — caso límite, no se tocó porque no hay una violación clara
+  del estándar y esta tanda es solo de título.
+- **Verificado:** las 26 mutaciones de SEO más el `update-product` de Ether devolvieron sin
+  errores; se confirmó que las descripciones SEO llegaron junto con cada título (sin repetir el
+  incidente de la parte 1).
+
 ## 2026-08-31 [write] Fase 1, categoría Aretes — tanda de títulos SEO largos, parte 1 (26 fichas), backups 20260831-112201
 Primera tanda de la limpieza de títulos SEO largos (104 fichas totales pendientes), a pedido
 explícito del cliente: acortar sin sacar las palabras clave. Alcance: **solo título SEO**,
