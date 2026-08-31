@@ -4,6 +4,28 @@ Append-only. Cada write deja una entrada: `## YYYY-MM-DD [write] producto — ba
 
 <!-- nuevas entradas arriba -->
 
+## 2026-08-31 [write] Fase 1, categoría Aretes — limpieza puntual de body (4 fichas), backups 20260831-105729
+Primera tanda de esta fase que sí toca la descripción visible (`descriptionHtml`), a pedido
+explícito del cliente: corregir 2 hallazgos anotados en tandas anteriores. Cambio quirúrgico
+(una sola frase por ficha), sin reescribir el resto del texto. Backup de cada producto en
+`clients/blunua/backups/{id}-20260831-105729.json`.
+
+- **"Acero inoxidable" → "acero quirúrgico" (2 fichas):** Aretes Deep Sea (8869331763521) y
+  Candongas Destiny (9766682362177) decían el material equivocado en el cuerpo del texto. El SEO
+  de ambas ya estaba correcto desde las tandas 3 y 4.
+- **Corrección sobre lo anotado antes:** Candongas Corazón Bold (9908750647617), que había
+  quedado anotado en la tanda 4 como con el mismo problema, en realidad **no lo tenía** — el
+  "acero inoxidable" que se vio ahí era de su descripción SEO vieja (ya corregida en esa misma
+  tanda 4), no del cuerpo. Se verificó en vivo antes de escribir y no se tocó.
+- **Vocabulario prohibido sacado del body (2 fichas):** "mágico" → "encantador" en Topitos de
+  Seguridad Fairy (10158929903937); "Lo mejor" → "Versátil" en Aretes Halley (10058547986753).
+- **Candongas Imponente (1653916532834), revisada y dejada intacta:** sigue con "espectacular"
+  en el texto, pero es una cita textual de una clienta real (Carolina Rigueros) en un testimonio,
+  no texto de marca — por instrucción explícita del cliente, no se toca. Queda marcada como
+  revisada, no como pendiente.
+- **Verificado:** los 4 `update-product` devolvieron el `descriptionHtml` nuevo character por
+  character; nada más cambió (status, tags, variantes e inventario idénticos a antes).
+
 ## 2026-08-28 [write] Fase 1, categoría Aretes — tanda 5 (20 fichas), backups 20260828-171708
 Mismo alcance que tandas 3 y 4: solo título y descripción SEO, sin tocar la descripción visible
 ni agregar preguntas frecuentes. Tomó las 20 fichas de Aretes con el título y/o la descripción
