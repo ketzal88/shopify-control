@@ -4,6 +4,40 @@ Append-only. Cada write deja una entrada: `## YYYY-MM-DD [write] producto — ba
 
 <!-- nuevas entradas arriba -->
 
+## 2026-08-31 [write] Fase 1, categoría Aretes — tanda de títulos SEO largos, parte 1 (26 fichas), backups 20260831-112201
+Primera tanda de la limpieza de títulos SEO largos (104 fichas totales pendientes), a pedido
+explícito del cliente: acortar sin sacar las palabras clave. Alcance: **solo título SEO**,
+manteniendo producto + material (acero quirúrgico) + el detalle distintivo más fuerte del
+diseño; se sacaron los adjetivos genéricos apilados ("minimalista, versátil, elegante,
+moderno" repetidos). Descripción SEO y descripción visible no se tocan (salvo el incidente
+de abajo). Backup de cada producto en `clients/blunua/backups/{id}-20260831-112201.json`.
+
+- **Fichas (26):** Candongas Maxi Ball, Aretes Grand S, Candongas Star-O, Aretes Bolitas,
+  Topitos Flowers Pink, Topitos Amaral, Topitos Mercury, Candongas Maxi Rib, Topitos Star-O,
+  Candongas Triple, Candongas Delicadeza for Kids, Candongas Sunset, Candongas Delicadeza,
+  Candongas Stratus, Solitario Candonga Spark, Arete Dual, Candongas Basic, Candongas Bobby,
+  Topitos de Seguridad Star Mini, Candongas Frame, Candongas Link, Topitos de Seguridad Amoure,
+  Candongas Corazón Chunky, Candongas Basic XS, Candongas Crystal Heart, Topitos de Seguridad
+  Flux.
+- **Títulos acortados:** de 71-75 caracteres a 44-58.
+- **2 correcciones de nombre encontradas:** el SEO de "Topitos Flowers Pink" decía "Topitos
+  Floral Pink Kids" (nombre equivocado); el de "Solitario Candonga Spark" decía solo "Candonga
+  Spark" (le faltaba "Solitario"). Ambos corregidos.
+- **1 corrección de material de paso:** "Candongas Crystal Heart" tenía "acero quirúrgico
+  inoxidable" en la descripción SEO (mezcla de los dos materiales); se sacó "inoxidable" al
+  reescribir esa descripción por el incidente de abajo.
+- **⚠️ Incidente autocorregido en el momento:** al mandar la mutación con **solo** el campo
+  `title` dentro de `seo` (sin `description`), Shopify **borró** la descripción SEO existente
+  en vez de dejarla intacta — pasó en las primeras 6 fichas de esta tanda (Candongas Maxi Ball,
+  Aretes Grand S, Candongas Star-O, Aretes Bolitas, Topitos Flowers Pink, Topitos Amaral). Se
+  detectó al instante con una relectura en vivo, se restauró la descripción original de cada una
+  desde su backup recién creado, y desde ahí en adelante toda mutación de este tipo manda
+  título **y** descripción juntos, aunque la descripción no cambie. **Aprendizaje para el
+  guard/futuras tandas:** el input `seo` de Shopify no hace partial update por campo — hay que
+  mandar los dos siempre.
+- **Verificado:** las 26 mutaciones finales (más las 6 de recuperación) devolvieron
+  `userErrors: []` y la descripción SEO quedó confirmada presente en las 26, no solo el título.
+
 ## 2026-08-31 [write] Fase 1, categoría Aretes — limpieza puntual de body (4 fichas), backups 20260831-105729
 Primera tanda de esta fase que sí toca la descripción visible (`descriptionHtml`), a pedido
 explícito del cliente: corregir 2 hallazgos anotados en tandas anteriores. Cambio quirúrgico
