@@ -4,6 +4,25 @@ Append-only. Cada write deja una entrada: `## YYYY-MM-DD [write] producto — ba
 
 <!-- nuevas entradas arriba -->
 
+## 2026-09-01 [write] Fase 2, categoría Anillos — tanda 1, títulos SEO faltantes (5 fichas), backups 20260901-101414
+Arranca la Fase 2 (Anillos, 47 fichas en la colección), a pedido explícito del cliente de continuar
+la limpieza de títulos/descripciones de buscador en todo el catálogo tras cerrar Aretes. Primera
+tanda: los 5 productos que no tenían **ningún** título de buscador (campo vacío). Se generó un
+título nuevo para cada uno (producto + material o característica distintiva); la descripción de
+buscador ya estaba bien en los 5 y no se tocó. No se tocó la descripción visible de la ficha en
+ninguno. Backup de cada producto en `clients/blunua/backups/{id}-20260901-101414.json`.
+
+- **Fichas (5):** Anillo Flora, Anillo Gaia, Anillo Sara, Anillo Savia, Medidor de Anillos.
+- **Verificado:** las 5 mutaciones devolvieron `userErrors: []` con el título nuevo confirmado
+  presente en la respuesta.
+- **Relevado de paso (queda para las próximas tandas de Anillos):** de los 47 productos de la
+  colección, la gran mayoría de los títulos de buscador restantes son demasiado largos (mismo
+  patrón ya resuelto en Aretes). Además se detectaron 2 problemas de contenido a corregir:
+  **Anillo Amatista Square** dice "acero quirúrgico inoxidable" en la descripción de buscador
+  (mezcla de materiales, vocabulario prohibido); **Anillo Double Chain** y **Anillo Spark II**
+  tienen la descripción de buscador cortada a mitad de frase. **Anillo Midi Braid** está en
+  borrador (no publicado) y con contenido mínimo — se deja fuera de esta limpieza por ahora.
+
 ## 2026-08-31 [write] Fase 1, categoría Aretes — tanda de títulos SEO largos, parte 4 y última (22 fichas), backups 20260831-113447
 Cierra la limpieza de las 104 fichas con título SEO largo (26+26+30+22 = 104). Mismo alcance:
 título acortado sin sacar producto + material + detalle distintivo, título y descripción
