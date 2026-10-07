@@ -1,0 +1,76 @@
+# shopify-control
+
+Herramienta native-Codex para que clientes de ecommerce **no técnicos** de Worker
+controlen y mejoren su tienda Shopify hablándole a Codex.
+
+## Cómo se usa
+> **Se opera desde VS Code con la extensión de Codex abierta en este repo** (NO desde el
+> app de Codex): así se cargan los skills, los hooks de seguridad, el worklog y la memoria por
+> cliente. El app pelado no tiene ese "cerebro". El connector de Shopify tiene que estar
+> disponible dentro de Codex.
+
+> **Siempre se abre la RAÍZ del repo**, nunca una subcarpeta. Codex busca `.Codex/` en la
+> carpeta que abrís: si abrís `clients/{slug}/` no hay hooks ni skills, pero el connector de
+> Shopify **igual puede escribir**. Abrir la raíz no es preferencia, es lo que enciende los
+> guardrails.
+
+- **Gabriel (operador/curador):** conecta la tienda, completa `clients/{slug}/store-standards.md`,
+  corre el refresh trimestral.
+- **Cliente (no técnico):** abre VS Code en la raíz de este repo y habla en lenguaje natural
+  ("mejora la descripción del anillo X", "¿cómo se venden los aretes esta semana?").
+
+Como desde la raíz no se auto-carga el contexto del cliente, **todo skill arranca por el paso 0:
+confirmar el cliente activo y contra qué tienda está conectado el connector** (`get-shop-info`
+contra `clients/{slug}/connection.md`). Si no coinciden, se aborta.
+
+## Reglas duras (las respetan TODOS los skills)
+1. **Sin jerga con el cliente:** nunca mostrar términos técnicos (nombres de campo, de skill,
+   ni comandos). Entra en lenguaje natural, ve resultados en lenguaje natural.
+2. **Humanizer obligatorio** antes de todo output cliente. Path único:
+   `handsOn-Worker/skills/humanizer/SKILL.md`. Hoy NO es invocable como skill desde este repo:
+   hay que leer ese archivo y aplicarlo a mano.
+3. **Registro por cliente** según `store-standards.md` (blunua: español neutro, sin voseo).
+   Los textos literales de los skills son plantillas, no literales universales.
+4. **Todo write:** confirmar tienda → cargar contexto → identificar → leer → generar → humanizer →
+   checklist → preview → gate → backup → escribir → confirmar. Nunca escribir sin backup +
+   confirmación explícita. **El undo también es un write** y lleva el mismo protocolo.
+5. **Alcance de escritura:** dos clases, cada una con su guardrail.
+   - **Texto:** descripción (`descriptionHtml`, vía `Shopify:update-product`) + SEO meta
+     title/description (`seo.title`/`seo.description`, vía `Shopify:graphql_mutation`).
+   - **Ofertas:** dos tipos, ambos con techo por cliente en `deal-policy.json` que el hook enforcea.
+     (a) **Escalones por cantidad** — descuentos nativos + metafield `worker.deal`, ver
+     `docs/superpowers/specs/2026-07-19-quantity-breaks-design.md`.
+     (b) **Regalo gratis / BXGY** — mismo producto ("comprá 2, el 3º gratis") o cruzado ("comprá X,
+     llevate Y") — `discountAutomaticBxgyCreate` + `worker.deal` con `type:"bxgy"`; techo propio
+     (`maxGiftPct`/`maxGetQty`/`minBuyGetRatio` + allowlist de regalables), ver
+     `docs/superpowers/specs/2026-07-22-regalo-gratis-bxgy-design.md`.
+   - **Estilo del widget:** metafield `worker.style` (cosmético, sin techo, validación de set cerrado).
+   - **Imágenes (media):** adjuntar imágenes REALZADAS de la foto real de un producto existente
+     (`productCreateMedia`, **solo IMAGE**) + su undo (`productDeleteMedia`, acotado a los media ids
+     que la herramienta agregó — nunca borra las fotos originales del cliente), con techo/registro
+     por `media-policy.json`; ver `docs/superpowers/specs/2026-07-24-imagenes-realce-design.md`.
+   - NUNCA precio de lista, stock, status, tags, título ni handle/URL.
+   **Esto está enforced por diseño, no por prosa:** `permissions.deny` en `settings.json` bloquea
+   los tools fuera de alcance (`set-inventory`, `create-product`, `create-collection`,
+   `create-discount`…), y `backup_guard` bloquea cualquier write fuera de esas dos clases: campos
+   fuera de `{descripción, seo}`, y descuentos o `worker.deal` que no cumplan el techo de
+   `deal-policy.json`.
+   > El tool `create-discount` sigue denegado **a propósito**, aunque las ofertas ya estén en
+   > alcance: esa tool no puede llevar techo, ni `endsAt`, ni scope validado. El camino canónico
+   > es `graphql_mutation` pasando por la whitelist del guard, que sí los enforcea.
+
+## Estructura
+- `.Codex/skills/` — procedimientos (sirven a todos los clientes)
+- `.Codex/hooks/` — guardrails propios (backup_guard, description_lint)
+- `clients/{slug}/` — contexto + estándares + backups + worklog por cliente
+- `core/` + `stack.json` — el Codex-framework de Worker (gates de calidad/seguridad)
+- `docs/` — spec, plan, runbooks
+
+## Gates de calidad y seguridad (framework)
+Este repo adopta el **Codex-framework** de Worker (config-driven vía `stack.json`):
+- `stack.json` — manifest: `test = python -m pytest -q`, secret-scan en cada commit, pre-push corre los tests, `push: operator-only`, close-protocol.
+- Los hooks **conviven** con los nuestros: `backup_guard` (matcher `.*`) cuida los writes de Shopify; los del framework (matcher `Bash`) cuidan commits/pushes/secretos.
+- Reglas de referencia en `core/rules/` (close-protocol, operating-procedure, subagent-economics, learning-loop — esta última tiene la regla de **verificar automatizaciones headless**, aplica al chequeo del hook).
+> Los hooks se arman al INICIAR la sesión de Codex. Si editás `settings.json`/`stack.json`, reiniciá la sesión para que tomen efecto.
+
+Spec: `docs/superpowers/specs/2026-07-19-shopify-control-v1-design.md`
