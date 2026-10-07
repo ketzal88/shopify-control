@@ -4,6 +4,337 @@ Append-only. Cada write deja una entrada: `## YYYY-MM-DD [write] producto — ba
 
 <!-- nuevas entradas arriba -->
 
+## 2026-09-01 [write] Fase 2, categoría Anillos — tanda 1, títulos SEO faltantes (5 fichas), backups 20260901-101414
+Arranca la Fase 2 (Anillos, 47 fichas en la colección), a pedido explícito del cliente de continuar
+la limpieza de títulos/descripciones de buscador en todo el catálogo tras cerrar Aretes. Primera
+tanda: los 5 productos que no tenían **ningún** título de buscador (campo vacío). Se generó un
+título nuevo para cada uno (producto + material o característica distintiva); la descripción de
+buscador ya estaba bien en los 5 y no se tocó. No se tocó la descripción visible de la ficha en
+ninguno. Backup de cada producto en `clients/blunua/backups/{id}-20260901-101414.json`.
+
+- **Fichas (5):** Anillo Flora, Anillo Gaia, Anillo Sara, Anillo Savia, Medidor de Anillos.
+- **Verificado:** las 5 mutaciones devolvieron `userErrors: []` con el título nuevo confirmado
+  presente en la respuesta.
+- **Relevado de paso (queda para las próximas tandas de Anillos):** de los 47 productos de la
+  colección, la gran mayoría de los títulos de buscador restantes son demasiado largos (mismo
+  patrón ya resuelto en Aretes). Además se detectaron 2 problemas de contenido a corregir:
+  **Anillo Amatista Square** dice "acero quirúrgico inoxidable" en la descripción de buscador
+  (mezcla de materiales, vocabulario prohibido); **Anillo Double Chain** y **Anillo Spark II**
+  tienen la descripción de buscador cortada a mitad de frase. **Anillo Midi Braid** está en
+  borrador (no publicado) y con contenido mínimo — se deja fuera de esta limpieza por ahora.
+
+## 2026-08-31 [write] Fase 1, categoría Aretes — tanda de títulos SEO largos, parte 4 y última (22 fichas), backups 20260831-113447
+Cierra la limpieza de las 104 fichas con título SEO largo (26+26+30+22 = 104). Mismo alcance:
+título acortado sin sacar producto + material + detalle distintivo, título y descripción
+siempre juntos. Backup de cada producto en `clients/blunua/backups/{id}-20260831-113447.json`.
+
+- **Fichas (22):** Topitos Lyra, Aretes Heaven, Candongas Nerea, Candongas Force XS for Him,
+  Candongas Presencia, Topitos Curvo Heart, Candongas Alba, Topito de Seguridad Bit, Candongas
+  Rim, Topitos de Seguridad Alita, Aretes Lume, Aretes Trio, Candongas Astro, Candongas Maxi
+  Pearl, Candongas Cosmos, Topitos Flowers Green, Aretes Unus, Aretes Clip, Aretes Linked,
+  Candongas Pulse, Candongas Circe Max, Candongas Ares.
+- **Títulos acortados:** de 62-69 caracteres a 42-57.
+- **2 correcciones de material "acero inoxidable" → "acero quirúrgico":** en la descripción SEO
+  de Topitos Curvo Heart y de Topitos Flowers Green.
+- **2 correcciones de nombre/contenido encontradas al leer el texto completo:** "Candongas
+  Nerea" no mencionaba el nombre del producto en su descripción SEO ("Las Candongas Blunua...",
+  faltaba "Nerea") — corregido. El SEO de "Topitos Flowers Green" decía "Topitos Floral Green"
+  (nombre equivocado, mismo patrón que Flowers White y Flowers Pink en tandas anteriores) —
+  corregido.
+- **Verificado:** las 22 mutaciones devolvieron `userErrors: []`.
+
+### Cierre de la tanda de títulos SEO largos (104 fichas, 4 partes)
+Con esta parte se completaron las **104 fichas de Aretes** que tenían el título SEO por encima
+de 60 caracteres. Resumen acumulado de las 4 partes: 143→0 títulos largos detectados en el
+reporte del 2026-08-31 (quedan 0), y de paso se corrigieron **6 casos de "acero inoxidable"**
+(Aretes Deep Sea, Candongas Destiny, Topitos de Seguridad Ether, Candongas Single Tempo,
+Candongas Corazoncito Dot Line Kids, Topitos Curvo Heart, Topitos Flowers Green — 7 en total
+contando los 2 de la tanda de body del 2026-08-31 anterior) y **5 nombres de producto mal
+puestos en el SEO** (Aretes Drip, Topitos Flowers White, Topitos Flowers Pink, Solitario
+Candonga Spark, Topitos Flowers Green) que no estaban en el radar del reporte original porque
+solo se detectan leyendo el texto completo, no por longitud de campo.
+
+**Lo que queda pendiente en Aretes** (fuera del alcance de esta serie, a definir con el
+cliente): las 28 fichas con descripción SEO larga que no tenían también título largo (o que ya
+quedaron con descripción corta al reescribir el título en esta serie — falta reverificar cuántas
+siguen), el bloque de preguntas frecuentes en las ~166 fichas que nunca lo tuvieron (pausado a
+pedido del cliente), y el caso límite de "oro rosa" sin calificar en Candongas Constelación for
+Kids.
+
+## 2026-08-31 [write] Fase 1, categoría Aretes — tanda de títulos SEO largos, parte 3 (30 fichas), backups 20260831-113147
+Continúa la limpieza de títulos SEO largos (52 de 104 quedaban tras las partes 1 y 2). Mismo
+alcance y mismo cuidado de mandar título + descripción juntos. Backup de cada producto en
+`clients/blunua/backups/{id}-20260831-113147.json`.
+
+- **Fichas (30):** Candongas Re-mini, Candongas Bicolor, Topitos Elipse, Topitos Drop, Candongas
+  Lyra, Candongas Alis Mini, Topitos de Seguridad Órbita, Candongas Dune, Aretes Duo Grand,
+  Candongas Grand, Aretes Eslabón Long, Candongas Mega Round, Topitos Lia, Candongas Alis,
+  Topitos de Seguridad Rosé, Candongas Swing Mini for Kids, Topitos Corazoncito for Kids,
+  Candongas Jazmine, Topitos Full, Topitos de Seguridad Eros, Topitos de Seguridad Luz,
+  Candongas Corazoncito Dot Line Kids, Topitos Praia, Topitos Stella, Candongas Selene,
+  Candongas Vita, Aretes Halo Long, Topitos de Seguridad Croquis, Topito de Seguridad Don,
+  Candongas Round-O.
+- **Títulos acortados:** de 66-69 caracteres a 40-58.
+- **1 corrección de material "acero inoxidable" → "acero quirúrgico":** en la descripción SEO
+  de **Candongas Corazoncito Dot Line Kids**.
+- **Verificado:** las 30 mutaciones devolvieron `userErrors: []`, con título y descripción
+  confirmados juntos en cada respuesta.
+
+## 2026-08-31 [write] Fase 1, categoría Aretes — tanda de títulos SEO largos, parte 2 (26 fichas), backups 20260831-112825
+Continúa la limpieza de títulos SEO largos (78 de 104 quedaban tras la parte 1). Mismo alcance:
+título SEO acortado sin sacar producto + material + detalle distintivo; título y descripción se
+mandan siempre juntos (aprendizaje de la parte 1). Backup de cada producto en
+`clients/blunua/backups/{id}-20260831-112825.json`.
+
+- **Fichas (26):** Candongas Tama, Topitos de Seguridad Fucsia, Aretes Nova, Candongas Fortune,
+  Topitos Corazón Chunky, Topitos de Seguridad Ether, Candongas Single Tempo, Candongas Crystal
+  Round, Candongas Drop, Candongas Cris, Topitos Sol, Topitos Nébula, Aretes Knot, Aretes Halo
+  Double, Topitos de Seguridad Icaro Mini for Kids, Topitos de Seguridad Fly, Candongas Simetría,
+  Aretes Circle Max, Aretes Grand M, Candongas Orbit, Candongas Swing, Candongas Constelación
+  for Kids, Topitos de Seguridad Mermaid, Candongas Cosmos Mini, Candongas Imponente, Candongas
+  Natural Black.
+- **Títulos acortados:** de 69-71 caracteres a 41-59.
+- **2 correcciones de material "acero inoxidable" → "acero quirúrgico":** en **Topitos de
+  Seguridad Ether** se corrigió también la descripción visible (`descriptionHtml`, vía
+  `update-product`) — era el hallazgo pendiente del reporte anterior. En **Candongas Single
+  Tempo** se corrigió en la descripción SEO.
+- **Candongas Imponente:** solo se acortó el título; el testimonio con "espectacular" sigue
+  intacto (instrucción del cliente, no se toca).
+- **Candongas Constelación for Kids:** solo se acortó el título; el "oro rosa" sin calificar
+  como "baño de" sigue como estaba — caso límite, no se tocó porque no hay una violación clara
+  del estándar y esta tanda es solo de título.
+- **Verificado:** las 26 mutaciones de SEO más el `update-product` de Ether devolvieron sin
+  errores; se confirmó que las descripciones SEO llegaron junto con cada título (sin repetir el
+  incidente de la parte 1).
+
+## 2026-08-31 [write] Fase 1, categoría Aretes — tanda de títulos SEO largos, parte 1 (26 fichas), backups 20260831-112201
+Primera tanda de la limpieza de títulos SEO largos (104 fichas totales pendientes), a pedido
+explícito del cliente: acortar sin sacar las palabras clave. Alcance: **solo título SEO**,
+manteniendo producto + material (acero quirúrgico) + el detalle distintivo más fuerte del
+diseño; se sacaron los adjetivos genéricos apilados ("minimalista, versátil, elegante,
+moderno" repetidos). Descripción SEO y descripción visible no se tocan (salvo el incidente
+de abajo). Backup de cada producto en `clients/blunua/backups/{id}-20260831-112201.json`.
+
+- **Fichas (26):** Candongas Maxi Ball, Aretes Grand S, Candongas Star-O, Aretes Bolitas,
+  Topitos Flowers Pink, Topitos Amaral, Topitos Mercury, Candongas Maxi Rib, Topitos Star-O,
+  Candongas Triple, Candongas Delicadeza for Kids, Candongas Sunset, Candongas Delicadeza,
+  Candongas Stratus, Solitario Candonga Spark, Arete Dual, Candongas Basic, Candongas Bobby,
+  Topitos de Seguridad Star Mini, Candongas Frame, Candongas Link, Topitos de Seguridad Amoure,
+  Candongas Corazón Chunky, Candongas Basic XS, Candongas Crystal Heart, Topitos de Seguridad
+  Flux.
+- **Títulos acortados:** de 71-75 caracteres a 44-58.
+- **2 correcciones de nombre encontradas:** el SEO de "Topitos Flowers Pink" decía "Topitos
+  Floral Pink Kids" (nombre equivocado); el de "Solitario Candonga Spark" decía solo "Candonga
+  Spark" (le faltaba "Solitario"). Ambos corregidos.
+- **1 corrección de material de paso:** "Candongas Crystal Heart" tenía "acero quirúrgico
+  inoxidable" en la descripción SEO (mezcla de los dos materiales); se sacó "inoxidable" al
+  reescribir esa descripción por el incidente de abajo.
+- **⚠️ Incidente autocorregido en el momento:** al mandar la mutación con **solo** el campo
+  `title` dentro de `seo` (sin `description`), Shopify **borró** la descripción SEO existente
+  en vez de dejarla intacta — pasó en las primeras 6 fichas de esta tanda (Candongas Maxi Ball,
+  Aretes Grand S, Candongas Star-O, Aretes Bolitas, Topitos Flowers Pink, Topitos Amaral). Se
+  detectó al instante con una relectura en vivo, se restauró la descripción original de cada una
+  desde su backup recién creado, y desde ahí en adelante toda mutación de este tipo manda
+  título **y** descripción juntos, aunque la descripción no cambie. **Aprendizaje para el
+  guard/futuras tandas:** el input `seo` de Shopify no hace partial update por campo — hay que
+  mandar los dos siempre.
+- **Verificado:** las 26 mutaciones finales (más las 6 de recuperación) devolvieron
+  `userErrors: []` y la descripción SEO quedó confirmada presente en las 26, no solo el título.
+
+## 2026-08-31 [write] Fase 1, categoría Aretes — limpieza puntual de body (4 fichas), backups 20260831-105729
+Primera tanda de esta fase que sí toca la descripción visible (`descriptionHtml`), a pedido
+explícito del cliente: corregir 2 hallazgos anotados en tandas anteriores. Cambio quirúrgico
+(una sola frase por ficha), sin reescribir el resto del texto. Backup de cada producto en
+`clients/blunua/backups/{id}-20260831-105729.json`.
+
+- **"Acero inoxidable" → "acero quirúrgico" (2 fichas):** Aretes Deep Sea (8869331763521) y
+  Candongas Destiny (9766682362177) decían el material equivocado en el cuerpo del texto. El SEO
+  de ambas ya estaba correcto desde las tandas 3 y 4.
+- **Corrección sobre lo anotado antes:** Candongas Corazón Bold (9908750647617), que había
+  quedado anotado en la tanda 4 como con el mismo problema, en realidad **no lo tenía** — el
+  "acero inoxidable" que se vio ahí era de su descripción SEO vieja (ya corregida en esa misma
+  tanda 4), no del cuerpo. Se verificó en vivo antes de escribir y no se tocó.
+- **Vocabulario prohibido sacado del body (2 fichas):** "mágico" → "encantador" en Topitos de
+  Seguridad Fairy (10158929903937); "Lo mejor" → "Versátil" en Aretes Halley (10058547986753).
+- **Candongas Imponente (1653916532834), revisada y dejada intacta:** sigue con "espectacular"
+  en el texto, pero es una cita textual de una clienta real (Carolina Rigueros) en un testimonio,
+  no texto de marca — por instrucción explícita del cliente, no se toca. Queda marcada como
+  revisada, no como pendiente.
+- **Verificado:** los 4 `update-product` devolvieron el `descriptionHtml` nuevo character por
+  character; nada más cambió (status, tags, variantes e inventario idénticos a antes).
+
+## 2026-08-28 [write] Fase 1, categoría Aretes — tanda 5 (20 fichas), backups 20260828-171708
+Mismo alcance que tandas 3 y 4: solo título y descripción SEO, sin tocar la descripción visible
+ni agregar preguntas frecuentes. Tomó las 20 fichas de Aretes con el título y/o la descripción
+SEO más largos que quedaban (títulos de 67 a 76 caracteres, descripciones de 152 a 176). Backup
+de cada producto en `clients/blunua/backups/{id}-20260828-171708.json`.
+
+- **Fichas:** Topitos de Seguridad Iris (10042071023937), Candongas Deep (8867943055681),
+  Topitos Crystal Round (10323711689025), Solitario Candonga Spike (8867942891841), Aretes
+  Little Round (9908368310593), Candongas Swing Mini (9656310038849), Candongas Long Heart
+  (9328462397761), Topitos Puntico (10057120973121), Aretes Estrellita Nieve (10034644058433),
+  Aretes Grand L (9589561393473), Topitos de Seguridad Púrpura (10323790528833), Aretes Praia
+  Blanc (10169213157697), Candongas Hollow (9908368834881), Candongas Eco (9908368703809),
+  Topitos de Seguridad Ópalo (9766681936193), Aretes Drip (9686845915457), Topitos Star Shine
+  for Kids (9097951641921), Candongas Aura (8798243684673), Topitos de Seguridad Dot
+  (6830851915881), Topitos Flowers White (10323712016705).
+- **Qué se escribió:** título SEO (45-57 caracteres, antes 58-76) y descripción SEO (123-150
+  caracteres, antes 152-176) en las 20. La descripción visible no cambió en ninguna.
+- **2 correcciones de nombre encontradas al leer el texto completo:** el SEO de "Aretes Drip"
+  decía "Candongas Drip" (producto equivocado); el de "Topitos Flowers White" decía "Topitos
+  Floral White Kids". Ambos corregidos al nombre real del producto.
+- **Verificado:** las 20 mutaciones devolvieron `userErrors: []`, sin errores.
+
+## 2026-08-28 [write] Fase 1, categoría Aretes — tanda 4 (18 fichas), backups 20260828-170924
+Mismo alcance reducido que la tanda 3: solo título y descripción SEO, sin tocar la
+descripción visible ni agregar preguntas frecuentes. Tomó las 18 fichas de Aretes con el
+título y/o la descripción SEO más largos del catálogo (títulos de 65 a 75 caracteres,
+descripciones de 169 a 263). Backup de cada producto en
+`clients/blunua/backups/{id}-20260828-170924.json`.
+
+- **Fichas:** Topitos Heart-O (9328463348033), Topitos Halo (9733833032001), Aretes Purity
+  (9863459733825), Candongas Corazón Bold (9908750647617), Aretes Bodena (9805307838785),
+  Topitos de Seguridad Orión (9733832933697), Aretes Mini Love (10000335012161), Topitos de
+  Seguridad Triple (9328461250881), Candongas Cloud (9766682132801), Candongas Almond
+  (9656309907777), Candongas Perla Rosa (9850279625025), Topitos de Seguridad Circle Mini
+  (9328460726593), Candongas Destiny (9766682362177), Candongas Plum (9766684590401), Topitos
+  Amatista Square (10323713950017), Aretes Seren (10169211879745), Arete Solitario Shine
+  (10057720856897), Candongas Ether (8867943547201).
+- **Qué se escribió:** título SEO (46-60 caracteres, antes 55-75) y descripción SEO (128-144
+  caracteres, antes 169-263) en las 18. La descripción visible no cambió en ninguna.
+- **Hallazgo anotado, no corregido (fuera de alcance de esta tanda):** Candongas Corazón Bold y
+  Candongas Destiny dicen "acero inoxidable" en su descripción visible en vez de "acero
+  quirúrgico". El SEO nuevo usa el material correcto de marca; la descripción visible queda
+  pendiente para la tanda que toque body (mismo caso que Aretes Deep Sea en la tanda 3).
+- **Verificado:** las 18 mutaciones devolvieron `userErrors: []`, sin errores.
+
+## 2026-08-28 [write] Fase 1, categoría Aretes — tanda 3 (11 fichas), backups 20260828-170444
+Primera tanda con alcance reducido a pedido del cliente: **solo campos SEO** (título y
+descripción SEO), sin tocar la descripción visible ni agregar preguntas frecuentes — eso
+queda para otra tanda. Tomó las 11 fichas de Aretes que no tenían nada de SEO cargado (10 sin
+título ni descripción, 1 con solo título). Backup de cada producto en
+`clients/blunua/backups/{id}-20260828-170444.json`.
+
+- **Fichas:** Topitos Cycle (10058568630593), Candongas Venus (9766683476289), Candongas Ball
+  (9686874030401), Aretes Deep Sea (8869331763521), Candongas Starfish (8867944530241), Topitos
+  de Seguridad Spike XS (8867943186753), Topitos de Seguridad Spike (8867943153985), Topitos
+  Starfish (8867943088449), Topitos de Seguridad Cruz (8047943778625), Topitos de Seguridad
+  Corazoncito (8043223187777), Topitos Corazón Definido (1653938520162).
+- **Qué se escribió:** título SEO (bajo 60 caracteres) y descripción SEO (bajo 150) en las 11.
+  La descripción visible (`descriptionHtml`) no cambió en ninguna.
+- **Corrección de estándar previa a esta tanda:** Gabriel confirmó que los productos dorados y
+  rosados sí llevan un baño de oro de 14K/18K real, así que "baño de oro" dejó de ser vocabulario
+  prohibido para esos casos (ver actualización en `store-standards.md §2`, commit `86cd723`).
+  5 de estas 11 fichas mencionan el baño de oro en su SEO nuevo porque el producto lo tiene.
+- **Hallazgo anotado, no corregido (fuera de alcance de esta tanda):** "Aretes Deep Sea" dice
+  "acero inoxidable" en su descripción visible en vez de "acero quirúrgico" (material de marca).
+  El SEO nuevo usa el material correcto; la descripción visible queda pendiente para la tanda que
+  toque body.
+- **Verificado:** las 11 mutaciones devolvieron `userErrors: []`, sin errores.
+
+## 2026-08-28 [write] Fase 1, categoría Aretes — tanda 2 (15 fichas), backups 20260828-120420
+Segunda tanda dentro de Aretes. A diferencia de la tanda 1 (que atacaba fichas sin SEO), esta
+tomó las 15 fichas con el título SEO más largo del catálogo (77 a 86 caracteres, se cortaban en
+Google) y les aplicó el mismo tratamiento completo: título acortado, bloque de preguntas
+frecuentes agregado, y cualquier problema de exactitud que apareciera al leer el texto completo.
+Backup de cada producto en `clients/blunua/backups/{id}-20260828-120420.json`.
+
+- **Títulos acortados:** los 15 bajaron de 76-86 caracteres a 44-62.
+- **Vocabulario prohibido sacado (2):** "mágico" en Topitos de Seguridad Unicornio,
+  "espectaculares" en Candongas Red Love.
+- **Nombre real vs. texto (1, mismo patrón que Aretes Sutil en la Fase 0):** el producto se llama
+  "Candongas Petit for Kids" pero el título SEO y la ficha decían "Candongas Mini" — corregido en
+  los dos lugares.
+- **Typo (1):** "pierdra natural Jade" → "piedra natural Jade" (Candongas Mare).
+- **Concordancia de género (3):** Candongas Mare y Candongas Praia decían "hipoalergénicos y
+  livianos" (debía ser "hipoalergénicas y livianas"); Candongas Maxi decía "hipoalergénico
+  gruesos" — las tres corregidas.
+- **Terminología de marca (1):** Candongas Re-mini for Kids decía "acero inoxidable" en vez de
+  "acero quirúrgico" (el término que usa la marca en todo el resto del catálogo).
+- **Color incompleto (1):** Topitos de Seguridad Eros For Kids solo mencionaba "plateado
+  brillante" en el SEO pero el producto también viene en dorado — corregido.
+- **Productos:** Topitos de Seguridad Unicornio, Aretes Equilibrio, Candongas Mare, Aretes Grand
+  long, Candongas Praia, Candongas Maxi, Aretes Jewel, Candongas Re-mini for Kids, Topitos
+  Básicos, Topitos de Seguridad Básicos Mini, Candongas Canal, Arete Solitario Bolitas, Topitos de
+  Seguridad Eros For Kids, Candongas Red Love, Candongas Petit for Kids.
+- **Qué NO cambió:** precio, stock, status, tags, handle.
+- **Verificado:** las 30 escrituras (15 `update-product` + 15 `productUpdate.seo`) devolvieron
+  `userErrors: []`.
+- **Van 35 de 235 fichas de Aretes tratadas** (3 en la Fase 0: Aretes Sutil, Topitos Amapola,
+  Topitos Flora + 17 en la tanda 1 + 15 en esta tanda). Quedan la mayoría de "Aretes Candongas"
+  (85) y "Aretes Topitos" (44) sin tocar todavía.
+
+## 2026-08-28 [write] Fase 1, categoría Aretes — tanda 1 (17 fichas), backups 20260828-114753
+Primera tanda de la mejora de fondo por categoría (empezando por Aretes, a pedido del cliente).
+Se tomaron las 17 fichas de Aretes que no tenían título y/o descripción SEO (de 19 detectadas,
+2 ya se habían resuelto en la Fase 0: Topitos Amapola y Topitos Flora). Backup de cada producto en
+`clients/blunua/backups/{id}-20260828-114753.json`.
+
+- **Completado en las 17:** título SEO (donde faltaba), descripción SEO (donde faltaba), y el
+  bloque de preguntas frecuentes en la ficha visible (mismo formato que ya usa Pulsera Savia:
+  "Preguntas frecuentes:" + 2-3 ítems). Las preguntas sobre color se armaron mirando las variantes
+  reales de cada producto (no se inventó ningún color).
+- **Dos correcciones de exactitud encontradas al leer el texto (no eran solo falta de SEO):**
+  - Topitos de Seguridad Star Shine: la ficha decía "en tonos dorado, plateado o negro" pero el
+    producto solo tiene variantes Plateado/Negro — se sacó "dorado" del texto.
+  - Candongas Amapola: decía "acero quirúrgico con baño dorado" — frase muy cerca de "bañado en
+    oro" (vocabulario prohibido de §2, implica un chapado que no es el material real) — se cambió
+    a "acero quirúrgico en tono dorado".
+- **Rosca de seguridad:** tratada aparte (es un repuesto, no una pieza de diseño) — se completó
+  el SEO y se sumaron preguntas frecuentes propias de un repuesto (compatibilidad, colores,
+  material), sin forzar el molde de beneficios de una joya.
+- **Productos:** Rosca de seguridad, Topitos de Seguridad Star Shine, Solitario Candonga Lek,
+  Candongas Mara, Earcuff Dan, Candongas Savia, Topitos Sara, Candongas Sara, Candongas Amapola,
+  Candongas Aire, Topitos Aire, Topitos Gaia, Aretes Petal, Aretes Mist, Candongas Mist Bold,
+  Aretes Aster, Topitos de Seguridad Glow.
+- **Qué NO cambió:** precio, stock, status, tags, handle — no tocados por este flujo.
+- **Verificado:** las 34 escrituras (17 `update-product` + 17 `productUpdate.seo`) devolvieron
+  `userErrors: []`.
+- **Pendiente dentro de Aretes:** quedan ~200 fichas más en la categoría con SEO ya completo pero
+  sin bloque de preguntas frecuentes, y con títulos SEO largos (185 de 235 superan los 60
+  caracteres) — próxima tanda.
+
+## 2026-08-28 [write] Fase 0 del repaso SEO/GEO — 11 fichas, backups 20260828-110957
+Después de un repaso completo de las 710 fichas (título/descripción SEO en todo el catálogo +
+lectura profunda de 32 productos) se armó una lista de correcciones puntuales (bugs, no mejoras
+de fondo) y se aplicaron con el OK del cliente. Backup de cada producto en
+`clients/blunua/backups/{id}-20260828-110957.json` (los 3 campos, previo a escribir).
+
+- **SEO cruzado/equivocado corregido (7 fichas, solo SEO):**
+  - Collar Origen ID F (`9686848602433`): título/descripción decían "letra N" — corregido a "letra F".
+  - Collar Paua (`10172893200705`): tenía la descripción SEO de Candongas Mare (hablaba de aros y
+    piedra Jade) — reescrita para el propio producto.
+  - Collar Duo Fer (`10323710673217`): tenía la descripción de Collar Fer (no mencionaba la cadena
+    doble) — reescrita.
+  - Tobillera Figaro (`10323712278849`): la descripción SEO decía "Pulsera Figaro" — corregida a
+    tobillera.
+- **Sin título SEO + descripción genérica compartida entre pareja (4 fichas, solo SEO):**
+  Topitos Amapola (`10211817750849`), Topitos Flora (`10211818144065`), Pulsera Amapola
+  (`10211817947457`), Pulsera Flora (`10211818078529`) — cada una recibió título y descripción
+  SEO propios (antes compartían el mismo texto genérico y no tenían título).
+- **Vocabulario de marca (2 fichas):**
+  - Collar Mega (`9686853157185`): la descripción SEO nombraba "plata" como material — pasó a
+    "tono plateado"; "acero inoxidable" → "acero quirúrgico" (consistencia de término). Solo SEO.
+  - Pulsera Unicornio (`8867944005953`): "mágico"/"magia" aparecía 3 veces (título SEO,
+    descripción SEO y 2 veces en la ficha visible) — se sacó en las 3. Aprovechando el toque, la
+    ficha visible pasó de "materiales resistentes y cómodos" (vago) a nombrar el material real
+    (acero quirúrgico hipoalergénico, resistente al agua). Descripción + SEO.
+- **Nombre equivocado en la ficha visible (1 ficha):** Aretes Sutil (`9805307740481`) se llamaba
+  a sí mismo "Candongas Sutil" dos veces en el texto — corregido a "Aretes Sutil", con el ajuste
+  de género correspondiente (Fabricados/hipoalergénicos, no Fabricadas/hipoalergénicas).
+  Descripción + SEO.
+- **Qué NO se tocó:** Collar Origen ID N, Candongas Mare, Collar Fer y Pulsera Figaro — su propio
+  texto ya estaba bien, el error estaba solo en la ficha "pareja". Tampoco se tocó la reseña de
+  clienta en Candongas Imponente (usa "espectacular"): decisión explícita del cliente de no editar
+  opiniones de clientes reales, aunque la palabra esté en la lista de vocabulario prohibido de
+  marca — la regla aplica a la voz de la marca, no a citas textuales de terceros.
+- **Qué NO cambió:** precio, stock, status, tags, handle — ningún write tocó esos campos (fuera
+  de alcance de este flujo).
+- **Verificado:** los 11 `productUpdate`/`update-product` devolvieron `userErrors: []`.
+- **Pendiente:** Fase 1 (agregar bloque de preguntas frecuentes + completar SEO faltante +
+  acortar títulos largos), por categoría, empezando por Pulseras/Charms/Tobilleras — ver el
+  repaso completo más arriba en esta conversación (no queda en este worklog, es contexto de chat).
+
 ## 2026-07-24 [sizechart] Pulsera Savia — backup: sizechart/10211725803841-20260724-100228.json
 Tabla de talles (`worker.sizechart`), medidas reales confirmadas por el cliente: largo base 17.5 cm +
 extensión de +4 cm aprox. `previous: null` (no había tabla antes).
