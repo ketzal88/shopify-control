@@ -30,7 +30,7 @@ El email de Google con el que se van a loguear tiene que estar en el perfil del 
 Brain (campo `allowedEmails`). Es el **mismo** que le da acceso al portal — no es una lista
 aparte.
 
-- **blunua** ya lo tiene: `lauramorenoperez.b@gmail.com` y `elisaescobar11@gmail.com`.
+- **blunua** ya lo tiene: los 2 usuarios autorizados de blunua (los mails se guardan fuera del repo).
 - Si un cliente no está, se agrega desde el admin del Brain (perfil del cliente). Sin Vercel,
   sin deploy.
 

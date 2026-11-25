@@ -11,6 +11,7 @@ El stderr del scanner (las lineas "BLOCKED: ...") se hereda y llega al modelo.
 """
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -26,7 +27,8 @@ def main():
     if not isinstance(payload, dict):
         sys.exit(ALLOW)
     cmd = ((payload.get("tool_input") or {}).get("command") or "")
-    if not cmd.lstrip().startswith("git commit"):
+    # `git add -A && git commit`, `cd x && git commit`, `git -C . commit` también cuentan.
+    if not re.search(r"\bgit\b[^\n;|&]*\bcommit\b", cmd):
         sys.exit(ALLOW)  # solo nos importa `git commit`
     root = os.environ.get("CLAUDE_PROJECT_DIR") or payload.get("cwd") or "."
     script = os.path.join(root, "core", "hooks", "scripts", "secret-scan.sh")
