@@ -24,9 +24,10 @@ a target whose manifest lists none inherits the root's.
 (`-c alias.p=push p` and aliases in config) and `-n --no-dry-run` (the last
 flag wins) no longer slip past the policy.
 
-1.5.6 - ALIASES FAIL CLOSED: an alias that the same command could (re)define
-(`git config`, GIT_CONFIG_*, --config-env, HOME=) or that cannot be resolved
-is OPAQUE, which this guard counts as a push.
+1.5.6/1.5.7 - ONLY BUILTINS ARE TRUSTED: any git subcommand that is not a
+builtin (an alias, an external git-* command) is OPAQUE, which this guard
+counts as a push. Aliases are not resolved: the command itself can redefine
+them (git config, GIT_CONFIG_*, HOME, PATH, quoting a text filter cannot see).
 
 Input contract (stdin JSON from Claude Code harness):
     { "tool_input": { "command": "git push ..." }, ... }
@@ -152,8 +153,8 @@ def main():
     pushes = git_target.find(push_cmd, git_target.base_dir(payload), "push")
     real = [(a, d) for a, d in pushes if not is_dry_run(a)]
     # git hidden where the parser cannot see (a shell string too deep, a
-    # `-c alias.*`, a shell alias): assume a push. 1.5.5 dropped the old
-    # `"push" in cmd` condition, since an alias from config never names it.
+    # an alias, an external git-* command): assume a push. 1.5.5 dropped the
+    # old `"push" in cmd` condition, since an alias never names it.
     real += [([], d) for d in git_target.opaque(push_cmd, git_target.base_dir(payload))]
     wrapper = None
     wrappers_raw = None if real else cfg("gates.pushWrappers")
