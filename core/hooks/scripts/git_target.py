@@ -31,7 +31,7 @@ import shlex
 import subprocess
 
 # Global git options that consume the next argument (`git -C dir`, `git -c k=v`).
-OPTS_WITH_VALUE = {"-C", "-c", "--exec-path", "--namespace", "--git-dir", "--work-tree"}
+OPTS_WITH_VALUE = {"-C", "-c", "--exec-path", "--namespace", "--git-dir", "--work-tree", "--config-env"}
 ENV_ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 MSYS_DRIVE = re.compile(r"^/([a-zA-Z])(/|$)")
 # Prefixes that run the next word as the real command (`env git push`).
@@ -52,6 +52,20 @@ GIT_WORDS = {"git", "git.exe"}
 # Shell reserved words that can sit in front of a command (`! git push`,
 # `if git push; then`, `while git push; do`). Dropped like a wrapper (1.5.5).
 RESERVED = {"!", "if", "then", "else", "elif", "do", "while", "until", "{"}
+# Anything in a command that can change which aliases git sees: writing config,
+# config injected through the environment, a different HOME. Once seen, a
+# non-builtin subcommand cannot be resolved from the config on disk (it may be
+# redefined before it runs), so it is OPAQUE (1.5.5).
+CONFIG_TAINT = re.compile(
+    r"\bconfig\b|GIT_CONFIG|GIT_DIR|\bHOME=|XDG_CONFIG_HOME|gitconfig|\.git/|--config-env|\binclude")
+# Builtins that always exist, in case `git --list-cmds` is unavailable.
+CORE_BUILTINS = {
+    "add", "am", "apply", "bisect", "blame", "branch", "checkout", "cherry-pick", "clean",
+    "clone", "commit", "config", "describe", "diff", "fetch", "format-patch", "gc", "grep",
+    "init", "log", "ls-files", "ls-remote", "merge", "mv", "notes", "pull", "push", "rebase",
+    "reflog", "remote", "reset", "restore", "rev-list", "rev-parse", "revert", "rm", "show",
+    "stash", "status", "submodule", "switch", "tag", "worktree",
+}
 # Pseudo-subcommand for a git call the parser could not see into (a shell
 # string nested too deep, `bash -c` without a readable string). Guards treat
 # it as the worst case instead of letting it through.
@@ -198,11 +212,12 @@ def _shell_string(words):
     return None
 
 
-def _git_calls(cmd, cur, depth):
+def _git_calls(cmd, cur, depth, tainted=False):
     for seg in segments(cmd):
+        tainted = tainted or bool(CONFIG_TAINT.search(seg))
         words, inner = _strip_prefixes(_words(seg))
         if inner is not None:
-            yield from _nested(inner, cur, depth, seg)
+            yield from _nested(inner, cur, depth, seg, tainted)
             continue
         if not words:
             continue
@@ -211,7 +226,7 @@ def _git_calls(cmd, cur, depth):
         if name in SHELLS or name == "eval":
             inner = " ".join(words[1:]) if name == "eval" else _shell_string(words)
             if inner is not None:
-                yield from _nested(inner, cur, depth, seg)
+                yield from _nested(inner, cur, depth, seg, tainted)
             elif "git" in seg:
                 yield OPAQUE, words[1:], cur
             continue
@@ -227,11 +242,12 @@ def _git_calls(cmd, cur, depth):
         aliased = False
         while i < len(words):
             w = words[i]
-            if w == "-c" and i + 1 < len(words) and words[i + 1].lower().startswith("alias."):
+            low = w.lower()
+            if w in ("-c", "--config-env") and i + 1 < len(words) and words[i + 1].lower().startswith("alias."):
                 aliased = True  # `git -c alias.p=push p`: the real subcommand is hidden
-            elif w.startswith("-c") and w[2:].lower().startswith("alias."):
+            elif low.startswith(("-calias.", "--config-env=alias.")):
                 aliased = True
-            if w.startswith(("--git-dir=", "--work-tree=")):
+            if w.startswith(("--git-dir=", "--work-tree=", "--config-env=")):
                 w, val = w.split("=", 1)
                 words = words[:i] + [w, val] + words[i + 1:]
             if w in OPTS_WITH_VALUE:
@@ -253,57 +269,74 @@ def _git_calls(cmd, cur, depth):
             yield OPAQUE, words[i + 1:] if sub else [], here
             continue
         if sub:
-            sub, args = _expand_alias(sub, words[i + 1:], here)
-            yield sub, args, here
+            if _is_builtin(sub):
+                yield sub, words[i + 1:], here
+            elif tainted:
+                yield OPAQUE, words[i + 1:], here  # alias may be (re)defined in this command
+            else:
+                sub, args = _expand_alias(sub, words[i + 1:], here)
+                yield sub, args, here
 
 
 def _expand_alias(sub, args, here, hops=0):
     """Resolve a git alias from config (`git p` with alias.p=push).
 
     Git ignores aliases that shadow a builtin, so a builtin never resolves.
-    A shell alias (`!...`) or a chain deeper than 5 comes back as OPAQUE.
+    Fails closed: a shell alias (`!...`), a chain deeper than 5, a lookup that
+    errors, or a name that is neither an alias nor a known git command (an
+    external `git-foo` on PATH) comes back as OPAQUE.
     """
     if sub == OPAQUE or hops > 5:
         return OPAQUE, args
+    if _is_builtin(sub):
+        return sub, args
     try:
         r = subprocess.run(
             ["git", "config", "--get", "alias." + sub], cwd=here if os.path.isdir(here) else None,
             capture_output=True, text=True, timeout=3,
         )
     except Exception:
-        return sub, args
+        return OPAQUE, args
     value = (r.stdout or "").strip() if r.returncode == 0 else ""
-    if not value or _is_builtin(sub, here):
-        return sub, args
+    if not value:
+        return (sub, args) if sub in _known_commands() else (OPAQUE, args)
     if value.startswith("!"):
         return OPAQUE, args
     parts = _words(value)
     if not parts:
-        return sub, args
+        return OPAQUE, args
     return _expand_alias(parts[0], parts[1:] + args, here, hops + 1)
 
 
-_BUILTINS = None
+_CMDS = {}
 
 
-def _is_builtin(sub, here):
-    """True when `sub` is a git builtin (aliases cannot override those)."""
-    global _BUILTINS
-    if _BUILTINS is None:
+def _list_cmds(kind):
+    if kind not in _CMDS:
         try:
-            r = subprocess.run(["git", "--list-cmds=main"], capture_output=True, text=True, timeout=3)
-            _BUILTINS = set(r.stdout.split()) if r.returncode == 0 else set()
+            r = subprocess.run(["git", "--list-cmds=" + kind], capture_output=True, text=True, timeout=3)
+            _CMDS[kind] = set(r.stdout.split()) if r.returncode == 0 else set()
         except Exception:
-            _BUILTINS = set()
-    return sub in _BUILTINS
+            _CMDS[kind] = set()
+    return _CMDS[kind]
 
 
-def _nested(inner, cur, depth, seg):
+def _is_builtin(sub):
+    """True when `sub` is a git builtin (aliases cannot override those)."""
+    return sub in CORE_BUILTINS or sub in _list_cmds("main")
+
+
+def _known_commands():
+    """Builtins plus external git-* commands found on PATH (git lfs, git flow)."""
+    return CORE_BUILTINS | _list_cmds("main") | _list_cmds("others")
+
+
+def _nested(inner, cur, depth, seg, tainted=False):
     if depth >= 3:
         if "git" in seg:
             yield OPAQUE, [], cur  # too deep to read: let the guard assume the worst
         return
-    yield from _git_calls(inner, cur, depth + 1)
+    yield from _git_calls(inner, cur, depth + 1, tainted)
 
 
 def opaque(cmd, start_dir):

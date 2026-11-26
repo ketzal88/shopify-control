@@ -24,6 +24,10 @@ a target whose manifest lists none inherits the root's.
 (`-c alias.p=push p` and aliases in config) and `-n --no-dry-run` (the last
 flag wins) no longer slip past the policy.
 
+1.5.6 - ALIASES FAIL CLOSED: an alias that the same command could (re)define
+(`git config`, GIT_CONFIG_*, --config-env, HOME=) or that cannot be resolved
+is OPAQUE, which this guard counts as a push.
+
 Input contract (stdin JSON from Claude Code harness):
     { "tool_input": { "command": "git push ..." }, ... }
 """
