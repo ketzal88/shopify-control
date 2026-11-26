@@ -42,6 +42,11 @@ Non-negotiables for any headless automation that writes:
    80 days of signal.
 4. **Smoke-test once manually** and check the run log the next day.
 
+Child sessions, scheduled jobs and hooks share these failure modes; the
+full rule set (deny list, stripped env, login expiry, no inline `python -c`)
+is in `headless-automation.md`. How to report what a run did is in
+`evidence-states.md`.
+
 ## 3. Prose rules don't enforce themselves — audit compliance
 
 Written rules ("always run the browser check before delivering UI")

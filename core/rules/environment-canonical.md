@@ -41,7 +41,14 @@ found the agent re-picking the broken path in ~20% of sessions, burning
   vice versa) are the highest-frequency offender on Windows machines.
 - Precision over recall in `forbiddenCommands` patterns: the guard
   BLOCKS, so a false positive costs more than a miss. Anchor patterns to
-  command position where possible. The long tail stays in the table as
-  prose.
+  command position: `(^|[;&|]\s*)(npx\s+)?eslint\b`, not `eslint` (which
+  also matches `npm view eslint-config-x` or a commit message). The long
+  tail stays in the table as prose.
+- A tool that is broken in only one mode gets an `unless` regex (1.5.0):
+  the rule does not fire when the command also matches it, e.g. a CLI login
+  that hangs interactively but works with `--token`.
+- Measuring from a distorting environment is a gotcha too: the operator's
+  browser, CRLF line endings, a local proxy. Verify from outside before
+  concluding.
 
 Reference implementation: `examples/nextjs-firebase/rules/windows-environment.md`.

@@ -14,9 +14,16 @@
 
 ## Modular Rules
 
-@.claude/rules/operating-procedure.md
+@.claude/core/rules/operating-procedure.md
 <!-- Add domain-specific rules here using @-syntax: -->
 <!-- @.claude/rules/<your-rule>.md -->
+<!-- Keep this list short. Every @-import is loaded on EVERY session, so it is paid
+     for whether or not the turn needs it. Import a rule only if an agent would get
+     it wrong by default — environment facts, domain semantics, conventions it cannot
+     infer. Anything a blocking hook already catches does not belong here: the hook
+     delivers the correction at the exact moment of the mistake, with the fix inline.
+     Target: under 600 words of always-loaded context. -->
+<!-- The other core rules live in .claude/core/rules/ and are read on demand. -->
 
 ## Environment Variables
 

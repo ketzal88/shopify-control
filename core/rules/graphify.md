@@ -27,7 +27,9 @@ paths: orient with it, then confirm in the real code.
 The graph reflects the commit it was built from and goes stale as code changes.
 `graphify update .` refreshes it (AST only, no token cost). Automate with the Stop hook
 `stop-graphify-refresh.py` (backgrounds the refresh after code-touching turns) — never block a turn
-on a rebuild.
+on a rebuild. Since 1.5.0 the hook also refreshes when the graph's `built_at_commit` differs
+from `HEAD` (a turn that only commits used to leave the graph stale), and it runs its background
+worker as a script file, not inline `python -c`, with no console window on Windows.
 
 ## Cost honesty
 

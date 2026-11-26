@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""PreToolUse hook (Bash): blocks commands that ALWAYS fail in this environment.
+r"""PreToolUse hook (Bash): blocks commands that ALWAYS fail in this environment.
 
-Config-driven: reads environment.forbiddenCommands from stack.json —
+Config-driven: reads environment.forbiddenCommands from stack.json -
 an array of { "pattern": "<regex>", "fix": "<what to use instead>" }.
 Absent key = silent no-op (framework convention).
 
@@ -11,6 +11,17 @@ logins that die headless, tools not installed on the machine) session
 after session, burning 1-3 turns each time. Blocking with the exact
 correction in the message turns the gotcha into a 0-turn self-fix.
 
+Writing patterns (1.5.0):
+  - Anchor them to command position: `(^|[;&|]\s*)(npx\s+)?eslint\b`, not
+    `eslint`. An unanchored pattern also matches `npm view eslint-config-next`
+    or a commit message that mentions the tool, and a guard that blocks
+    harmless commands gets bypassed by habit.
+  - `unless` (optional regex): the rule does not fire when it also matches.
+    For tools that are only broken in one mode, e.g. a CLI that works with
+    `--json` but hangs interactively:
+      {"pattern": "(^|[;&|]\\s*)foo\\s+login\\b", "unless": "--token",
+       "fix": "Use foo login --token $FOO_TOKEN"}
+
 Bypass: SKIP_CANONICAL=1 in the env, or the literal marker
 `SKIP_CANONICAL=1` inside the command itself (env prefixes in the command
 string do NOT reach the hook process).
@@ -18,7 +29,7 @@ string do NOT reach the hook process).
 Input contract (stdin JSON from Claude Code harness):
     { "tool_input": { "command": "..." }, ... }
 
-NOTE: keep messages ASCII-safe — cp1252 consoles mangle non-ASCII.
+NOTE: keep messages ASCII-safe - cp1252 consoles mangle non-ASCII.
 """
 import json
 import os
@@ -69,10 +80,11 @@ def main():
     for rule in rules:
         pattern = (rule or {}).get("pattern", "")
         fix = (rule or {}).get("fix", "")
+        unless = (rule or {}).get("unless", "")
         if not pattern:
             continue
         try:
-            if re.search(pattern, cmd):
+            if re.search(pattern, cmd) and not (unless and re.search(unless, cmd)):
                 sys.stderr.write("[canonical-guard] command blocked in this environment:\n")
                 sys.stderr.write("  " + cmd.strip()[:200] + "\n\n")
                 sys.stderr.write("  " + (fix or "See environment rules for the canonical path.") + "\n\n")
@@ -82,7 +94,7 @@ def main():
                 )
                 return 2
         except re.error:
-            continue  # malformed pattern in config — never block on config bugs
+            continue  # malformed pattern in config - never block on config bugs
 
     return 0
 

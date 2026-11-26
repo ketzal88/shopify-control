@@ -63,6 +63,23 @@ the summary comes back. But it is a *trade*, not free — you pay a cold start a
 a fresh system prompt to avoid the noise. Worth it when the discarded output is
 large; a loss when the task is small.
 
+## Pick model and effort per task
+
+Set both explicitly on every delegation; do not inherit the parent's. Start at
+the default and escalate only when the result falls short.
+
+| Task | Model tier | Effort |
+|---|---|---|
+| Search, read, summarize, inventory, closed questions about a repo | small | low |
+| Writing with the data already fetched (docs, notes, reports) | mid | medium |
+| Scoped code change with a closed brief (one or two files) | mid | medium |
+| Logic where an error is expensive: production data, money, a bug that already failed once | top | high |
+| Strategy, diagnosis, proposals | top | medium |
+| Browser runs (more than ~10 actions) | mid | low |
+
+Even with every tier right, subagents are the smaller bill: re-reading the main
+session's context dominates spend. See `context-economics.md`.
+
 ## What to watch
 
 The signal is not the size of your brain file. It is:

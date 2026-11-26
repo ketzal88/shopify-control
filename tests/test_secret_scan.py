@@ -93,6 +93,9 @@ def _install_scanner(repo):
     (repo / "core/security").mkdir(parents=True)
     shutil.copy(REAL_SCRIPT, repo / "core/hooks/scripts/secret-scan.sh")
     shutil.copy(GUARD, repo / "core/hooks/scripts/secret-scan-guard.py")
+    # el guard importa git_target y lee config con read-config.py (core 1.5.x)
+    for helper in ("git_target.py", "read-config.py"):
+        shutil.copy(Path(GUARD).parent / helper, repo / "core/hooks/scripts" / helper)
     shutil.copy(PATTERNS, repo / "core/security/secret-patterns.txt")
 
 

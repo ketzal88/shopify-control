@@ -29,4 +29,6 @@ Run the self-check from the ratchet-philosophy rule: typecheck clean, no new unt
 
 ## Golden rule
 
+Report every claim with its evidence state (`evidence-states.md`), keep one topic per session (`context-economics.md`), and give any unattended run the guard rails in `headless-automation.md`.
+
 Announce the chosen sequence in **one line** and follow it. The operator watches and can interrupt at any time. When in doubt between lightweight and heavyweight, go lightweight and say what was skipped.

@@ -35,6 +35,19 @@ Add a ratchet for any quality metric where:
 
 Domain-specific ratchets (design contract, type-annotation count, etc.) are project-specific and live in `examples/<your-project>/` — not in the universal core.
 
+## Scope: what this session touched (1.5.0)
+
+`ratchet-guard.py` scopes `CHANGED_FILES` to the files this session edited,
+including files it already committed during the turn, so committing early no
+longer escapes the ratchet and another session's dirty files never fail yours.
+Without a readable transcript it falls back to `git status`.
+
+## Advisory gates need a canary
+
+A ratchet that only warns (exit 0) must print how many files it inspected and
+must have been seen failing once on a fixture. Silence is otherwise identical
+to "ran on zero files". See `evidence-states.md`.
+
 ## Manifest declaration
 
 ```json

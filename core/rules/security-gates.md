@@ -14,6 +14,13 @@ Default: `core/hooks/scripts/secret-scan.sh` + `core/security/secret-patterns.tx
 
 Add project-specific patterns to `secret-patterns.txt`.
 
+Since 1.5.0:
+- **The commit is found anywhere in the command**: `a && git commit`, `cd repo && git commit`, `git -C repo commit` (parsed by `git_target.py`). Before, only commands that started with `git commit` were scanned, and `git add -A && git commit` let a token through.
+- **Pending mode**: in `git add ... && git commit` or `git commit -a`, nothing is staged yet when the hook runs, so the scan also covers unstaged and untracked files.
+- **Only added lines are scanned**: a commit that deletes a secret never blocks. Templates such as `.env.example` are allowed.
+- **False positives**: add `secret-scan:allow` on the line and say why in the commit message. A gate without a documented exception gets bypassed by habit.
+- Use fake tokens in tests and smokes, never real ones.
+
 ## Gate 2: Pre-Push Guard (blocking)
 
 Runs before every `git push`. **Blocking — exits 2 on failure, preventing the push.**
@@ -23,6 +30,8 @@ Reads `gates.prePush.steps` and resolves each step to a command from `commands.*
 All steps run regardless of individual failures (mirrors CI's `if: always()` behavior), so the full list of problems is visible in one pass.
 
 `SKIP_PREPUSH=1` bypass: accepted ONLY when ALL changed files match docs/config patterns (`.md`, `.claude/`, `docs/`, `.gitignore`). Rejected for any code changes.
+
+Since 1.5.0 the push is found inside compound commands (`cd repo && git push`, `git -C repo push`), and `gates.pushWrappers` lists regexes for project scripts that push for you (a release script, an npm script that pushes several repos): the push policy applies to them like to a literal `git push`. Output compressors and command wrappers must never wrap `git push`: they hide the gate's output and exit code. See `headless-automation.md`.
 
 ## Gate 3: Structural Ratchet (pre-push step, opt-in)
 

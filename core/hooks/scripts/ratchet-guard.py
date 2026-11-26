@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """Stop hook: runs the dead-code ratchet before Claude ends a turn.
 
-Reads ratchets.deadCode from stack.json. If absent or empty — skip silently.
+Reads ratchets.deadCode from stack.json. If absent or empty - skip silently.
 Blocks (exit 2) only on genuine regression (ratchet command exits 1).
 Any other exit code (tooling crash, timeout) is logged but never blocks.
 
 Skip conditions:
   - stop_hook_active=True in payload (prevent infinite re-trigger loop)
   - SKIP_DEADCODE=1 env var
-  - No code-file changes in working tree
+  - This session touched no code file (edited or committed), and the working
+    tree has no dirty code either. 1.5.0: committed files count too - before,
+    committing was enough to switch the ratchet off.
   - ratchets.deadCode not configured in stack.json
   - Ratchet command crashes or times out
 
@@ -22,6 +24,9 @@ import sys
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 READ_CONFIG = os.path.join(SCRIPT_DIR, "read-config.py")
+sys.path.insert(0, SCRIPT_DIR)
+import session_files  # noqa: E402
+
 TIMEOUT_SEC = 60
 
 # File extensions that count as code changes (triggers ratchet check)
@@ -42,8 +47,10 @@ def cfg(key):
 
 def main():
     try:
-        payload = json.load(sys.stdin)
+        payload = json.loads(sys.stdin.read().lstrip("\ufeff"))
     except Exception:
+        return 0
+    if not isinstance(payload, dict):
         return 0
 
     if payload.get("stop_hook_active"):
@@ -51,22 +58,28 @@ def main():
     if os.environ.get("SKIP_DEADCODE") == "1":
         return 0
 
-    # Skip if only docs/config changed
-    try:
-        r = subprocess.run(
-            ["git", "status", "--porcelain"],
-            capture_output=True, text=True,
-            encoding="utf-8", errors="replace", timeout=10,
-        )
-        lines = (r.stdout or "").splitlines()
-    except Exception:
-        return 0
+    root = os.environ.get("CLAUDE_PROJECT_DIR") or payload.get("cwd") or os.getcwd()
 
-    changed_paths = [
-        line[3:].strip().strip('"').replace("\\", "/")
-        for line in lines
-        if len(line) > 3
-    ]
+    # What THIS session touched (tool edits + its own commits). None = transcript
+    # unreadable: fall back to the dirty tree, the 1.4 behaviour.
+    touched = session_files.session_touched(payload.get("transcript_path"), root)
+    if touched is None:
+        try:
+            r = subprocess.run(
+                ["git", "status", "--porcelain"], cwd=root,
+                capture_output=True, text=True,
+                encoding="utf-8", errors="replace", timeout=10,
+            )
+            lines = (r.stdout or "").splitlines()
+        except Exception:
+            return 0
+        changed_paths = [
+            line[3:].strip().strip('"').replace("\\", "/")
+            for line in lines
+            if len(line) > 3
+        ]
+    else:
+        changed_paths = sorted(touched)
     has_code = any(p.endswith(CODE_EXTS) for p in changed_paths)
     if not has_code:
         return 0
@@ -82,7 +95,7 @@ def main():
     # CHANGED_FILES and keeps strict global enforcement, so the floor holds.
     try:
         result = subprocess.run(
-            ["bash", "-c", ratchet_cmd],
+            ["bash", "-c", ratchet_cmd], cwd=root,
             capture_output=True, text=True,
             encoding="utf-8", errors="replace",
             timeout=TIMEOUT_SEC,
@@ -90,7 +103,7 @@ def main():
         )
     except subprocess.TimeoutExpired:
         sys.stderr.write(
-            f"[ratchet-guard] dead-code ratchet timed out (>{TIMEOUT_SEC}s) — skipping.\n"
+            f"[ratchet-guard] dead-code ratchet timed out (>{TIMEOUT_SEC}s) - skipping.\n"
         )
         return 0
     except Exception as e:
@@ -100,13 +113,13 @@ def main():
     if result.returncode == 0:
         return 0
     if result.returncode != 1:
-        # Tooling error (not installed, missing baseline, etc.) — don't block
+        # Tooling error (not installed, missing baseline, etc.) - don't block
         sys.stderr.write(
-            f"[ratchet-guard] ratchet exit {result.returncode} (tooling issue) — not blocking.\n"
+            f"[ratchet-guard] ratchet exit {result.returncode} (tooling issue) - not blocking.\n"
         )
         return 0
 
-    sys.stderr.write("[ratchet-guard] blocking stop — dead-code ratchet regressed:\n\n")
+    sys.stderr.write("[ratchet-guard] blocking stop - dead-code ratchet regressed:\n\n")
     sys.stderr.write(result.stderr or result.stdout or "")
     sys.stderr.write("\n")
     sys.stderr.write("Options:\n")
