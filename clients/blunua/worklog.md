@@ -522,3 +522,6 @@ Tienda: **Testing StandAlone Framework** (dev store, USD). Producto: *The Comple
 - Playwright: storefront con password (dev store), verificación visual pública no posible; la fuente de verdad fue el Admin API.
 
 ## 2026-07-19 [setup] estándares cargados desde handsOn
+
+## 2026-11-24 Descuentos vs Black Days
+Solo lectura. Los 11 automaticos de la agencia ya estaban EXPIRED (fin 15/11, 21/11 y 24/11, fechas cambiadas por el cliente). Ningun producto tiene worker.deal. Sin cambios ni backups. Programado: "Compra 2 charms y elige 1 de regalo" 04-09/12, no tocado.
